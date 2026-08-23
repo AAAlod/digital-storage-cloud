@@ -1,0 +1,39 @@
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "rolls": 1,
+      "bonus_rolls": 0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "digitalstorage:digital_storage_accessor",
+          "functions": [
+            {
+              "function": "minecraft:copy_nbt",
+              "source": "block_entity",
+              "ops": [
+                {
+                  "source": "ControllerId",
+                  "target": "BlockEntityTag.ControllerId",
+                  "op": "replace"
+                },
+                {
+                  "source": "BoundVolumeId",
+                  "target": "BlockEntityTag.BoundVolumeId",
+                  "op": "replace"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "conditions": [
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ]
+    }
+  ],
+  "random_sequence": "digitalstorage:blocks/digital_storage_accessor"
+}

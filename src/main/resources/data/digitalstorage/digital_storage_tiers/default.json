@@ -1,0 +1,53 @@
+{
+  "tiers": [
+    {
+      "order": 0,
+      "id": "digitalstorage:basic",
+      "capacity": 64
+    },
+    {
+      "order": 10,
+      "id": "digitalstorage:advanced",
+      "capacity": 128,
+      "cost": [
+        {
+          "item": "minecraft:diamond",
+          "count": 16
+        }
+      ]
+    },
+    {
+      "order": 20,
+      "id": "digitalstorage:elite",
+      "capacity": 256,
+      "cost": [
+        {
+          "item": "minecraft:diamond",
+          "count": 32
+        }
+      ]
+    },
+    {
+      "order": 30,
+      "id": "digitalstorage:ultimate",
+      "capacity": 512,
+      "cost": [
+        {
+          "item": "minecraft:diamond",
+          "count": 64
+        }
+      ]
+    },
+    {
+      "order": 40,
+      "id": "digitalstorage:maximum",
+      "capacity": 1024,
+      "cost": [
+        {
+          "item": "minecraft:diamond",
+          "count": 128
+        }
+      ]
+    }
+  ]
+}

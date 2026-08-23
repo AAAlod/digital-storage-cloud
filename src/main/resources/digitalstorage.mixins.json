@@ -1,0 +1,18 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.kehai.digitalstorage.mixin",
+  "plugin": "dev.kehai.digitalstorage.mixin.DigitalStorageMixinPlugin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "digitalstorage.refmap.json",
+  "mixins": [
+    "BlockEntityTypeAccessor",
+    "AbstractInventoryHopperBlockEntityMixin",
+    "BasicInventoryHopperBlockEntityMixin",
+    "InventoryConnectorBlockEntityMixin",
+    "MergedStorageMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

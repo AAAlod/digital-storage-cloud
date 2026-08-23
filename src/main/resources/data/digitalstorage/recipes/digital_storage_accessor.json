@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "pattern": [
+    "GRG",
+    "RBR",
+    "GCG"
+  ],
+  "key": {
+    "G": {
+      "item": "minecraft:gold_ingot"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    },
+    "B": {
+      "item": "minecraft:beacon"
+    },
+    "C": {
+      "item": "toms_storage:ts.inventory_cable_connector"
+    }
+  },
+  "result": {
+    "item": "digitalstorage:digital_storage_accessor",
+    "count": 4
+  },
+  "show_notification": true
+}

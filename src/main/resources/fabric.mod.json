@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "digitalstorage",
+  "version": "${version}",
+  "name": "Digital Storage Cloud",
+  "description": "Player-owned storage volumes exposed through lightweight, linkable accessors.",
+  "authors": [
+    "kehai"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "client": [
+      "dev.kehai.digitalstorage.DigitalStorageClient"
+    ],
+    "main": [
+      "dev.kehai.digitalstorage.DigitalStorageMod"
+    ]
+  },
+  "mixins": [
+    "digitalstorage.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15.11",
+    "fabric-api": "*",
+    "minecraft": "~1.20.1",
+    "java": ">=17",
+    "toms_storage": "=1.7.1"
+  }
+}

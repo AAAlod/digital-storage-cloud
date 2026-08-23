@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "digitalstorage:block/digital_storage_accessor"
+    }
+  }
+}

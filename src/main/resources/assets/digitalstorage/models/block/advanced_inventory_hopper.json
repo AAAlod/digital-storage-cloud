@@ -1,0 +1,7 @@
+{
+  "parent": "toms_storage:block/inventory_hopper_basic",
+  "textures": {
+    "0": "digitalstorage:block/advanced_inventory_hopper",
+    "particle": "digitalstorage:block/advanced_inventory_hopper"
+  }
+}

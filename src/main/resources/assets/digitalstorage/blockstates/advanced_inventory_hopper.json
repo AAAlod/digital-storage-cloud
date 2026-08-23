@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=down": {"model": "digitalstorage:block/advanced_inventory_hopper"},
+    "facing=up": {"model": "digitalstorage:block/advanced_inventory_hopper", "x": 180},
+    "facing=north": {"model": "digitalstorage:block/advanced_inventory_hopper", "x": 90, "y": 180},
+    "facing=south": {"model": "digitalstorage:block/advanced_inventory_hopper", "x": 90},
+    "facing=east": {"model": "digitalstorage:block/advanced_inventory_hopper", "x": 90, "y": 270},
+    "facing=west": {"model": "digitalstorage:block/advanced_inventory_hopper", "x": 90, "y": 90}
+  }
+}

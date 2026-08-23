@@ -1,0 +1,97 @@
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+// Loom 1.6 can remap Tom's intermediary classes, but rejects the harmless
+// Loom 1.8 producer-version marker before doing so. Build a compile-only copy
+// with that one development marker removed; the runtime mod jar is untouched.
+def tomRuntimeJar = file('[汤姆的简易存储] toms_storage_fabric-1.20-1.7.1.jar')
+def tomCompileJar = file('.gradle/tom-compile/toms_storage_fabric-1.20-1.7.1.jar')
+if (!tomCompileJar.isFile() || tomCompileJar.lastModified() < tomRuntimeJar.lastModified()) {
+    tomCompileJar.parentFile.mkdirs()
+    def sourceJar = new java.util.jar.JarFile(tomRuntimeJar)
+    try {
+        def manifest = new java.util.jar.Manifest(sourceJar.manifest)
+        manifest.mainAttributes.remove(new java.util.jar.Attributes.Name('Fabric-Loom-Version'))
+        def outputJar = new java.util.jar.JarOutputStream(new FileOutputStream(tomCompileJar), manifest)
+        try {
+            sourceJar.entries().each { sourceEntry ->
+                if (!sourceEntry.name.equalsIgnoreCase('META-INF/MANIFEST.MF')) {
+                    def outputEntry = new java.util.zip.ZipEntry(sourceEntry.name)
+                    outputEntry.time = sourceEntry.time
+                    outputJar.putNextEntry(outputEntry)
+                    if (!sourceEntry.directory) {
+                        sourceJar.getInputStream(sourceEntry).withCloseable { input ->
+                            input.transferTo(outputJar)
+                        }
+                    }
+                    outputJar.closeEntry()
+                }
+            }
+        } finally {
+            outputJar.close()
+        }
+    } finally {
+        sourceJar.close()
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // Compile against the server's required Tom's 1.7.1 API. The jar is not bundled.
+    modCompileOnly files(tomCompileJar)
+}
+
+loom {
+    mixin {
+        defaultRefmapName = 'digitalstorage.refmap.json'
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 17
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+jar {
+    from('LICENSE') {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+}
+
+publishing {
+    publications {
+        create('mavenJava', MavenPublication) {
+            from components.java
+        }
+    }
+}

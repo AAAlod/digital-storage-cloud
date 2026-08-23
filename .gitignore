@@ -1,0 +1,32 @@
+# Gradle and build output
+.gradle/
+.gradle-*/
+build/
+out/
+
+# Minecraft development runtime
+run/
+logs/
+
+# Repository-local tools and scratch assets
+.toolchains/
+.asset-work/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+Thumbs.db
+
+# JVM crash and replay logs
+hs_err_pid*
+replay_pid*
+
+# Binary build products are published through GitHub Releases. Keep only the
+# Gradle wrapper and the exact MIT-licensed compile-time dependency.
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+!/*toms_storage_fabric-1.20-1.7.1.jar

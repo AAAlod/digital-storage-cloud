@@ -1,0 +1,7 @@
+{
+  "replace": false,
+  "values": [
+    "digitalstorage:digital_storage_accessor",
+    "digitalstorage:advanced_inventory_hopper"
+  ]
+}

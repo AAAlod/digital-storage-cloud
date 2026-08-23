@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "pattern": [
+    "DRD",
+    "RHR",
+    "DRD"
+  ],
+  "key": {
+    "D": {
+      "item": "minecraft:diamond"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    },
+    "H": {
+      "item": "toms_storage:ts.inventory_hopper_basic"
+    }
+  },
+  "result": {
+    "item": "digitalstorage:advanced_inventory_hopper"
+  },
+  "show_notification": true
+}
