@@ -8,11 +8,12 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($TomJar)) {
-    $jarFile = Get-ChildItem -LiteralPath $projectRoot -File |
+    $dependencyRoot = Join-Path $projectRoot "libs"
+    $jarFile = Get-ChildItem -LiteralPath $dependencyRoot -File |
         Where-Object { $_.Name -like "*toms_storage_fabric-1.20-1.7.1.jar" } |
         Select-Object -First 1
     if ($null -eq $jarFile) {
-        throw "Tom's 1.7.1 jar was not found in $projectRoot"
+        throw "Tom's 1.7.1 jar was not found in $dependencyRoot"
     }
     $jarPath = $jarFile.FullName
 } else {

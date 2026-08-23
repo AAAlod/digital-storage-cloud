@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.3 - 2026-08-23
+
+- Move the exact Tom's Simple Storage 1.7.1 compile-time dependency into
+  `libs/` without bundling it into the distributable JAR.
+- Keep the dependency license, upstream source and SHA-256 explicitly recorded
+  in the third-party notices.
+
 ## 1.1.2 - 2026-08-23
 
 - Standardize the product identity as Digital Storage Cloud across the Gradle

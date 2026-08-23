@@ -7,9 +7,11 @@ frame and palette from that mod's inventory connector texture.
 Tom's Simple Storage Mod declares the MIT License in its Fabric metadata.
 Source: https://github.com/tom5454/Toms-Storage/
 
-This source repository includes the exact Tom's Simple Storage 1.7.1 Fabric JAR
-used as a compile-time API dependency. It is not bundled into this project's
-distributable JAR. Its SHA-256 is
+This source repository includes Tom's Simple Storage Mod 1.7.1 for Fabric under
+the MIT License at `libs/toms_storage_fabric-1.20-1.7.1.jar`. It is used only
+as a compile-time API dependency and is not bundled into this project's
+distributable JAR. Upstream source: https://github.com/tom5454/Toms-Storage/.
+The dependency JAR's SHA-256 is
 `3487D7B56B9EC734A9B06E356839F2177BC32F569682A552ECF9CCC619D5913C`, and a
 copy of its MIT license is provided in `licenses/Toms-Storage-LICENSE`.
 

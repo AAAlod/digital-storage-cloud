@@ -29,4 +29,4 @@ replay_pid*
 # Gradle wrapper and the exact MIT-licensed compile-time dependency.
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
-!/*toms_storage_fabric-1.20-1.7.1.jar
+!libs/toms_storage_fabric-1.20-1.7.1.jar

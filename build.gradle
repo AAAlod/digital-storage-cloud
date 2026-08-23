@@ -13,7 +13,7 @@ base {
 // Loom 1.6 can remap Tom's intermediary classes, but rejects the harmless
 // Loom 1.8 producer-version marker before doing so. Build a compile-only copy
 // with that one development marker removed; the runtime mod jar is untouched.
-def tomRuntimeJar = file('[汤姆的简易存储] toms_storage_fabric-1.20-1.7.1.jar')
+def tomRuntimeJar = file('libs/toms_storage_fabric-1.20-1.7.1.jar')
 def tomCompileJar = file('.gradle/tom-compile/toms_storage_fabric-1.20-1.7.1.jar')
 if (!tomCompileJar.isFile() || tomCompileJar.lastModified() < tomRuntimeJar.lastModified()) {
     tomCompileJar.parentFile.mkdirs()
