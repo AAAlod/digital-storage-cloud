@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.6 - 2026-08-23
+
+- Fix production startup by remapping the connector-staggering redirect's
+  Minecraft `World.getTime()` target while keeping Tom's method name unmapped.
+- Make the optional connector-staggering optimization fail soft if a future
+  Tom's Storage release changes the targeted invocation.
+
 ## 1.1.5 - 2026-08-23
 
 - Optimize the public project icon from 1254x1254 to 256x256 while preserving

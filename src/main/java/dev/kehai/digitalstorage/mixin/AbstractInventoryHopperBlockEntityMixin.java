@@ -15,9 +15,11 @@ public abstract class AbstractInventoryHopperBlockEntityMixin {
     @Redirect(
             method = "updateServer",
             remap = false,
+            require = 0,
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/world/World;getTime()J"
+                    target = "Lnet/minecraft/world/World;getTime()J",
+                    remap = true
             )
     )
     private long digitalstorage$staggerConnectorScan(World world) {
