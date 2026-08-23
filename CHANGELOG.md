@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.5 - 2026-08-23
+
+- Optimize the public project icon from 1254x1254 to 256x256 while preserving
+  the same artwork, reducing the image size by more than 90%.
+
 ## 1.1.4 - 2026-08-23
 
 - Add the public project logo as the Fabric metadata icon and README identity.
