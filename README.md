@@ -1,14 +1,51 @@
-# Digital Storage Cloud
+<p align="center">
+  <img src="src/main/resources/assets/digitalstorage/icon.png" alt="Digital Storage Cloud logo" width="240">
+</p>
 
-[中文玩家使用指南：安装、合成、绑定、容量、效果与常见问题](PLAYER_GUIDE_zh_CN.md)
+<h1 align="center">Digital Storage Cloud</h1>
 
-A high-performance Minecraft 1.20.1 Fabric storage backend for Tom's Simple
-Storage, not a replacement for Tom's terminal, search, crafting or network
-operations. Logical, player-owned volumes hold bulk stackable items while
-ordinary chests remain the intended home for tools, equipment and other special
-items. Physical blocks are lightweight accessors: any number of accessors can
-link to one volume while Tom and Fabric Transfer API consumers see the same
-canonical `Storage<ItemVariant>` instance.
+<p align="center">
+  Player-owned cloud storage for large stackable-item collections, integrated
+  directly with Tom's Simple Storage.
+</p>
+
+<p align="center">
+  <strong>Minecraft 1.20.1 · Fabric · Tom's Simple Storage 1.7.1</strong>
+</p>
+
+## Features
+
+- Player-owned storage volumes with data-driven capacity tiers.
+- Lightweight accessors: bind any number of physical blocks to one Volume.
+- An Advanced Inventory Hopper with larger atomic transfer batches.
+- Tom network deduplication, connector scan staggering and migration tools.
+- Sharded, asynchronous persistence with per-file quarantine and schema guards.
+
+## Installation
+
+Install the following on both the server and clients that open the management
+screen:
+
+- Fabric Loader 0.15.11 or newer for Minecraft 1.20.1.
+- Fabric API for Minecraft 1.20.1.
+- Tom's Simple Storage 1.7.1 exactly.
+- Digital Storage Cloud.
+
+Place the downloaded Mod JARs in the instance or server `mods/` directory. Do
+not install the `-sources.jar` file.
+
+For commands, recipes, binding, upgrades and troubleshooting, see the
+[中文玩家使用指南](PLAYER_GUIDE_zh_CN.md).
+
+## Overview
+
+Digital Storage Cloud is a high-performance Minecraft 1.20.1 Fabric storage
+backend for Tom's Simple Storage, not a replacement for Tom's terminal, search,
+crafting or network operations. Logical, player-owned volumes hold bulk
+stackable items while ordinary chests remain the intended home for tools,
+equipment and other special items. Physical blocks are lightweight accessors:
+any number of accessors can link to one volume while Tom and Fabric Transfer API
+consumers see the same canonical `Storage<ItemVariant>` instance.
 
 ## Architecture
 

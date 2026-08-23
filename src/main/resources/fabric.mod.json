@@ -7,7 +7,12 @@
   "authors": [
     "kehai"
   ],
-  "contact": {},
+  "contact": {
+    "homepage": "https://github.com/AAAlod/digital-storage-cloud",
+    "sources": "https://github.com/AAAlod/digital-storage-cloud",
+    "issues": "https://github.com/AAAlod/digital-storage-cloud/issues"
+  },
+  "icon": "assets/digitalstorage/icon.png",
   "license": "MIT",
   "environment": "*",
   "entrypoints": {

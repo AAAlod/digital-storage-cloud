@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.4 - 2026-08-23
+
+- Add the public project logo as the Fabric metadata icon and README identity.
+- Link the project homepage, source repository and issue tracker from the Mod
+  metadata.
+- Add a player-facing README introduction with features, dependencies and
+  installation guidance before the technical architecture documentation.
+
 ## 1.1.3 - 2026-08-23
 
 - Move the exact Tom's Simple Storage 1.7.1 compile-time dependency into
