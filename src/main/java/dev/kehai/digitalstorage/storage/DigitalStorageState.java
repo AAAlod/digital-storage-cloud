@@ -283,15 +283,41 @@ public final class DigitalStorageState {
     }
 
     public synchronized int variantCount() {
-        return allVolumes().stream()
-                .mapToInt(volume -> volume.record().storage().variantCount())
-                .sum();
+        return Math.toIntExact(contentStats(true).variantCount());
     }
 
     public synchronized BigInteger totalItemCount() {
-        return allVolumes().stream()
-                .map(volume -> BigInteger.valueOf(volume.record().storage().totalItemCount()))
-                .reduce(BigInteger.ZERO, BigInteger::add);
+        return contentStats(true).totalItemCount();
+    }
+
+    public synchronized ContentStats contentStats(boolean inspectColdVolumes) {
+        long variants = 0;
+        BigInteger items = BigInteger.ZERO;
+        int inspectedVolumes = 0;
+        int uninspectedVolumes = 0;
+        for (UUID volumeId : List.copyOf(knownVolumeIds)) {
+            StorageVolume volume = loadedVolume(volumeId);
+            if (volume == null && inspectColdVolumes) {
+                volume = loadVolume(volumeId).orElse(null);
+            }
+            if (volume != null) {
+                DigitalItemStorage storage = volume.record().storage();
+                variants = Math.addExact(variants, storage.variantCount());
+                items = items.add(BigInteger.valueOf(storage.totalItemCount()));
+                inspectedVolumes++;
+                continue;
+            }
+
+            VolumeFileMetrics metrics = volumeFileMetrics.get(volumeId);
+            if (metrics != null && metrics.contentKnown()) {
+                variants = Math.addExact(variants, metrics.variantCount());
+                items = items.add(BigInteger.valueOf(metrics.totalItemCount()));
+                inspectedVolumes++;
+            } else {
+                uninspectedVolumes++;
+            }
+        }
+        return new ContentStats(variants, items, inspectedVolumes, uninspectedVolumes);
     }
 
     public synchronized StorageSizeStats storageSizeStats() {
@@ -398,7 +424,7 @@ public final class DigitalStorageState {
                 if (!knownVolumeIds.add(fileId)) {
                     throw new IllegalArgumentException("Duplicate volume UUID " + fileId);
                 }
-                volumeFileMetrics.put(fileId, new VolumeFileMetrics(0, diskBytes));
+                volumeFileMetrics.put(fileId, new VolumeFileMetrics(0, diskBytes, 0, 0, false));
             } catch (IOException | RuntimeException exception) {
                 quarantinedVolumeFiles++;
                 Path quarantined = quarantineFile(path, quarantinedVolumesDirectory);
@@ -494,7 +520,14 @@ public final class DigitalStorageState {
             if (dirtyVolumes.contains(id)) {
                 dirtyVolumeInstances.put(id, volume);
             }
-            recordVolumeFileMetrics(id, nbt.getSizeInBytes(), Files.size(path));
+            DigitalItemStorage storage = volume.record().storage();
+            recordVolumeFileMetrics(
+                    id,
+                    nbt.getSizeInBytes(),
+                    Files.size(path),
+                    storage.variantCount(),
+                    storage.totalItemCount()
+            );
             repairLoadedVolumeAccount(volume);
             return Optional.of(volume);
         } catch (FutureSchemaException exception) {
@@ -534,13 +567,6 @@ public final class DigitalStorageState {
                 markAccountDirty(account.ownerId());
             }
         }
-    }
-
-    private List<StorageVolume> allVolumes() {
-        return List.copyOf(knownVolumeIds).stream()
-                .map(this::volume)
-                .flatMap(Optional::stream)
-                .toList();
     }
 
     private static NbtCompound readFile(Path path, int supportedSchema, String description) throws IOException {
@@ -736,7 +762,9 @@ public final class DigitalStorageState {
                 measurement -> recordVolumeFileMetrics(
                         id,
                         measurement.estimatedNbtBytes(),
-                        measurement.diskBytes()
+                        measurement.diskBytes(),
+                        snapshot.record().items().size(),
+                        snapshotItemCount(snapshot)
                 ),
                 () -> markVolumeDirty(id)
         ));
@@ -782,9 +810,21 @@ public final class DigitalStorageState {
         accountDiskBytes.put(id, diskBytes);
     }
 
-    private synchronized void recordVolumeFileMetrics(UUID id, long estimatedNbtBytes, long diskBytes) {
+    private synchronized void recordVolumeFileMetrics(
+            UUID id,
+            long estimatedNbtBytes,
+            long diskBytes,
+            int variantCount,
+            long totalItemCount
+    ) {
         knownVolumeIds.add(id);
-        volumeFileMetrics.put(id, new VolumeFileMetrics(estimatedNbtBytes, diskBytes));
+        volumeFileMetrics.put(id, new VolumeFileMetrics(
+                estimatedNbtBytes,
+                diskBytes,
+                variantCount,
+                totalItemCount,
+                true
+        ));
         if (!dirtyVolumes.contains(id)) {
             dirtyVolumeInstances.remove(id);
         }
@@ -822,6 +862,14 @@ public final class DigitalStorageState {
         if (!knownVolumeIds.contains(id)) {
             deletedVolumes.add(id);
         }
+    }
+
+    private static long snapshotItemCount(StorageVolume.Snapshot snapshot) {
+        long total = 0;
+        for (DigitalItemStorage.StoredEntrySnapshot entry : snapshot.record().items()) {
+            total = Math.addExact(total, entry.amount());
+        }
+        return total;
     }
 
     private static long writeAtomic(Path target, NbtCompound nbt) throws IOException {
@@ -899,10 +947,24 @@ public final class DigitalStorageState {
     ) {
     }
 
+    public record ContentStats(
+            long variantCount,
+            BigInteger totalItemCount,
+            int inspectedVolumeCount,
+            int uninspectedVolumeCount
+    ) {
+    }
+
     private record FileMeasurement(long estimatedNbtBytes, long diskBytes) {
     }
 
-    private record VolumeFileMetrics(long estimatedNbtBytes, long diskBytes) {
+    private record VolumeFileMetrics(
+            long estimatedNbtBytes,
+            long diskBytes,
+            int variantCount,
+            long totalItemCount,
+            boolean contentKnown
+    ) {
     }
 
     private static final class VolumeReference extends WeakReference<StorageVolume> {

@@ -1,5 +1,6 @@
 package dev.kehai.digitalstorage.client.screen;
 
+import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenHandler;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenState;
 import dev.kehai.digitalstorage.tier.UpgradeIngredient;
@@ -10,11 +11,11 @@ import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.ItemStack;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.registry.Registries;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,7 +23,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     private static final int SCREEN_WIDTH = 360;
     private static final int SCREEN_HEIGHT = 270;
     private static final int CONTENT_MARGIN = 12;
-    private static final int HEADER_HEIGHT = 22;
+    private static final int HEADER_HEIGHT = 24;
     private static final int FORM_Y = 74;
     private static final int FORM_FIELD_WIDTH = 174;
     private static final int VOLUME_LIST_Y = 104;
@@ -34,21 +35,28 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             - VOLUME_MANAGE_BUTTON_WIDTH * 2
             - VOLUME_BUTTON_GAP * 2;
     private static final int PAGE_BUTTON_Y = 200;
-    private static final int FIRST_SECTION_Y = 29;
-    private static final int SECTION_DIVIDER_Y = 140;
-    private static final int SECOND_SECTION_Y = 148;
-    private static final int LABEL_ROW_HEIGHT = 13;
-    private static final int COLUMN_DIVIDER_X = 178;
-    private static final int RIGHT_COLUMN_X = 188;
-    private static final int STATUS_Y = 221;
-    private static final int ACTION_BUTTON_Y = 240;
+    private static final int CARD_MARGIN = 8;
+    private static final int CARD_GAP = 8;
+    private static final int CARD_WIDTH = (SCREEN_WIDTH - CARD_MARGIN * 2 - CARD_GAP) / 2;
+    private static final int TOP_CARD_Y = 30;
+    private static final int TOP_CARD_HEIGHT = 104;
+    private static final int BOTTOM_CARD_Y = 140;
+    private static final int BOTTOM_CARD_HEIGHT = 82;
+    private static final int STATUS_Y = 225;
+    private static final int ACTION_BUTTON_Y = 242;
     private static final int VOLUMES_PER_PAGE = 4;
     private static final int PANEL_BACKGROUND = 0xFF171B22;
     private static final int PANEL_BORDER = 0xFF596575;
+    private static final int CARD_BACKGROUND = 0xFF20252D;
+    private static final int CARD_BORDER = 0xFF3B4653;
+    private static final int PROGRESS_BACKGROUND = 0xFF11151A;
+    private static final int PROGRESS_FILL = 0xFF4FAD62;
     private static final int PRIMARY_TEXT = 0xFFE8EDF2;
     private static final int SECONDARY_TEXT = 0xFFB4C0CC;
     private static final int SUCCESS_TEXT = 0xFF73D673;
+    private static final int WARNING_TEXT = 0xFFFFC45C;
     private static final int ERROR_TEXT = 0xFFFF7777;
+    private static final ItemStack ACCESSOR_ICON = new ItemStack(DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR_ITEM);
 
     private ButtonWidget upgradeButton;
     private ButtonWidget clearBindingButton;
@@ -223,196 +231,412 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         context.drawBorder(x, y, backgroundWidth, backgroundHeight, PANEL_BORDER);
         context.fill(x + 1, y + 1, x + backgroundWidth - 1, y + HEADER_HEIGHT, 0xFF252C36);
         if (handler.state().accessorBound()) {
-            context.drawHorizontalLine(
-                    x + CONTENT_MARGIN - 1,
-                    x + backgroundWidth - CONTENT_MARGIN,
-                    y + SECTION_DIVIDER_Y,
-                    PANEL_BORDER
+            int rightX = x + CARD_MARGIN + CARD_WIDTH + CARD_GAP;
+            drawCardBackground(context, x + CARD_MARGIN, y + TOP_CARD_Y, CARD_WIDTH, TOP_CARD_HEIGHT);
+            drawCardBackground(context, rightX, y + TOP_CARD_Y, CARD_WIDTH, TOP_CARD_HEIGHT);
+            drawCardBackground(context, x + CARD_MARGIN, y + BOTTOM_CARD_Y, CARD_WIDTH, BOTTOM_CARD_HEIGHT);
+            drawCardBackground(context, rightX, y + BOTTOM_CARD_Y, CARD_WIDTH, BOTTOM_CARD_HEIGHT);
+        } else {
+            drawCardBackground(
+                    context,
+                    x + CARD_MARGIN,
+                    y + TOP_CARD_Y,
+                    backgroundWidth - CARD_MARGIN * 2,
+                    194
             );
-            context.drawVerticalLine(x + COLUMN_DIVIDER_X, y + HEADER_HEIGHT + 2, y + 214, PANEL_BORDER);
         }
     }
 
     @Override
     protected void drawForeground(DrawContext context, int mouseX, int mouseY) {
         DigitalStorageScreenState state = handler.state();
-        context.drawText(textRenderer, title, 12, 7, PRIMARY_TEXT, false);
+        drawHeader(context, state);
 
         if (!state.accessorBound()) {
-            context.drawText(
-                    textRenderer,
-                    Text.translatable("screen.digitalstorage.unbound"),
-                    12,
-                    30,
-                    ERROR_TEXT,
-                    false
-            );
-            context.drawTextWrapped(
-                    textRenderer,
-                    Text.translatable("screen.digitalstorage.choose_volume"),
-                    12,
-                    45,
-                    backgroundWidth - 24,
-                    SECONDARY_TEXT
-            );
-            context.drawText(
-                    textRenderer,
-                    Text.translatable("screen.digitalstorage.volume_name"),
-                    12,
-                    63,
-                    SECONDARY_TEXT,
-                    false
-            );
-            if (state.ownedVolumes().isEmpty()) {
-                context.drawTextWrapped(
-                        textRenderer,
-                        Text.translatable("screen.digitalstorage.no_volumes"),
-                        12,
-                        108,
-                        backgroundWidth - 24,
-                        ERROR_TEXT
-                );
-            }
-            if (pageCount() > 1) {
-                Text page = Text.translatable("screen.digitalstorage.page", volumePage + 1, pageCount());
-                context.drawCenteredTextWithShadow(textRenderer, page, backgroundWidth / 2, 206, SECONDARY_TEXT);
-            }
-            drawStatus(context, state);
+            drawUnboundState(context, state);
             return;
         }
 
-        drawLabeled(context, "screen.digitalstorage.volume", Text.literal(state.volumeName()),
-                CONTENT_MARGIN, FIRST_SECTION_Y);
-        drawLabeled(context, "screen.digitalstorage.controller", Text.literal(state.controller()),
-                CONTENT_MARGIN, FIRST_SECTION_Y + LABEL_ROW_HEIGHT);
-        drawLabeled(context, "screen.digitalstorage.current_tier", tierName(state.tierId()),
-                CONTENT_MARGIN, FIRST_SECTION_Y + LABEL_ROW_HEIGHT * 2);
-        drawLabeled(context, "screen.digitalstorage.variants", Text.literal(
-                state.usedVariants() + " / " + state.variantCapacity()
-        ), CONTENT_MARGIN, FIRST_SECTION_Y + LABEL_ROW_HEIGHT * 3);
-        drawLabeled(context, "screen.digitalstorage.remaining", Text.literal(
-                Integer.toString(state.remainingVariants())
-        ), CONTENT_MARGIN, FIRST_SECTION_Y + LABEL_ROW_HEIGHT * 4);
-        drawLabeled(context, "screen.digitalstorage.total_items", Text.literal(state.totalItems()),
-                CONTENT_MARGIN, FIRST_SECTION_Y + LABEL_ROW_HEIGHT * 5);
-        drawLabeled(context, "screen.digitalstorage.single_variant_max", Text.literal(
-                Long.toString(dev.kehai.digitalstorage.storage.DigitalItemStorage.MAX_AMOUNT_PER_VARIANT)
-        ), CONTENT_MARGIN, FIRST_SECTION_Y + LABEL_ROW_HEIGHT * 6);
-
-        if (state.hasNextTier()) {
-            drawLabeled(context, "screen.digitalstorage.next_tier", tierName(state.nextTierId()),
-                    CONTENT_MARGIN, SECOND_SECTION_Y);
-            drawLabeled(context, "screen.digitalstorage.next_capacity", Text.literal(
-                    Integer.toString(state.nextVariantCapacity())
-            ), CONTENT_MARGIN, SECOND_SECTION_Y + LABEL_ROW_HEIGHT);
-            drawLabeled(context, "screen.digitalstorage.cost", costText(state),
-                    CONTENT_MARGIN, SECOND_SECTION_Y + LABEL_ROW_HEIGHT * 2);
-
-            Text affordability = Text.translatable(state.canAfford()
-                    ? "screen.digitalstorage.affordable"
-                    : "screen.digitalstorage.unaffordable");
-            context.drawText(
-                    textRenderer,
-                    affordability,
-                    CONTENT_MARGIN,
-                    SECOND_SECTION_Y + LABEL_ROW_HEIGHT * 3 + 2,
-                    state.canAfford() ? SUCCESS_TEXT : ERROR_TEXT,
-                    false
-            );
-        } else {
-            context.drawText(
-                    textRenderer,
-                    Text.translatable("screen.digitalstorage.maximum"),
-                    CONTENT_MARGIN,
-                    SECOND_SECTION_Y,
-                    SUCCESS_TEXT,
-                    false
-            );
-        }
-
-        drawNetworkDiagnostic(context, state.networkDiagnostic());
-
+        int rightX = CARD_MARGIN + CARD_WIDTH + CARD_GAP;
+        drawStorageOverview(context, state, CARD_MARGIN, TOP_CARD_Y);
+        drawNetworkSummary(context, state.networkDiagnostic(), rightX, TOP_CARD_Y);
+        drawUpgradePanel(context, state, CARD_MARGIN, BOTTOM_CARD_Y);
+        drawOptimizationPanel(context, state.networkDiagnostic(), rightX, BOTTOM_CARD_Y);
         drawStatus(context, state);
     }
 
-    private void drawNetworkDiagnostic(
-            DrawContext context,
-            DigitalStorageScreenState.NetworkDiagnostic diagnostic
-    ) {
-        int drawX = RIGHT_COLUMN_X;
-        if (!diagnostic.available()) {
-            context.drawText(textRenderer, Text.translatable("screen.digitalstorage.network.title"),
-                    drawX, 29, PRIMARY_TEXT, false);
-            context.drawTextWrapped(textRenderer, Text.translatable("screen.digitalstorage.network.unavailable"),
-                    drawX, 45, backgroundWidth - drawX - 12, ERROR_TEXT);
+    private void drawCardBackground(DrawContext context, int drawX, int drawY, int width, int height) {
+        context.fill(drawX, drawY, drawX + width, drawY + height, CARD_BACKGROUND);
+        context.drawBorder(drawX, drawY, width, height, CARD_BORDER);
+    }
+
+    private void drawHeader(DrawContext context, DigitalStorageScreenState state) {
+        context.drawItem(ACCESSOR_ICON, 5, 4);
+        context.drawText(textRenderer, title, 26, 8, PRIMARY_TEXT, false);
+        if (!state.accessorBound()) {
             return;
         }
+        DigitalStorageScreenState.NetworkDiagnostic diagnostic = state.networkDiagnostic();
+        Text badge = diagnostic.available()
+                ? Text.literal(diagnostic.grade() + " · " + diagnostic.healthScore() + " / 100")
+                : Text.translatable("screen.digitalstorage.network.not_connected_short");
+        int color = diagnostic.available() ? healthColor(diagnostic.healthScore()) : SECONDARY_TEXT;
+        int badgeRight = backgroundWidth - 80;
         context.drawText(
                 textRenderer,
-                Text.translatable(
-                        "screen.digitalstorage.network.health",
-                        diagnostic.healthScore(),
-                        diagnostic.grade()
-                ),
-                drawX,
-                29,
-                diagnostic.healthScore() >= 75 ? SUCCESS_TEXT : diagnostic.healthScore() >= 40
-                        ? 0xFFFFC45C : ERROR_TEXT,
+                badge,
+                badgeRight - textRenderer.getWidth(badge),
+                8,
+                color,
                 false
         );
-        drawLabeled(context, "screen.digitalstorage.network.inventories",
-                Text.literal(Integer.toString(diagnostic.physicalInventories())), drawX, 47);
-        drawLabeled(context, "screen.digitalstorage.network.non_empty_views",
-                Text.literal(Integer.toString(diagnostic.nonEmptyViews())), drawX, 60);
-        drawLabeled(context, "screen.digitalstorage.network.total_views",
-                Text.literal(Integer.toString(diagnostic.totalViews())), drawX, 73);
-        drawLabeled(context, "screen.digitalstorage.network.digital_views",
-                Text.literal(Integer.toString(diagnostic.digitalViews())), drawX, 86);
-        drawLabeled(context, "screen.digitalstorage.network.scanners",
-                Text.literal(diagnostic.activeScanners() + "/" + diagnostic.failingScanners()), drawX, 99);
-        drawLabeled(context, "screen.digitalstorage.network.scan_interval",
-                Text.literal(diagnostic.averageScanIntervalTicks() <= 0
-                        ? "-" : Integer.toString(diagnostic.averageScanIntervalTicks())), drawX, 112);
-        drawLabeled(context, "screen.digitalstorage.network.duplicate_endpoints",
-                Text.translatable(
-                        "screen.digitalstorage.network.duplicate_endpoint_value",
-                        diagnostic.duplicateDigitalEndpoints(),
-                        diagnostic.targetEndpointCount()
-                ), drawX, 125);
+    }
 
-        context.drawText(textRenderer, Text.translatable("screen.digitalstorage.network.recommendation"),
-                drawX, 148, PRIMARY_TEXT, false);
-        drawLabeled(context, "screen.digitalstorage.network.freed_views",
-                Text.literal(Integer.toString(diagnostic.estimatedFreedViews())), drawX, 164);
-        drawLabeled(context, "screen.digitalstorage.network.recommended_variants",
-                Text.literal(Integer.toString(diagnostic.recommendedVariants())), drawX, 177);
-        if (!diagnostic.topCandidateId().isEmpty()) {
-            String top = textRenderer.trimToWidth(diagnostic.topCandidateId(), backgroundWidth - drawX - 14);
-            drawLabeled(context, "screen.digitalstorage.network.top_candidate", Text.literal(top), drawX, 190);
-        }
-        if (!"IDLE".equals(diagnostic.migrationState())) {
+    private void drawUnboundState(DrawContext context, DigitalStorageScreenState state) {
+        context.drawText(
+                textRenderer,
+                Text.translatable("screen.digitalstorage.unbound"),
+                16,
+                36,
+                WARNING_TEXT,
+                false
+        );
+        context.drawTextWrapped(
+                textRenderer,
+                Text.translatable("screen.digitalstorage.choose_volume"),
+                16,
+                49,
+                backgroundWidth - 32,
+                SECONDARY_TEXT
+        );
+        context.drawText(
+                textRenderer,
+                Text.translatable("screen.digitalstorage.volume_name"),
+                16,
+                64,
+                SECONDARY_TEXT,
+                false
+        );
+        if (state.ownedVolumes().isEmpty()) {
             context.drawTextWrapped(
                     textRenderer,
+                    Text.translatable("screen.digitalstorage.no_volumes"),
+                    16,
+                    108,
+                    backgroundWidth - 32,
+                    WARNING_TEXT
+            );
+        }
+        if (pageCount() > 1) {
+            Text page = Text.translatable("screen.digitalstorage.page", volumePage + 1, pageCount());
+            context.drawCenteredTextWithShadow(textRenderer, page, backgroundWidth / 2, 206, SECONDARY_TEXT);
+        }
+        drawStatus(context, state);
+    }
+
+    private void drawStorageOverview(
+            DrawContext context,
+            DigitalStorageScreenState state,
+            int drawX,
+            int drawY
+    ) {
+        drawSectionTitle(context, "screen.digitalstorage.section.storage", drawX, drawY);
+        drawKeyValue(context, "screen.digitalstorage.volume", Text.literal(state.volumeName()),
+                drawX + 8, drawY + 23, CARD_WIDTH - 16);
+        drawKeyValue(context, "screen.digitalstorage.controller", Text.literal(state.controller()),
+                drawX + 8, drawY + 36, CARD_WIDTH - 16);
+        drawKeyValue(context, "screen.digitalstorage.current_tier", tierName(state.tierId()),
+                drawX + 8, drawY + 49, CARD_WIDTH - 16);
+        drawKeyValue(context, "screen.digitalstorage.variants", Text.literal(
+                state.usedVariants() + " / " + state.variantCapacity()
+        ), drawX + 8, drawY + 64, CARD_WIDTH - 16);
+        drawProgressBar(
+                context,
+                drawX + 8,
+                drawY + 77,
+                CARD_WIDTH - 16,
+                6,
+                state.variantCapacity() <= 0 ? 0.0 : (double) state.usedVariants() / state.variantCapacity()
+        );
+        drawKeyValue(context, "screen.digitalstorage.total_items", Text.literal(state.totalItems()),
+                drawX + 8, drawY + 89, CARD_WIDTH - 16);
+    }
+
+    private void drawNetworkSummary(
+            DrawContext context,
+            DigitalStorageScreenState.NetworkDiagnostic diagnostic,
+            int drawX,
+            int drawY
+    ) {
+        drawSectionTitle(context, "screen.digitalstorage.section.network", drawX, drawY);
+        if (!diagnostic.available()) {
+            context.drawTextWrapped(textRenderer, Text.translatable("screen.digitalstorage.network.unavailable"),
+                    drawX + 8, drawY + 25, CARD_WIDTH - 16, SECONDARY_TEXT);
+            return;
+        }
+        int lineY = drawY + 25;
+        drawTrimmed(
+                context,
+                Text.translatable(diagnostic.healthScore() >= 90
+                        ? "screen.digitalstorage.network.good"
+                        : "screen.digitalstorage.network.degraded"),
+                drawX + 8,
+                lineY,
+                CARD_WIDTH - 16,
+                healthColor(diagnostic.healthScore())
+        );
+        lineY += 15;
+        if (diagnostic.hasDuplicateTargetEndpoints()) {
+            drawTrimmed(
+                    context,
                     Text.translatable(
-                            "screen.digitalstorage.migration.progress",
-                            diagnostic.movedItems(),
-                            diagnostic.completedCandidates(),
-                            diagnostic.totalCandidates(),
-                            diagnostic.scannedViews()
+                            "screen.digitalstorage.network.duplicate_warning",
+                            diagnostic.targetEndpointCount()
                     ),
-                    drawX,
-                    198,
-                    backgroundWidth - drawX - 12,
-                    diagnostic.migrationActive() ? SUCCESS_TEXT : SECONDARY_TEXT
+                    drawX + 8,
+                    lineY,
+                    CARD_WIDTH - 16,
+                    ERROR_TEXT
+            );
+            lineY += 13;
+        }
+        if (diagnostic.failingScanners() > 0) {
+            drawTrimmed(
+                    context,
+                    Text.translatable(
+                            "screen.digitalstorage.network.hopper_warning",
+                            diagnostic.failingScanners()
+                    ),
+                    drawX + 8,
+                    lineY,
+                    CARD_WIDTH - 16,
+                    WARNING_TEXT
+            );
+            lineY += 13;
+        }
+        if (diagnostic.recommendedVariants() > 0) {
+            drawTrimmed(
+                    context,
+                    Text.translatable(
+                            "screen.digitalstorage.network.migration_available",
+                            diagnostic.recommendedVariants()
+                    ),
+                    drawX + 8,
+                    lineY,
+                    CARD_WIDTH - 16,
+                    SUCCESS_TEXT
+            );
+        } else if (!diagnostic.hasDuplicateTargetEndpoints() && diagnostic.failingScanners() == 0) {
+            drawTrimmed(
+                    context,
+                    Text.translatable("screen.digitalstorage.network.no_action"),
+                    drawX + 8,
+                    lineY,
+                    CARD_WIDTH - 16,
+                    SECONDARY_TEXT
             );
         }
     }
 
-    private void drawLabeled(DrawContext context, String labelKey, Text value, int drawX, int drawY) {
-        MutableText text = Text.translatable(labelKey).formatted(Formatting.GRAY)
-                .append(Text.literal(": ").formatted(Formatting.DARK_GRAY))
-                .append(value.copy().formatted(Formatting.WHITE));
-        context.drawText(textRenderer, text, drawX, drawY, SECONDARY_TEXT, false);
+    private void drawUpgradePanel(
+            DrawContext context,
+            DigitalStorageScreenState state,
+            int drawX,
+            int drawY
+    ) {
+        drawSectionTitle(context, "screen.digitalstorage.section.upgrade", drawX, drawY);
+        if (!state.hasNextTier()) {
+            context.drawText(
+                    textRenderer,
+                    Text.translatable("screen.digitalstorage.maximum"),
+                    drawX + 8,
+                    drawY + 28,
+                    SUCCESS_TEXT,
+                    false
+            );
+            return;
+        }
+        drawTrimmed(
+                context,
+                Text.translatable(
+                        "screen.digitalstorage.upgrade.transition",
+                        tierName(state.tierId()),
+                        tierName(state.nextTierId())
+                ),
+                drawX + 8,
+                drawY + 23,
+                CARD_WIDTH - 16,
+                PRIMARY_TEXT
+        );
+        drawTrimmed(
+                context,
+                Text.translatable(
+                        "screen.digitalstorage.upgrade.capacity_transition",
+                        state.variantCapacity(),
+                        state.nextVariantCapacity()
+                ),
+                drawX + 8,
+                drawY + 37,
+                CARD_WIDTH - 16,
+                SECONDARY_TEXT
+        );
+        drawKeyValue(context, "screen.digitalstorage.cost", costText(state),
+                drawX + 8, drawY + 51, CARD_WIDTH - 16);
+        context.drawText(
+                textRenderer,
+                Text.translatable(state.canAfford()
+                        ? "screen.digitalstorage.affordable"
+                        : "screen.digitalstorage.unaffordable"),
+                drawX + 8,
+                drawY + 66,
+                state.canAfford() ? SUCCESS_TEXT : ERROR_TEXT,
+                false
+        );
+    }
+
+    private void drawOptimizationPanel(
+            DrawContext context,
+            DigitalStorageScreenState.NetworkDiagnostic diagnostic,
+            int drawX,
+            int drawY
+    ) {
+        drawSectionTitle(context, "screen.digitalstorage.section.optimization", drawX, drawY);
+        if (!diagnostic.available()) {
+            drawTrimmed(context, Text.translatable("screen.digitalstorage.network.not_connected"),
+                    drawX + 8, drawY + 28, CARD_WIDTH - 16, SECONDARY_TEXT);
+            return;
+        }
+        if (diagnostic.migrationActive()) {
+            drawTrimmed(context, Text.translatable("screen.digitalstorage.migration.running"),
+                    drawX + 8, drawY + 23, CARD_WIDTH - 16, SUCCESS_TEXT);
+            double progress = diagnostic.totalCandidates() <= 0 ? 0.0
+                    : (double) diagnostic.completedCandidates() / diagnostic.totalCandidates();
+            drawProgressBar(context, drawX + 8, drawY + 37, CARD_WIDTH - 16, 7, progress);
+            drawTrimmed(
+                    context,
+                    Text.translatable(
+                            "screen.digitalstorage.migration.progress_short",
+                            diagnostic.completedCandidates(),
+                            diagnostic.totalCandidates()
+                    ),
+                    drawX + 8,
+                    drawY + 49,
+                    CARD_WIDTH - 16,
+                    SECONDARY_TEXT
+            );
+            drawTrimmed(
+                    context,
+                    Text.translatable("screen.digitalstorage.migration.moved_short", diagnostic.movedItems()),
+                    drawX + 8,
+                    drawY + 63,
+                    CARD_WIDTH - 16,
+                    PRIMARY_TEXT
+            );
+            return;
+        }
+        if (diagnostic.hasDuplicateTargetEndpoints()) {
+            drawTrimmed(context, Text.translatable("screen.digitalstorage.network.migration_blocked"),
+                    drawX + 8, drawY + 27, CARD_WIDTH - 16, ERROR_TEXT);
+            drawTrimmed(context, Text.translatable("screen.digitalstorage.network.keep_one_endpoint"),
+                    drawX + 8, drawY + 43, CARD_WIDTH - 16, SECONDARY_TEXT);
+            return;
+        }
+        if (diagnostic.recommendedVariants() > 0) {
+            drawTrimmed(
+                    context,
+                    Text.translatable(
+                            "screen.digitalstorage.network.migration_available",
+                            diagnostic.recommendedVariants()
+                    ),
+                    drawX + 8,
+                    drawY + 24,
+                    CARD_WIDTH - 16,
+                    SUCCESS_TEXT
+            );
+            drawTrimmed(
+                    context,
+                    Text.translatable(
+                            "screen.digitalstorage.network.freed_views_short",
+                            diagnostic.estimatedFreedViews()
+                    ),
+                    drawX + 8,
+                    drawY + 39,
+                    CARD_WIDTH - 16,
+                    SECONDARY_TEXT
+            );
+            context.drawTextWrapped(
+                    textRenderer,
+                    Text.translatable("screen.digitalstorage.network.migration_hint"),
+                    drawX + 8,
+                    drawY + 54,
+                    CARD_WIDTH - 16,
+                    SECONDARY_TEXT
+            );
+            return;
+        }
+        drawTrimmed(context, Text.translatable("screen.digitalstorage.network.no_optimization"),
+                drawX + 8, drawY + 30, CARD_WIDTH - 16, SUCCESS_TEXT);
+    }
+
+    private void drawSectionTitle(DrawContext context, String key, int drawX, int drawY) {
+        context.drawText(
+                textRenderer,
+                Text.translatable(key),
+                drawX + 8,
+                drawY + 7,
+                PRIMARY_TEXT,
+                false
+        );
+        context.drawHorizontalLine(drawX + 8, drawX + CARD_WIDTH - 9, drawY + 19, CARD_BORDER);
+    }
+
+    private void drawKeyValue(
+            DrawContext context,
+            String labelKey,
+            Text value,
+            int drawX,
+            int drawY,
+            int width
+    ) {
+        Text label = Text.translatable(labelKey);
+        context.drawText(textRenderer, label, drawX, drawY, SECONDARY_TEXT, false);
+        int maxValueWidth = Math.max(20, width - textRenderer.getWidth(label) - 8);
+        String displayValue = textRenderer.trimToWidth(value.getString(), maxValueWidth);
+        int valueWidth = textRenderer.getWidth(displayValue);
+        context.drawText(textRenderer, displayValue, drawX + width - valueWidth, drawY, PRIMARY_TEXT, false);
+    }
+
+    private void drawTrimmed(
+            DrawContext context,
+            Text text,
+            int drawX,
+            int drawY,
+            int width,
+            int color
+    ) {
+        context.drawText(textRenderer, textRenderer.trimToWidth(text.getString(), width),
+                drawX, drawY, color, false);
+    }
+
+    private void drawProgressBar(
+            DrawContext context,
+            int drawX,
+            int drawY,
+            int width,
+            int height,
+            double progress
+    ) {
+        context.fill(drawX, drawY, drawX + width, drawY + height, PROGRESS_BACKGROUND);
+        context.drawBorder(drawX, drawY, width, height, CARD_BORDER);
+        double clamped = Math.max(0.0, Math.min(1.0, progress));
+        int fillWidth = (int) Math.round((width - 2) * clamped);
+        if (fillWidth > 0) {
+            context.fill(drawX + 1, drawY + 1, drawX + 1 + fillWidth, drawY + height - 1, PROGRESS_FILL);
+        }
+    }
+
+    private int healthColor(int score) {
+        return score >= 75 ? SUCCESS_TEXT : score >= 40 ? WARNING_TEXT : ERROR_TEXT;
     }
 
     private Text tierName(net.minecraft.util.Identifier id) {
@@ -483,8 +707,8 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                 : "screen.digitalstorage.migration.run"));
         networkAnalysisButton.visible = state.accessorBound();
         networkAnalysisButton.active = state.accessorBound() && !state.networkDiagnostic().migrationActive();
-        clearBindingButton.visible = state.accessorBound() && state.accessorConfigurable();
-        clearBindingButton.active = clearBindingButton.visible;
+        clearBindingButton.visible = state.accessorBound();
+        clearBindingButton.active = clearBindingButton.visible && state.accessorConfigurable();
         List<DigitalStorageScreenState.VolumeChoice> choices = state.ownedVolumes();
         for (int slot = 0; slot < volumeButtons.size(); slot++) {
             ButtonWidget button = volumeButtons.get(slot);
@@ -571,8 +795,8 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
 
     private void drawStatus(DrawContext context, DigitalStorageScreenState state) {
         if (!state.status().getString().isEmpty()) {
-            context.drawTextWrapped(
-                    textRenderer,
+            drawTrimmed(
+                    context,
                     state.status(),
                     CONTENT_MARGIN,
                     STATUS_Y,

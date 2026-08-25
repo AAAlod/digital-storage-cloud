@@ -44,6 +44,35 @@ if (!tomCompileJar.isFile() || tomCompileJar.lastModified() < tomRuntimeJar.last
     }
 }
 
+// Loom does not carry nested jars through a local file dependency remap. Extract
+// Tom's bundled runtime libraries so local runs match the published mod jar.
+def tomLocalRuntimeDirectory = file('.gradle/tom-runtime')
+def clothRuntimeJar = new File(tomLocalRuntimeDirectory, 'cloth-config-fabric-11.1.136.jar')
+def basicMathRuntimeJar = new File(tomLocalRuntimeDirectory, 'basic-math-0.6.1.jar')
+def extractNestedJar = { File source, String entryName, File target ->
+    if (!target.isFile() || target.lastModified() < source.lastModified()) {
+        target.parentFile.mkdirs()
+        def sourceJar = new java.util.jar.JarFile(source)
+        try {
+            def nestedEntry = sourceJar.getJarEntry(entryName)
+            if (nestedEntry == null) {
+                throw new GradleException("Missing nested runtime dependency ${entryName} in ${source}")
+            }
+            sourceJar.getInputStream(nestedEntry).withCloseable { input ->
+                java.nio.file.Files.copy(
+                        input,
+                        target.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                )
+            }
+        } finally {
+            sourceJar.close()
+        }
+    }
+}
+extractNestedJar(tomRuntimeJar, 'META-INF/jars/cloth-config-fabric-11.1.136.jar', clothRuntimeJar)
+extractNestedJar(clothRuntimeJar, 'META-INF/jars/basic-math-0.6.1.jar', basicMathRuntimeJar)
+
 repositories {
     mavenCentral()
 }
@@ -56,6 +85,8 @@ dependencies {
 
     // Compile against the server's required Tom's 1.7.1 API. The jar is not bundled.
     modCompileOnly files(tomCompileJar)
+    // Use the marker-compatible copy for Loom's local server/client runs too.
+    modLocalRuntime files(tomCompileJar, clothRuntimeJar, basicMathRuntimeJar)
 }
 
 loom {

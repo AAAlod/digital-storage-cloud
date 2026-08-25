@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.7 - 2026-08-25
+
+- Make `/digitalstorage stats` avoid cold-loading every Volume; it now reports
+  how many content summaries are known and reserves exact full inspection for
+  the explicit `/digitalstorage stats deep` command.
+- Document and regression-test the intentional `2,147,483,647` item safety
+  ceiling per exact variant while preserving extraction of stored over-limit data.
+- Include the required marker-compatible Tom's Storage copy in Loom development
+  runs without changing or bundling the distributable dependency.
+- Redesign the accessor screen around storage, network, upgrade and optimization
+  summaries; hide healthy low-level telemetry, clarify Volume names and show
+  actionable warnings or migration progress only when relevant.
+- Analyze a bound Tom network once when the accessor screen opens and deliver the
+  result in the first server state update, while retaining manual refresh.
+
 ## 1.1.6 - 2026-08-23
 
 - Fix production startup by remapping the connector-staggering redirect's

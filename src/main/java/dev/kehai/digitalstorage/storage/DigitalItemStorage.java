@@ -19,6 +19,12 @@ import net.fabricmc.fabric.api.transfer.v1.transaction.base.SnapshotParticipant;
 import net.minecraft.nbt.NbtCompound;
 
 public final class DigitalItemStorage implements Storage<ItemVariant> {
+    /**
+     * Intentional safety ceiling for one exact item variant. Keeping this at the
+     * signed 32-bit maximum bounds aggregate volume totals and avoids exposing
+     * extreme long values to integrations. Stored over-limit data is preserved
+     * and remains extractable; only new insertion is capped.
+     */
     public static final long MAX_AMOUNT_PER_VARIANT = Integer.MAX_VALUE;
 
     private final Map<ItemVariant, Entry> entries = new HashMap<>();

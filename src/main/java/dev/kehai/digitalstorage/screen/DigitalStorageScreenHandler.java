@@ -47,6 +47,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
     private long lastContentVersion = Long.MIN_VALUE;
     private long nextStateSyncTick;
     private long nextNetworkAnalysisTick;
+    private boolean initialStateSyncPending;
 
     public static void registerNetworking() {
         ServerPlayNetworking.registerGlobalReceiver(
@@ -96,6 +97,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
         this.blockPos = blockEntity.getPos().toImmutable();
         this.state = captureServerState(Text.empty());
         rememberContentVersion(blockEntity);
+        initialStateSyncPending = true;
     }
 
     public DigitalStorageScreenState state() {
@@ -248,6 +250,12 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
         }
         DigitalStorageAccessorBlockEntity blockEntity = getServerBlockEntity();
         if (blockEntity == null) {
+            return;
+        }
+        if (initialStateSyncPending) {
+            initialStateSyncPending = false;
+            nextStateSyncTick = serverPlayer.getServerWorld().getTime() + 8;
+            sendStatePacket(serverPlayer);
             return;
         }
         long tick = serverPlayer.getServerWorld().getTime();

@@ -30,6 +30,7 @@ public final class DigitalItemStorageSelfTest {
         abortedExtractRestoresThePreviousAmount(stone);
         extractingTheLastItemsRemovesTheViewAfterCommit(stone);
         insertSaturatesAtConfiguredLimitWithoutOverflowing(stone);
+        storedOverLimitDataRemainsExtractable(stone);
         fullVariantCapacityRejectsOnlyNewVariants(stone);
         replacingTheLastVariantInOneTransactionIsSafe(stone);
         abortedNewVariantReleasesCapacity(stone);
@@ -125,6 +126,8 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void insertSaturatesAtConfiguredLimitWithoutOverflowing(ItemVariant stone) {
+        expectEquals(2_147_483_647L, DigitalItemStorage.MAX_AMOUNT_PER_VARIANT,
+                "intentional per-variant safety ceiling");
         DigitalItemStorage storage = storageWith(stone, DigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 1);
 
         try (Transaction transaction = Transaction.openOuter()) {
@@ -137,6 +140,17 @@ public final class DigitalItemStorageSelfTest {
             expectEquals(0, storage.insert(stone, 1, transaction), "insert beyond configured limit");
             transaction.commit();
         }
+    }
+
+    private static void storedOverLimitDataRemainsExtractable(ItemVariant stone) {
+        DigitalItemStorage storage = storageWith(stone, DigitalItemStorage.MAX_AMOUNT_PER_VARIANT + 1);
+        try (Transaction transaction = Transaction.openOuter()) {
+            expectEquals(0, storage.insert(stone, 1, transaction), "insert into stored over-limit variant");
+            expectEquals(1, storage.extract(stone, 1, transaction), "extract from stored over-limit variant");
+            transaction.commit();
+        }
+        expectEquals(DigitalItemStorage.MAX_AMOUNT_PER_VARIANT, onlyView(storage).getAmount(),
+                "stored over-limit amount after extraction");
     }
 
     private static void fullVariantCapacityRejectsOnlyNewVariants(ItemVariant stone) {
@@ -528,6 +542,12 @@ public final class DigitalItemStorageSelfTest {
                 expectTrue(sizes.accountDiskBytes() > 0, "account disk size telemetry was empty");
                 expectTrue(sizes.volumeDiskBytes() > 0, "volume disk size telemetry was empty");
                 expectTrue(sizes.totalEstimatedVolumeNbtBytes() > 0, "volume NBT size telemetry was empty");
+                DigitalStorageState.ContentStats liveContent = state.contentStats(false);
+                expectEquals(1L, liveContent.variantCount(), "live content variant count");
+                expectEquals(java.math.BigInteger.valueOf(42), liveContent.totalItemCount(),
+                        "live content item count");
+                expectEquals(1, liveContent.inspectedVolumeCount(), "live inspected volume count");
+                expectEquals(0, liveContent.uninspectedVolumeCount(), "live uninspected volume count");
                 expectEquals(
                         sizes.totalEstimatedVolumeNbtBytes(),
                         sizes.largestEstimatedVolumeNbtBytes(),
@@ -553,6 +573,20 @@ public final class DigitalItemStorageSelfTest {
             try {
                 expectEquals(0, reloaded.loadedVolumeCountForTest(),
                         "volume contents were eagerly loaded at startup");
+                DigitalStorageState.ContentStats fastContent = reloaded.contentStats(false);
+                expectEquals(0L, fastContent.variantCount(), "cold fast content variant count");
+                expectEquals(java.math.BigInteger.ZERO, fastContent.totalItemCount(),
+                        "cold fast content item count");
+                expectEquals(0, fastContent.inspectedVolumeCount(), "cold fast inspected volume count");
+                expectEquals(1, fastContent.uninspectedVolumeCount(), "cold fast uninspected volume count");
+                expectEquals(0, reloaded.loadedVolumeCountForTest(),
+                        "fast content statistics cold-loaded a volume");
+                DigitalStorageState.ContentStats deepContent = reloaded.contentStats(true);
+                expectEquals(1L, deepContent.variantCount(), "deep content variant count");
+                expectEquals(java.math.BigInteger.valueOf(42), deepContent.totalItemCount(),
+                        "deep content item count");
+                expectEquals(1, deepContent.inspectedVolumeCount(), "deep inspected volume count");
+                expectEquals(0, deepContent.uninspectedVolumeCount(), "deep uninspected volume count");
                 StorageVolume reloadedVolume = reloaded.volume(volumeId).orElseThrow();
                 expectEquals(1, reloaded.loadedVolumeCountForTest(),
                         "lazy volume was not retained while referenced");

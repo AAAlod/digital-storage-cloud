@@ -114,7 +114,9 @@ public final class DigitalStorageCommands {
                                 ))))
                 .then(literal("stats")
                         .requires(source -> source.hasPermissionLevel(2))
-                        .executes(context -> stats(context.getSource())))
+                        .executes(context -> stats(context.getSource(), false))
+                        .then(literal("deep")
+                                .executes(context -> stats(context.getSource(), true))))
                 .then(literal("diagnostics")
                         .requires(source -> source.hasPermissionLevel(2))
                         .executes(context -> diagnostics(context.getSource())));
@@ -301,9 +303,10 @@ public final class DigitalStorageCommands {
         return 1;
     }
 
-    private static int stats(ServerCommandSource source) {
+    private static int stats(ServerCommandSource source, boolean inspectColdVolumes) {
         DigitalStorageState state = DigitalStorageState.get(source.getWorld());
         DigitalStorageState.StorageSizeStats sizes = state.storageSizeStats();
+        DigitalStorageState.ContentStats content = state.contentStats(inspectColdVolumes);
         source.sendFeedback(() -> Text.literal(
                 "Digital Storage Cloud: accounts=" + state.accountCount()
                         + ", volumes=" + state.volumeCount()
@@ -314,8 +317,10 @@ public final class DigitalStorageCommands {
                         + ", snapshot restarts=" + state.snapshotRestartCount()
                         + ", forced snapshots=" + state.forcedSnapshotCount()
                         + ", oldest dirty ticks=" + state.oldestDirtyVolumeAgeTicks()
-                        + ", variants=" + state.variantCount()
-                        + ", items=" + state.totalItemCount()
+                        + ", variants=" + content.variantCount()
+                        + ", items=" + content.totalItemCount()
+                        + ", content volumes=" + content.inspectedVolumeCount() + "/" + state.volumeCount()
+                        + ", cold uninspected=" + content.uninspectedVolumeCount()
                         + ", loaded accessors=" + DigitalStorageMountTracker.loadedAccessorCount()
                         + ", bound accessors=" + DigitalStorageMountTracker.boundAccessorCount()
                         + ", mounted volumes=" + DigitalStorageMountTracker.mountedVolumeCount()
@@ -331,6 +336,12 @@ public final class DigitalStorageCommands {
                         + ", NBT rejects=" + ItemSecurityPolicy.nbtRejections()
                         + ", unstackable rejects=" + ItemSecurityPolicy.unstackableRejections()
         ), false);
+        if (!inspectColdVolumes && content.uninspectedVolumeCount() > 0) {
+            source.sendFeedback(() -> Text.literal(
+                    "Use /digitalstorage stats deep for exact totals; it will load "
+                            + content.uninspectedVolumeCount() + " cold volume(s)."
+            ), false);
+        }
         return state.volumeCount();
     }
 

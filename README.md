@@ -91,6 +91,7 @@ loaded accessor remains bound to it. Operator-only diagnostics remain available:
 
 ```text
 /digitalstorage stats
+/digitalstorage stats deep
 /digitalstorage diagnostics
 /digitalstorage probe <x> <y> <z>
 /digitalstorage selftest
@@ -106,7 +107,8 @@ loaded accessor remains bound to it. Operator-only diagnostics remain available:
 - Each default upgrade consumes one resource type and follows the capacity
   curve: 16, 32, 64 and 128 diamonds. Datapacks can tune these values for a
   modpack, but upgrade tiers must still use exactly one resource and no XP.
-- Each variant holds up to `2,147,483,647` items.
+- Each exact item variant intentionally accepts up to `2,147,483,647` items as
+  a safety ceiling. Existing stored data above that ceiling remains extractable.
 - Insert and extract are transaction-safe, including nested atomic Tom hopper
   transfers.
 - `rejectUnstackableItems` defaults to `true`. Items whose maximum stack size is
@@ -139,7 +141,9 @@ budget (128 by default). An unfinished hot volume rotates to the back of the
 dirty queue so it cannot block cold volumes. If one snapshot restarts four times
 because the volume keeps changing, or remains dirty for 600 server ticks, its
 next scheduled pass finishes the in-memory snapshot in one server-thread step.
-`/digitalstorage stats` reports restart count, forced snapshot count, and oldest dirty age.
+`/digitalstorage stats` reports restart count, forced snapshot count, oldest dirty age,
+and content totals already known without loading cold Volumes. Operators can run
+`/digitalstorage stats deep` when an exact one-off total justifies loading every Volume.
 
 Each update is written to a temporary file and atomically replaces its target.
 A malformed file is moved out of the live directory into `quarantine`; other
@@ -161,11 +165,13 @@ verifies this behavior against the supported Tom 1.7.1 build.
 ## Tom network performance and migration
 
 A bound accessor connected through an adjacent Tom inventory cable connector
-shows a relative `0-100 / A-E` network health score. The panel reports physical
-inventory count, total and occupied physical network entries, active Tom hoppers,
-their average interval and sustained failures. Digital Storage item quantities
-do not directly reduce the score and the UI deliberately avoids absolute MSPT
-claims.
+analyzes the network when its screen opens and shows a relative `0-100 / A-E`
+health score. A healthy network stays compact; the screen expands only actionable
+duplicate-endpoint, failing-hopper and migration guidance. Low-level counters stay
+available through the diagnostic commands instead of filling the player UI.
+Digital Storage item quantities do not directly reduce the score and the UI
+deliberately avoids absolute MSPT claims. The refresh button requests a new
+analysis after topology changes.
 
 Recommendations maximize physical views freed with the target volume's limited
 variant budget. Variants already present in the volume are selected first, then
