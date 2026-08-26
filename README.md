@@ -13,6 +13,12 @@
   <strong>Minecraft 1.20.1 · Fabric · Tom's Simple Storage</strong>
 </p>
 
+<p align="center">
+  <a href="#ai-assisted-development">
+    <img src="https://img.shields.io/badge/development-AI--assisted-6f42c1" alt="AI-assisted development">
+  </a>
+</p>
+
 ## Features
 
 - Player-owned storage volumes with data-driven capacity tiers.
@@ -200,3 +206,11 @@ Requires Java 17.
 ```
 
 The distributable JAR is written to `build/libs/`.
+
+## AI-assisted development
+
+This project is developed with assistance from AI tools, including OpenAI Codex.
+AI assistance is used for implementation, code review, documentation and test
+planning. All AI-assisted changes are reviewed and tested by the maintainer
+before release, and the maintainer remains responsible for the resulting code,
+documentation and published artifacts.
