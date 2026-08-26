@@ -7,6 +7,7 @@ import dev.kehai.digitalstorage.tier.UpgradeIngredient;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
@@ -15,6 +16,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.registry.Registries;
 import net.minecraft.text.MutableText;
+import net.minecraft.text.OrderedText;
 import net.minecraft.text.Text;
 import java.util.ArrayList;
 import java.util.List;
@@ -370,12 +372,12 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     ) {
         drawSectionTitle(context, "screen.digitalstorage.section.network", drawX, drawY);
         if (!diagnostic.available()) {
-            context.drawTextWrapped(textRenderer, Text.translatable("screen.digitalstorage.network.unavailable"),
+            drawWrappedText(context, Text.translatable("screen.digitalstorage.network.unavailable"),
                     drawX + 8, drawY + 25, CARD_WIDTH - 16, SECONDARY_TEXT);
             return;
         }
         int lineY = drawY + 25;
-        drawTrimmed(
+        lineY = drawWrappedText(
                 context,
                 Text.translatable(diagnostic.healthScore() >= 90
                         ? "screen.digitalstorage.network.good"
@@ -385,9 +387,9 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                 CARD_WIDTH - 16,
                 healthColor(diagnostic.healthScore())
         );
-        lineY += 15;
+        lineY += 2;
         if (diagnostic.hasDuplicateTargetEndpoints()) {
-            drawTrimmed(
+            lineY = drawWrappedText(
                     context,
                     Text.translatable(
                             "screen.digitalstorage.network.duplicate_warning",
@@ -398,10 +400,10 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                     CARD_WIDTH - 16,
                     ERROR_TEXT
             );
-            lineY += 13;
+            lineY += 2;
         }
         if (diagnostic.failingScanners() > 0) {
-            drawTrimmed(
+            lineY = drawWrappedText(
                     context,
                     Text.translatable(
                             "screen.digitalstorage.network.hopper_warning",
@@ -412,10 +414,10 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                     CARD_WIDTH - 16,
                     WARNING_TEXT
             );
-            lineY += 13;
+            lineY += 2;
         }
         if (diagnostic.recommendedVariants() > 0) {
-            drawTrimmed(
+            drawWrappedText(
                     context,
                     Text.translatable(
                             "screen.digitalstorage.network.migration_available",
@@ -427,7 +429,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                     SUCCESS_TEXT
             );
         } else if (!diagnostic.hasDuplicateTargetEndpoints() && diagnostic.failingScanners() == 0) {
-            drawTrimmed(
+            drawWrappedText(
                     context,
                     Text.translatable("screen.digitalstorage.network.no_action"),
                     drawX + 8,
@@ -456,7 +458,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             );
             return;
         }
-        drawTrimmed(
+        drawFittedText(
                 context,
                 Text.translatable(
                         "screen.digitalstorage.upgrade.transition",
@@ -466,9 +468,10 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                 drawX + 8,
                 drawY + 23,
                 CARD_WIDTH - 16,
-                PRIMARY_TEXT
+                PRIMARY_TEXT,
+                0.85F
         );
-        drawTrimmed(
+        drawFittedText(
                 context,
                 Text.translatable(
                         "screen.digitalstorage.upgrade.capacity_transition",
@@ -478,7 +481,8 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                 drawX + 8,
                 drawY + 37,
                 CARD_WIDTH - 16,
-                SECONDARY_TEXT
+                SECONDARY_TEXT,
+                0.85F
         );
         drawKeyValue(context, "screen.digitalstorage.cost", costText(state),
                 drawX + 8, drawY + 51, CARD_WIDTH - 16);
@@ -502,17 +506,17 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     ) {
         drawSectionTitle(context, "screen.digitalstorage.section.optimization", drawX, drawY);
         if (!diagnostic.available()) {
-            drawTrimmed(context, Text.translatable("screen.digitalstorage.network.not_connected"),
+            drawWrappedText(context, Text.translatable("screen.digitalstorage.network.not_connected"),
                     drawX + 8, drawY + 28, CARD_WIDTH - 16, SECONDARY_TEXT);
             return;
         }
         if (diagnostic.migrationActive()) {
-            drawTrimmed(context, Text.translatable("screen.digitalstorage.migration.running"),
-                    drawX + 8, drawY + 23, CARD_WIDTH - 16, SUCCESS_TEXT);
+            drawFittedText(context, Text.translatable("screen.digitalstorage.migration.running"),
+                    drawX + 8, drawY + 23, CARD_WIDTH - 16, SUCCESS_TEXT, 0.85F);
             double progress = diagnostic.totalCandidates() <= 0 ? 0.0
                     : (double) diagnostic.completedCandidates() / diagnostic.totalCandidates();
             drawProgressBar(context, drawX + 8, drawY + 37, CARD_WIDTH - 16, 7, progress);
-            drawTrimmed(
+            drawFittedText(
                     context,
                     Text.translatable(
                             "screen.digitalstorage.migration.progress_short",
@@ -522,27 +526,41 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                     drawX + 8,
                     drawY + 49,
                     CARD_WIDTH - 16,
-                    SECONDARY_TEXT
+                    SECONDARY_TEXT,
+                    0.85F
             );
-            drawTrimmed(
+            drawFittedText(
                     context,
                     Text.translatable("screen.digitalstorage.migration.moved_short", diagnostic.movedItems()),
                     drawX + 8,
                     drawY + 63,
                     CARD_WIDTH - 16,
-                    PRIMARY_TEXT
+                    PRIMARY_TEXT,
+                    0.85F
             );
             return;
         }
         if (diagnostic.hasDuplicateTargetEndpoints()) {
-            drawTrimmed(context, Text.translatable("screen.digitalstorage.network.migration_blocked"),
-                    drawX + 8, drawY + 27, CARD_WIDTH - 16, ERROR_TEXT);
-            drawTrimmed(context, Text.translatable("screen.digitalstorage.network.keep_one_endpoint"),
-                    drawX + 8, drawY + 43, CARD_WIDTH - 16, SECONDARY_TEXT);
+            int lineY = drawWrappedText(
+                    context,
+                    Text.translatable("screen.digitalstorage.network.migration_blocked"),
+                    drawX + 8,
+                    drawY + 27,
+                    CARD_WIDTH - 16,
+                    ERROR_TEXT
+            );
+            drawWrappedText(
+                    context,
+                    Text.translatable("screen.digitalstorage.network.keep_one_endpoint"),
+                    drawX + 8,
+                    lineY + 2,
+                    CARD_WIDTH - 16,
+                    SECONDARY_TEXT
+            );
             return;
         }
         if (diagnostic.recommendedVariants() > 0) {
-            drawTrimmed(
+            int lineY = drawWrappedText(
                     context,
                     Text.translatable(
                             "screen.digitalstorage.network.migration_available",
@@ -553,28 +571,20 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                     CARD_WIDTH - 16,
                     SUCCESS_TEXT
             );
-            drawTrimmed(
+            drawWrappedText(
                     context,
                     Text.translatable(
                             "screen.digitalstorage.network.freed_views_short",
                             diagnostic.estimatedFreedViews()
                     ),
                     drawX + 8,
-                    drawY + 39,
-                    CARD_WIDTH - 16,
-                    SECONDARY_TEXT
-            );
-            context.drawTextWrapped(
-                    textRenderer,
-                    Text.translatable("screen.digitalstorage.network.migration_hint"),
-                    drawX + 8,
-                    drawY + 54,
+                    lineY + 2,
                     CARD_WIDTH - 16,
                     SECONDARY_TEXT
             );
             return;
         }
-        drawTrimmed(context, Text.translatable("screen.digitalstorage.network.no_optimization"),
+        drawWrappedText(context, Text.translatable("screen.digitalstorage.network.no_optimization"),
                 drawX + 8, drawY + 30, CARD_WIDTH - 16, SUCCESS_TEXT);
     }
 
@@ -601,12 +611,78 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         Text label = Text.translatable(labelKey);
         context.drawText(textRenderer, label, drawX, drawY, SECONDARY_TEXT, false);
         int maxValueWidth = Math.max(20, width - textRenderer.getWidth(label) - 8);
-        String displayValue = textRenderer.trimToWidth(value.getString(), maxValueWidth);
-        int valueWidth = textRenderer.getWidth(displayValue);
-        context.drawText(textRenderer, displayValue, drawX + width - valueWidth, drawY, PRIMARY_TEXT, false);
+        drawFittedTextRightAligned(
+                context,
+                value,
+                drawX + width - maxValueWidth,
+                drawY,
+                maxValueWidth,
+                PRIMARY_TEXT,
+                0.8F
+        );
     }
 
-    private void drawTrimmed(
+    private void drawFittedText(
+            DrawContext context,
+            Text text,
+            int drawX,
+            int drawY,
+            int width,
+            int color,
+            float minScale
+    ) {
+        drawFittedText(context, text, drawX, drawY, width, color, minScale, false);
+    }
+
+    private void drawFittedTextRightAligned(
+            DrawContext context,
+            Text text,
+            int drawX,
+            int drawY,
+            int width,
+            int color,
+            float minScale
+    ) {
+        drawFittedText(context, text, drawX, drawY, width, color, minScale, true);
+    }
+
+    private void drawFittedText(
+            DrawContext context,
+            Text text,
+            int drawX,
+            int drawY,
+            int width,
+            int color,
+            float minScale,
+            boolean rightAligned
+    ) {
+        int textWidth = textRenderer.getWidth(text);
+        if (textWidth <= width) {
+            int textX = rightAligned ? drawX + width - textWidth : drawX;
+            context.drawText(textRenderer, text, textX, drawY, color, false);
+            return;
+        }
+
+        float scale = Math.max(minScale, width / (float) textWidth);
+        Text displayText = text;
+        int displayWidth = textWidth;
+        if (displayWidth * scale > width) {
+            int unscaledWidth = Math.max(1, (int) Math.floor(width / scale));
+            displayText = Text.literal(textRenderer.trimToWidth(text.getString(), unscaledWidth));
+            displayWidth = textRenderer.getWidth(displayText);
+        }
+
+        context.getMatrices().push();
+        context.getMatrices().scale(scale, scale, 1.0F);
+        int scaledY = Math.round(drawY / scale);
+        int scaledX = rightAligned
+                ? Math.round((drawX + width) / scale) - displayWidth
+                : Math.round(drawX / scale);
+        context.drawText(textRenderer, displayText, scaledX, scaledY, color, false);
+        context.getMatrices().pop();
+    }
+
+    private int drawWrappedText(
             DrawContext context,
             Text text,
             int drawX,
@@ -614,8 +690,12 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             int width,
             int color
     ) {
-        context.drawText(textRenderer, textRenderer.trimToWidth(text.getString(), width),
-                drawX, drawY, color, false);
+        List<OrderedText> lines = textRenderer.wrapLines(text, width);
+        int lineHeight = textRenderer.fontHeight + 1;
+        for (int index = 0; index < lines.size(); index++) {
+            context.drawText(textRenderer, lines.get(index), drawX, drawY + index * lineHeight, color, false);
+        }
+        return drawY + lines.size() * lineHeight;
     }
 
     private void drawProgressBar(
@@ -705,6 +785,9 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         migrationButton.setMessage(Text.translatable(state.networkDiagnostic().migrationActive()
                 ? "screen.digitalstorage.migration.cancel"
                 : "screen.digitalstorage.migration.run"));
+        migrationButton.setTooltip(state.networkDiagnostic().migrationActive()
+                ? null
+                : Tooltip.of(Text.translatable("screen.digitalstorage.network.migration_hint")));
         networkAnalysisButton.visible = state.accessorBound();
         networkAnalysisButton.active = state.accessorBound() && !state.networkDiagnostic().migrationActive();
         clearBindingButton.visible = state.accessorBound();
@@ -795,13 +878,14 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
 
     private void drawStatus(DrawContext context, DigitalStorageScreenState state) {
         if (!state.status().getString().isEmpty()) {
-            drawTrimmed(
+            drawFittedText(
                     context,
                     state.status(),
                     CONTENT_MARGIN,
                     STATUS_Y,
                     backgroundWidth - 24,
-                    state.statusSuccessful() ? SUCCESS_TEXT : ERROR_TEXT
+                    state.statusSuccessful() ? SUCCESS_TEXT : ERROR_TEXT,
+                    0.8F
             );
         }
     }

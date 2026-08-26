@@ -2,21 +2,24 @@
   "type": "minecraft:crafting_shaped",
   "category": "redstone",
   "pattern": [
-    "GRG",
-    "RBR",
-    "GCG"
+    "TCT",
+    "DBD",
+    "TIT"
   ],
   "key": {
-    "G": {
-      "item": "minecraft:gold_ingot"
+    "T": {
+      "item": "toms_storage:ts.trim"
     },
-    "R": {
-      "item": "minecraft:redstone"
+    "C": {
+      "item": "minecraft:comparator"
+    },
+    "D": {
+      "item": "minecraft:diamond"
     },
     "B": {
       "item": "minecraft:beacon"
     },
-    "C": {
+    "I": {
       "item": "toms_storage:ts.inventory_cable_connector"
     }
   },

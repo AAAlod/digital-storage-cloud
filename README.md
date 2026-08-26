@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>Minecraft 1.20.1 · Fabric · Tom's Simple Storage 1.7.1</strong>
+  <strong>Minecraft 1.20.1 · Fabric · Tom's Simple Storage</strong>
 </p>
 
 ## Features
@@ -28,7 +28,8 @@ screen:
 
 - Fabric Loader 0.15.11 or newer for Minecraft 1.20.1.
 - Fabric API for Minecraft 1.20.1.
-- Tom's Simple Storage 1.7.1 exactly.
+- Tom's Simple Storage (1.7.1 is the compile and verification baseline; the
+  metadata does not pin an exact Tom version).
 - Digital Storage Cloud.
 
 Place the downloaded Mod JARs in the instance or server `mods/` directory. Do
@@ -152,7 +153,9 @@ instead, preventing an older Mod from moving or rewriting newer data.
 
 ## Tom's Simple Storage
 
-Tom's Simple Storage 1.7.1 is an exact hard dependency. Required integration
+Tom's Simple Storage remains a hard dependency, but release 1.1.8 intentionally
+does not enforce an exact Tom version so compatibility with other builds can be
+tested. Version 1.7.1 remains the compile and verification baseline. Required integration
 mixins batch Basic Inventory Hopper transfers, use direct exact-variant extraction,
 back off failed transfers and stagger connector scans. Exact moves use a nested Fabric
 transaction so a destination capacity change rolls back the source.
@@ -160,7 +163,8 @@ transaction so a destination capacity change rolls back the source.
 Tom's `MergedStorage` continues trying later physical inventories when Digital
 Storage rejects an insertion, so unstackable items fall back to ordinary chests
 when those inventories are part of the same network. The runtime self-test
-verifies this behavior against the supported Tom 1.7.1 build.
+verifies this behavior against the baseline Tom 1.7.1 build. Other Tom versions
+are experimental until they pass the same checks.
 
 ## Tom network performance and migration
 

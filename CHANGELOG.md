@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.9 - 2026-08-26
+
+- Fix Accessor GUI text clipping in English, Simplified Chinese, and long-value
+  edge cases with right-aligned fitted values and flow-based wrapped messages.
+- Move the recommended-migration explanation into the Migrate button tooltip,
+  and shorten labels that must remain fully visible in the fixed-size layout.
+
+## 1.1.8 - 2026-08-26
+
+- Keep Tom's Simple Storage as a required dependency while removing the exact
+  1.7.1 metadata pin for experimental compatibility testing with other versions.
+- Replace the Digital Storage Accessor recipe's four gold ingots with four Tom
+  Inventory Trims, and its three redstone dust with two diamonds and one comparator.
+- Add the Simplified Chinese Mod Menu display name `汤姆的简易存储：云上加仓`
+  while retaining `Digital Storage Cloud` as the English and metadata fallback.
+
 ## 1.1.7 - 2026-08-25
 
 - Make `/digitalstorage stats` avoid cold-loading every Volume; it now reports

@@ -16,7 +16,7 @@ Digital Storage Cloud 是 Tom's Simple Storage 的大宗物品存储后端。它
 - Fabric Loader 0.15.11 或更高版本
 - Fabric API
 - Java 17
-- Tom's Simple Storage 1.7.1（精确版本硬依赖）
+- Tom's Simple Storage（仍为必需前置，但 1.1.8 不锁定精确版本；编译和验证基线为 1.7.1）
 
 将本模组 JAR、Fabric API 和 Tom's Simple Storage JAR 放入游戏或服务器的 `mods` 文件夹。多人游戏时，服务器和需要打开管理界面的客户端都应安装本模组及 Fabric API。
 
@@ -25,12 +25,13 @@ Digital Storage Cloud 是 Tom's Simple Storage 的大宗物品存储后端。它
 在工作台按下面的形状合成：
 
 ```text
-金锭        红石          金锭
-红石        信标          红石
-金锭        库存线缆连接器  金锭
+存储桥接器    红石比较器      存储桥接器
+钻石         信标           钻石
+存储桥接器    库存线缆连接器  存储桥接器
 ```
 
-总成本为 4 个金锭、3 个红石、1 个信标和 1 个 Tom 库存线缆连接器，
+总成本为 4 个 Tom 存储桥接器（Inventory Trim）、2 个钻石、1 个红石比较器、
+1 个信标和 1 个 Tom 库存线缆连接器，
 每次合成得到 4 个“数字存储访问器”。
 
 ## 合成高级库存漏斗
