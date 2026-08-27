@@ -37,8 +37,8 @@ public final class DigitalStorageConfig {
     public int maxVariantNbtBytes = 65_536;
     /** Hard aggregate limit for serialized item variants held by one volume. */
     public int maxVolumeVariantNbtBytes = 67_108_864;
-    /** Reject tools, equipment and other max-stack-size-one items on every insert attempt. */
-    public boolean rejectUnstackableItems = true;
+    /** Whether volume owners may opt in to storing max-stack-size-one items. */
+    public boolean allowUnstackableItems = true;
     public String itemFilterMode = "blacklist";
     public List<String> itemFilterItems = new ArrayList<>();
     public List<String> itemFilterTags = new ArrayList<>();
@@ -85,6 +85,16 @@ public final class DigitalStorageConfig {
                 DigitalStorageMod.LOGGER.warn("Could not read {}, using defaults", path, exception);
                 invalidConfig = true;
             }
+        }
+
+        if (sourceObject != null
+                && !sourceObject.has("allowUnstackableItems")
+                && sourceObject.has("rejectUnstackableItems")) {
+            loaded.allowUnstackableItems = migratedAllowUnstackableItems(sourceObject, loaded.allowUnstackableItems);
+            DigitalStorageMod.LOGGER.info(
+                    "Migrated legacy rejectUnstackableItems to allowUnstackableItems={}",
+                    loaded.allowUnstackableItems
+            );
         }
 
         loaded.normalize();
@@ -137,7 +147,7 @@ public final class DigitalStorageConfig {
     private static void logLoadedConfig(DigitalStorageConfig loaded) {
         DigitalStorageMod.LOGGER.info(
                 "Digital storage config: hopper enabled={}, normal batch={}, advanced batch={}, success cooldown={}, failure cooldowns={}, "
-                        + "stagger scans={}, reject unstackables={}, filter={}, "
+                        + "stagger scans={}, allow unstackables={}, filter={}, "
                         + "filter items={}, filter tags={}, max variant NBT={} bytes, volume variant NBT cap={} bytes, "
                         + "volumes per player={}, migration views/tick={}, digital view divisor={}, persistence flush={} ticks, snapshots/tick={}, variants/tick={}, "
                         + "volume NBT warning={} bytes",
@@ -147,7 +157,7 @@ public final class DigitalStorageConfig {
                 loaded.hopperSuccessCooldown,
                 Arrays.toString(loaded.hopperFailureCooldowns),
                 loaded.staggerConnectorScans,
-                loaded.rejectUnstackableItems,
+                loaded.allowUnstackableItems,
                 loaded.itemFilterMode,
                 loaded.itemFilterItems.size(),
                 loaded.itemFilterTags.size(),
@@ -219,6 +229,36 @@ public final class DigitalStorageConfig {
 
     private static int clamp(int value, int minimum, int maximum) {
         return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    static boolean migratedAllowUnstackableItems(JsonObject source, boolean fallback) {
+        JsonElement legacy = source.get("rejectUnstackableItems");
+        if (legacy == null || !legacy.isJsonPrimitive() || !legacy.getAsJsonPrimitive().isBoolean()) {
+            return fallback;
+        }
+        return !legacy.getAsBoolean();
+    }
+
+    public static void runSelfTest() {
+        JsonObject legacyReject = new JsonObject();
+        legacyReject.addProperty("rejectUnstackableItems", true);
+        expect(!migratedAllowUnstackableItems(legacyReject, true),
+                "legacy reject=true did not migrate to allow=false");
+
+        JsonObject legacyAllow = new JsonObject();
+        legacyAllow.addProperty("rejectUnstackableItems", false);
+        expect(migratedAllowUnstackableItems(legacyAllow, false),
+                "legacy reject=false did not migrate to allow=true");
+
+        JsonObject missingLegacy = new JsonObject();
+        expect(migratedAllowUnstackableItems(missingLegacy, true),
+                "missing legacy setting did not preserve the new default");
+    }
+
+    private static void expect(boolean condition, String message) {
+        if (!condition) {
+            throw new IllegalStateException(message);
+        }
     }
 
     private static DigitalStorageConfig defaults() {

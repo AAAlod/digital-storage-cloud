@@ -1,5 +1,6 @@
 package dev.kehai.digitalstorage.storage;
 
+import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.hopper.HopperTransferOptimizer;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenState;
 import dev.kehai.digitalstorage.security.ItemSecurityPolicy;
@@ -42,11 +43,14 @@ public final class DigitalItemStorageSelfTest {
         corruptStorageRecordIsQuarantinedAndPreserved(stone);
         filterAppliesOnlyWhenCreatingANewVariant(stone);
         insertionPolicyAppliesToExistingVariantsButNeverExtraction(stone);
+        volumeUnstackablePolicyIsDynamicAndPreservesExtraction();
+        volumeUnstackablePolicyPersistsAndMigrates();
         oversizedVariantNbtIsMeasurableAndRejectable();
         aggregateVariantNbtBudgetIsTransactional();
         incrementalSnapshotRestartsAfterMutation();
         continuouslyMutatingVolumeCannotStarvePersistence();
         agedDirtyVolumeForcesSnapshotCompletion();
+        DigitalStorageConfig.runSelfTest();
         ItemSecurityPolicy.runSelfTest();
         stressVariantCapacityAtHardLimit();
         randomizedTransactionsConserveItems();
@@ -64,7 +68,7 @@ public final class DigitalItemStorageSelfTest {
         filteredHopperTransferMovesOneBatch(stone);
         fullDestinationDoesNotTouchTheSource(stone);
         changingDestinationCapacityRollsBackTheSource(stone);
-        return "Digital Storage self-test passed: transactions, content versions, cached metrics, immutable snapshots, persistence restart/fairness/liveness, limits, per-insert policy, filtering, NBT guard, stress, canonical aliasing, Tom raw endpoint detection/duplicate-count prevention/dedup/fallback/cursor invalidation, device-scoped hopper tiers, network scoring/recommendations, budgeted atomic migration/rollback/lifecycle invalidation, sharded file round-trip/deletion, storage size telemetry, force-clear, orphan binding self-heal, mount statistics semantics, schema guard, file quarantine, tier migration, payment reservation, screen codec, atomic hopper paths";
+        return "Digital Storage self-test passed: transactions, content versions, cached metrics, immutable snapshots, persistence restart/fairness/liveness, limits, dynamic Volume unstackable policy/config migration/persistence, per-insert policy, filtering, NBT guard, stress, canonical aliasing, Tom raw endpoint detection/duplicate-count prevention/dedup/fallback/cursor invalidation, device-scoped hopper tiers, network scoring/recommendations, budgeted atomic migration/rollback/lifecycle invalidation, sharded file round-trip/deletion, storage size telemetry, force-clear, orphan binding self-heal, mount statistics semantics, schema guard, file quarantine, tier migration, payment reservation, screen codec, atomic hopper paths";
     }
 
     private static void committedInsertPersistsAndMarksDirtyOnce(ItemVariant stone) {
@@ -279,6 +283,84 @@ public final class DigitalItemStorageSelfTest {
             transaction.commit();
         }
         expectEquals(2, onlyView(storage).getAmount(), "remaining amount after policy extraction");
+    }
+
+    private static void volumeUnstackablePolicyIsDynamicAndPreservesExtraction() {
+        DigitalStorageConfig config = DigitalStorageConfig.get();
+        boolean originalServerPolicy = config.allowUnstackableItems;
+        String originalFilterMode = config.itemFilterMode;
+        java.util.List<String> originalFilterItems = new java.util.ArrayList<>(config.itemFilterItems);
+        java.util.List<String> originalFilterTags = new java.util.ArrayList<>(config.itemFilterTags);
+        try {
+            config.allowUnstackableItems = true;
+            config.itemFilterMode = "blacklist";
+            config.itemFilterItems = new java.util.ArrayList<>();
+            config.itemFilterTags = new java.util.ArrayList<>();
+            ItemSecurityPolicy.reload();
+            DigitalStorageRecord record = DigitalStorageRecord.createNew(() -> { });
+            ItemVariant pickaxe = ItemVariant.of(Items.IRON_PICKAXE);
+
+            expectFalse(record.acceptsUnstackableItems(), "new volume did not default to Reject");
+            expectFalse(record.canInsert(pickaxe), "Tom-facing policy accepted a tool in Reject mode");
+            try (Transaction transaction = Transaction.openOuter()) {
+                expectEquals(0, record.storage().insert(pickaxe, 1, transaction),
+                        "Reject volume accepted a new unstackable item");
+            }
+
+            expectTrue(record.setAcceptUnstackableItems(true), "Accept setting did not change");
+            expectTrue(record.canInsert(pickaxe), "Tom-facing policy rejected a tool in Accept mode");
+            try (Transaction transaction = Transaction.openOuter()) {
+                expectEquals(1, record.storage().insert(pickaxe, 1, transaction),
+                        "Accept volume rejected an unstackable item");
+                transaction.commit();
+            }
+
+            expectTrue(record.setAcceptUnstackableItems(false), "Reject setting did not change");
+            try (Transaction transaction = Transaction.openOuter()) {
+                expectEquals(0, record.storage().insert(pickaxe, 1, transaction),
+                        "tightened policy accepted another unstackable item");
+                expectEquals(1, record.storage().extract(pickaxe, 1, transaction),
+                        "tightened policy stranded an existing unstackable item");
+                transaction.commit();
+            }
+            expectEquals(0L, record.storage().amountOf(pickaxe),
+                    "extracted unstackable item remained in storage");
+        } finally {
+            config.allowUnstackableItems = originalServerPolicy;
+            config.itemFilterMode = originalFilterMode;
+            config.itemFilterItems = originalFilterItems;
+            config.itemFilterTags = originalFilterTags;
+            ItemSecurityPolicy.reload();
+        }
+    }
+
+    private static void volumeUnstackablePolicyPersistsAndMigrates() {
+        DigitalStorageConfig config = DigitalStorageConfig.get();
+        boolean originalServerPolicy = config.allowUnstackableItems;
+        try {
+            DigitalStorageRecord record = DigitalStorageRecord.createNew(() -> { });
+            expectTrue(record.setAcceptUnstackableItems(true), "persistence seed policy did not change");
+            net.minecraft.nbt.NbtCompound saved = new net.minecraft.nbt.NbtCompound();
+            record.snapshot().writeNbt(saved);
+            DigitalStorageRecord reloaded = DigitalStorageRecord.fromNbt(saved, () -> { });
+            expectTrue(reloaded.acceptsUnstackableItems(), "saved Accept policy did not round trip");
+
+            saved.remove("AcceptUnstackableItems");
+            AtomicInteger migrations = new AtomicInteger();
+            config.allowUnstackableItems = false;
+            DigitalStorageRecord legacyReject = DigitalStorageRecord.fromNbt(saved, migrations::incrementAndGet);
+            expectFalse(legacyReject.acceptsUnstackableItems(),
+                    "legacy volume did not preserve server-wide Reject behavior");
+
+            config.allowUnstackableItems = true;
+            DigitalStorageRecord legacyAccept = DigitalStorageRecord.fromNbt(saved, migrations::incrementAndGet);
+            expectTrue(legacyAccept.acceptsUnstackableItems(),
+                    "legacy volume did not preserve server-wide Accept behavior");
+            expectEquals(2, migrations.get(), "legacy volume policy migration did not mark records dirty");
+        } finally {
+            config.allowUnstackableItems = originalServerPolicy;
+            ItemSecurityPolicy.reload();
+        }
     }
 
     private static void oversizedVariantNbtIsMeasurableAndRejectable() {

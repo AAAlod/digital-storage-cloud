@@ -30,7 +30,7 @@ public final class ItemSecurityPolicy {
                 Set.copyOf(items),
                 Set.copyOf(tags),
                 config.maxVariantNbtBytes,
-                config.rejectUnstackableItems,
+                config.allowUnstackableItems,
                 config.logRejectedVariants
         );
     }
@@ -41,8 +41,12 @@ public final class ItemSecurityPolicy {
      * changing the configuration can never strand previously stored items.
      */
     public static boolean allowsInsert(ItemVariant variant) {
+        return allowsInsert(variant, true);
+    }
+
+    public static boolean allowsInsert(ItemVariant variant, boolean volumeAcceptsUnstackables) {
         Snapshot current = snapshot;
-        if (!isInsertAllowed(variant, current)) {
+        if (!isInsertAllowed(variant, current, volumeAcceptsUnstackables)) {
             UNSTACKABLE_REJECTIONS.incrementAndGet();
             logRejected(current, Registries.ITEM.getId(variant.getItem()), "unstackable item");
             return false;
@@ -51,7 +55,11 @@ public final class ItemSecurityPolicy {
     }
 
     public static boolean canInsert(ItemVariant variant) {
-        return isInsertAllowed(variant, snapshot);
+        return canInsert(variant, true);
+    }
+
+    public static boolean canInsert(ItemVariant variant, boolean volumeAcceptsUnstackables) {
+        return isInsertAllowed(variant, snapshot, volumeAcceptsUnstackables);
     }
 
     public static boolean canCreateVariant(ItemVariant variant) {
@@ -81,8 +89,13 @@ public final class ItemSecurityPolicy {
         return true;
     }
 
-    private static boolean isInsertAllowed(ItemVariant variant, Snapshot current) {
-        return !current.rejectUnstackables() || variant.getItem().getMaxCount() > 1;
+    private static boolean isInsertAllowed(
+            ItemVariant variant,
+            Snapshot current,
+            boolean volumeAcceptsUnstackables
+    ) {
+        return variant.getItem().getMaxCount() > 1
+                || (current.allowUnstackables() && volumeAcceptsUnstackables);
     }
 
     private static boolean passesFilter(ItemVariant variant, Snapshot current, Identifier itemId) {
@@ -150,11 +163,17 @@ public final class ItemSecurityPolicy {
             expect(!allowsNewVariant(ItemVariant.of(net.minecraft.item.Items.PAPER, oversizedNbt)),
                     "NBT guard accepted an oversized new variant");
 
+            ItemVariant pickaxe = ItemVariant.of(net.minecraft.item.Items.IRON_PICKAXE);
+            ItemVariant diamond = ItemVariant.of(net.minecraft.item.Items.DIAMOND);
+            snapshot = new Snapshot(false, Set.of(), Set.of(), 65_536, false, false);
+            expect(!canInsert(pickaxe, false), "server deny + volume reject accepted a tool");
+            expect(!canInsert(pickaxe, true), "server deny + volume accept accepted a tool");
+            expect(canInsert(diamond, false), "server deny rejected a stackable item");
+
             snapshot = new Snapshot(false, Set.of(), Set.of(), 65_536, true, false);
-            expect(!allowsInsert(ItemVariant.of(net.minecraft.item.Items.IRON_PICKAXE)),
-                    "unstackable guard accepted a tool");
-            expect(allowsInsert(ItemVariant.of(net.minecraft.item.Items.DIAMOND)),
-                    "unstackable guard rejected a stackable item");
+            expect(!canInsert(pickaxe, false), "volume reject accepted a tool");
+            expect(canInsert(pickaxe, true), "server and volume allow rejected a tool");
+            expect(allowsInsert(diamond, false), "volume reject rejected a stackable item");
         } finally {
             snapshot = original;
             FILTER_REJECTIONS.set(originalFilterRejections);
@@ -198,7 +217,7 @@ public final class ItemSecurityPolicy {
             Set<Identifier> items,
             Set<Identifier> tags,
             int maxNbtBytes,
-            boolean rejectUnstackables,
+            boolean allowUnstackables,
             boolean logRejected
     ) {
         private static Snapshot empty() {

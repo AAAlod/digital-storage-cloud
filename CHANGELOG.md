@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.10 - 2026-08-27
+
+- Add an owner-controlled per-Volume policy for accepting unstackable items,
+  with a server-wide capability gate, legacy configuration migration, persistent
+  state, immediate enforcement and consistent Tom analysis/migration behavior.
+- Add a dedicated Digital Storage Cloud creative inventory tab instead of placing
+  the Mod's items in the vanilla Redstone Blocks tab.
+- Rename the Simplified Chinese display name of the Advanced Inventory Hopper to
+  `高级存储漏斗`.
+
 ## 1.1.9 - 2026-08-26
 
 - Fix Accessor GUI text clipping in English, Simplified Chinese, and long-value

@@ -2,7 +2,6 @@ package dev.kehai.digitalstorage.optimization;
 
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import dev.kehai.digitalstorage.security.ItemSecurityPolicy;
 import dev.kehai.digitalstorage.storage.DigitalItemStorage;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -62,8 +61,7 @@ public final class TomNetworkAnalysis {
         List<Candidate> candidates = new ArrayList<>();
         for (MutableCandidate candidate : grouped.values()) {
             boolean existing = target.amountOf(candidate.variant) > 0;
-            if (!ItemSecurityPolicy.canInsert(candidate.variant)
-                    || (!existing && !ItemSecurityPolicy.canCreateVariant(candidate.variant))) {
+            if (!accessor.getRecord().canInsert(candidate.variant)) {
                 continue;
             }
             long available = DigitalItemStorage.MAX_AMOUNT_PER_VARIANT - target.amountOf(candidate.variant);

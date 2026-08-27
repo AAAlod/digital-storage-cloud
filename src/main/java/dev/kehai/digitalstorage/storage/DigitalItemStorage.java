@@ -93,7 +93,7 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
         this(null, dirtyCallback, variantCapacitySupplier, () -> Long.MAX_VALUE, insertValidator, newVariantValidator);
     }
 
-    private DigitalItemStorage(
+    DigitalItemStorage(
             UUID volumeId,
             Runnable dirtyCallback,
             IntSupplier variantCapacitySupplier,

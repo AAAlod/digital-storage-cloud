@@ -64,6 +64,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     private ButtonWidget clearBindingButton;
     private ButtonWidget migrationButton;
     private ButtonWidget networkAnalysisButton;
+    private ButtonWidget unstackableButton;
     private ButtonWidget createVolumeButton;
     private ButtonWidget previousPageButton;
     private ButtonWidget nextPageButton;
@@ -75,6 +76,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     private int lastKnownVolumeCount;
     private DigitalStorageScreenState creationRequestedFromState;
     private DigitalStorageScreenState managementRequestedFromState;
+    private DigitalStorageScreenState unstackableRequestedFromState;
 
     public DigitalStorageScreen(
             DigitalStorageScreenHandler handler,
@@ -198,6 +200,15 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                     }
                 }
         ).dimensions(x + backgroundWidth - 72, y + 3, 60, 16).build());
+        unstackableButton = addDrawableChild(ButtonWidget.builder(
+                Text.translatable("screen.digitalstorage.unstackables.reject"),
+                button -> requestUnstackablePolicy()
+        ).dimensions(
+                x + CARD_MARGIN + CARD_WIDTH - 62,
+                y + TOP_CARD_Y + 88,
+                54,
+                14
+        ).build());
 
         lastKnownVolumeCount = handler.state().ownedVolumes().size();
         updateButton();
@@ -210,6 +221,9 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         }
         if (managementRequestedFromState != null && handler.state() != managementRequestedFromState) {
             managementRequestedFromState = null;
+        }
+        if (unstackableRequestedFromState != null && handler.state() != unstackableRequestedFromState) {
+            unstackableRequestedFromState = null;
         }
         int currentVolumeCount = handler.state().ownedVolumes().size();
         if (currentVolumeCount > lastKnownVolumeCount && handler.state().statusSuccessful()) {
@@ -346,22 +360,30 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         drawKeyValue(context, "screen.digitalstorage.volume", Text.literal(state.volumeName()),
                 drawX + 8, drawY + 23, CARD_WIDTH - 16);
         drawKeyValue(context, "screen.digitalstorage.controller", Text.literal(state.controller()),
-                drawX + 8, drawY + 36, CARD_WIDTH - 16);
+                drawX + 8, drawY + 35, CARD_WIDTH - 16);
         drawKeyValue(context, "screen.digitalstorage.current_tier", tierName(state.tierId()),
-                drawX + 8, drawY + 49, CARD_WIDTH - 16);
+                drawX + 8, drawY + 47, CARD_WIDTH - 16);
         drawKeyValue(context, "screen.digitalstorage.variants", Text.literal(
                 state.usedVariants() + " / " + state.variantCapacity()
-        ), drawX + 8, drawY + 64, CARD_WIDTH - 16);
+        ), drawX + 8, drawY + 59, CARD_WIDTH - 16);
         drawProgressBar(
                 context,
                 drawX + 8,
-                drawY + 77,
+                drawY + 70,
                 CARD_WIDTH - 16,
-                6,
+                5,
                 state.variantCapacity() <= 0 ? 0.0 : (double) state.usedVariants() / state.variantCapacity()
         );
         drawKeyValue(context, "screen.digitalstorage.total_items", Text.literal(state.totalItems()),
-                drawX + 8, drawY + 89, CARD_WIDTH - 16);
+                drawX + 8, drawY + 78, CARD_WIDTH - 16);
+        context.drawText(
+                textRenderer,
+                Text.translatable("screen.digitalstorage.unstackables"),
+                drawX + 8,
+                drawY + 91,
+                SECONDARY_TEXT,
+                false
+        );
     }
 
     private void drawNetworkSummary(
@@ -751,6 +773,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
 
     private void updateButton() {
         if (upgradeButton == null || migrationButton == null || networkAnalysisButton == null
+                || unstackableButton == null
                 || clearBindingButton == null || volumeNameField == null) {
             return;
         }
@@ -790,6 +813,29 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                 : Tooltip.of(Text.translatable("screen.digitalstorage.network.migration_hint")));
         networkAnalysisButton.visible = state.accessorBound();
         networkAnalysisButton.active = state.accessorBound() && !state.networkDiagnostic().migrationActive();
+        unstackableButton.visible = state.accessorBound();
+        unstackableButton.active = state.accessorBound()
+                && state.unstackableItemsConfigurable()
+                && state.unstackableItemsAllowedByServer()
+                && !state.networkDiagnostic().migrationActive()
+                && unstackableRequestedFromState == null;
+        boolean effectiveAccept = state.unstackableItemsAllowedByServer() && state.acceptsUnstackableItems();
+        unstackableButton.setMessage(Text.translatable(effectiveAccept
+                ? "screen.digitalstorage.unstackables.accept"
+                : "screen.digitalstorage.unstackables.reject"));
+        String unstackableTooltipKey;
+        if (!state.unstackableItemsAllowedByServer()) {
+            unstackableTooltipKey = "screen.digitalstorage.unstackables.tooltip.server_disabled";
+        } else if (state.networkDiagnostic().migrationActive()) {
+            unstackableTooltipKey = "screen.digitalstorage.unstackables.tooltip.migration_active";
+        } else if (!state.unstackableItemsConfigurable()) {
+            unstackableTooltipKey = "screen.digitalstorage.unstackables.tooltip.not_owner";
+        } else {
+            unstackableTooltipKey = effectiveAccept
+                    ? "screen.digitalstorage.unstackables.tooltip.accept"
+                    : "screen.digitalstorage.unstackables.tooltip.reject";
+        }
+        unstackableButton.setTooltip(Tooltip.of(Text.translatable(unstackableTooltipKey)));
         clearBindingButton.visible = state.accessorBound();
         clearBindingButton.active = clearBindingButton.visible && state.accessorConfigurable();
         List<DigitalStorageScreenState.VolumeChoice> choices = state.ownedVolumes();
@@ -838,6 +884,19 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         creationRequestedFromState = handler.state();
         createVolumeButton.active = false;
         ClientPlayNetworking.send(DigitalStorageScreenHandler.CREATE_VOLUME_PACKET_ID, buf);
+    }
+
+    private void requestUnstackablePolicy() {
+        if (!unstackableButton.active || client == null || client.interactionManager == null) {
+            return;
+        }
+        DigitalStorageScreenState current = handler.state();
+        int buttonId = current.acceptsUnstackableItems()
+                ? DigitalStorageScreenHandler.SET_UNSTACKABLE_REJECT_BUTTON_ID
+                : DigitalStorageScreenHandler.SET_UNSTACKABLE_ACCEPT_BUTTON_ID;
+        unstackableRequestedFromState = current;
+        unstackableButton.active = false;
+        client.interactionManager.clickButton(handler.syncId, buttonId);
     }
 
     private void bindVisibleVolume(int slot) {

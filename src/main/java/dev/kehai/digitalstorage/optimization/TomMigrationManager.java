@@ -2,7 +2,6 @@ package dev.kehai.digitalstorage.optimization;
 
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import dev.kehai.digitalstorage.security.ItemSecurityPolicy;
 import dev.kehai.digitalstorage.storage.DigitalItemStorage;
 import dev.kehai.digitalstorage.storage.StorageVolume;
 import java.util.Collections;
@@ -301,9 +300,8 @@ public final class TomMigrationManager {
                 }
                 ItemVariant variant = view.getResource();
                 boolean exists = target.amountOf(variant) > 0;
-                if (!ItemSecurityPolicy.canInsert(variant)
-                        || (!exists && (!ItemSecurityPolicy.canCreateVariant(variant)
-                        || target.variantCount() >= accessor.getRecord().variantCapacity()))) {
+                if (!accessor.getRecord().canInsert(variant)
+                        || (!exists && target.variantCount() >= accessor.getRecord().variantCapacity())) {
                     blocked = true;
                     continue;
                 }

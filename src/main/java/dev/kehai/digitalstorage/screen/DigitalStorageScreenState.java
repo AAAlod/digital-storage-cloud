@@ -2,6 +2,7 @@ package dev.kehai.digitalstorage.screen;
 
 import com.mojang.authlib.GameProfile;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
+import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.optimization.TomMigrationManager;
 import dev.kehai.digitalstorage.optimization.TomNetworkAnalysis;
 import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
@@ -30,6 +31,9 @@ public record DigitalStorageScreenState(
         int usedVariants,
         int variantCapacity,
         String totalItems,
+        boolean acceptsUnstackableItems,
+        boolean unstackableItemsAllowedByServer,
+        boolean unstackableItemsConfigurable,
         boolean hasNextTier,
         Identifier nextTierId,
         int nextVariantCapacity,
@@ -88,6 +92,9 @@ public record DigitalStorageScreenState(
                     first.variantCapacity(),
                     "0",
                     false,
+                    DigitalStorageConfig.get().allowUnstackableItems,
+                    false,
+                    false,
                     first.id(),
                     first.variantCapacity(),
                     List.of(),
@@ -114,6 +121,9 @@ public record DigitalStorageScreenState(
                 record.storage().variantCount(),
                 currentTier.variantCapacity(),
                 Long.toString(record.storage().totalItemCount()),
+                record.acceptsUnstackableItems(),
+                DigitalStorageConfig.get().allowUnstackableItems,
+                volume.ownerId().equals(player.getUuid()),
                 nextTier.isPresent(),
                 next.id(),
                 next.variantCapacity(),
@@ -160,6 +170,9 @@ public record DigitalStorageScreenState(
         buf.writeVarInt(usedVariants);
         buf.writeVarInt(variantCapacity);
         buf.writeString(totalItems, MAX_TEXT_LENGTH);
+        buf.writeBoolean(acceptsUnstackableItems);
+        buf.writeBoolean(unstackableItemsAllowedByServer);
+        buf.writeBoolean(unstackableItemsConfigurable);
         buf.writeBoolean(hasNextTier);
         buf.writeIdentifier(nextTierId);
         buf.writeVarInt(nextVariantCapacity);
@@ -190,6 +203,9 @@ public record DigitalStorageScreenState(
         int usedVariants = buf.readVarInt();
         int variantCapacity = buf.readVarInt();
         String totalItems = buf.readString(MAX_TEXT_LENGTH);
+        boolean acceptsUnstackableItems = buf.readBoolean();
+        boolean unstackableItemsAllowedByServer = buf.readBoolean();
+        boolean unstackableItemsConfigurable = buf.readBoolean();
         boolean hasNextTier = buf.readBoolean();
         Identifier nextTierId = buf.readIdentifier();
         int nextVariantCapacity = buf.readVarInt();
@@ -211,6 +227,9 @@ public record DigitalStorageScreenState(
                 usedVariants,
                 variantCapacity,
                 totalItems,
+                acceptsUnstackableItems,
+                unstackableItemsAllowedByServer,
+                unstackableItemsConfigurable,
                 hasNextTier,
                 nextTierId,
                 nextVariantCapacity,
@@ -234,6 +253,9 @@ public record DigitalStorageScreenState(
                 usedVariants,
                 variantCapacity,
                 totalItems,
+                acceptsUnstackableItems,
+                unstackableItemsAllowedByServer,
+                unstackableItemsConfigurable,
                 hasNextTier,
                 nextTierId,
                 nextVariantCapacity,
@@ -263,6 +285,9 @@ public record DigitalStorageScreenState(
                 3,
                 64,
                 "9223372036854775808",
+                true,
+                true,
+                true,
                 true,
                 new Identifier("digitalstorage", "advanced"),
                 128,

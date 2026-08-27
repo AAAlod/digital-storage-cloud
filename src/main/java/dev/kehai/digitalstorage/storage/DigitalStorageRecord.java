@@ -2,6 +2,7 @@ package dev.kehai.digitalstorage.storage;
 
 import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
+import dev.kehai.digitalstorage.security.ItemSecurityPolicy;
 import dev.kehai.digitalstorage.tier.DigitalStorageTier;
 import dev.kehai.digitalstorage.tier.DigitalStorageTierRegistry;
 import java.util.HashSet;
@@ -26,10 +27,13 @@ public final class DigitalStorageRecord {
     private static final String AMOUNT_KEY = "Amount";
     private static final String CREATED_TIME_KEY = "CreatedTime";
     private static final String LAST_ACCESS_TIME_KEY = "LastAccessTime";
+    private static final String ACCEPT_UNSTACKABLE_ITEMS_KEY = "AcceptUnstackableItems";
     private final Runnable dirtyCallback;
     private final DigitalItemStorage storage;
     private Identifier tierId;
     private int lastKnownVariantCapacity;
+    private boolean acceptUnstackableItems;
+    private long policyVersion;
     private final long createdTime;
     private long lastAccessTime;
 
@@ -37,6 +41,7 @@ public final class DigitalStorageRecord {
             UUID volumeId,
             Identifier tierId,
             int lastKnownVariantCapacity,
+            boolean acceptUnstackableItems,
             Runnable dirtyCallback,
             long createdTime,
             long lastAccessTime
@@ -44,13 +49,16 @@ public final class DigitalStorageRecord {
         this.dirtyCallback = dirtyCallback;
         this.tierId = tierId;
         this.lastKnownVariantCapacity = Math.max(1, lastKnownVariantCapacity);
+        this.acceptUnstackableItems = acceptUnstackableItems;
         this.createdTime = createdTime;
         this.lastAccessTime = lastAccessTime;
         this.storage = new DigitalItemStorage(
                 volumeId,
                 this::onStorageMutationCommitted,
                 this::variantCapacity,
-                () -> DigitalStorageConfig.get().maxVolumeVariantNbtBytes
+                () -> DigitalStorageConfig.get().maxVolumeVariantNbtBytes,
+                variant -> ItemSecurityPolicy.allowsInsert(variant, acceptsUnstackableItems()),
+                ItemSecurityPolicy::allowsNewVariant
         );
     }
 
@@ -65,6 +73,7 @@ public final class DigitalStorageRecord {
                 volumeId,
                 firstTier.id(),
                 firstTier.variantCapacity(),
+                false,
                 dirtyCallback,
                 now,
                 now
@@ -114,10 +123,15 @@ public final class DigitalStorageRecord {
         long lastAccessTime = nbt.contains(LAST_ACCESS_TIME_KEY, NbtElement.LONG_TYPE)
                 ? nbt.getLong(LAST_ACCESS_TIME_KEY)
                 : createdTime;
+        boolean missingUnstackablePolicy = !nbt.contains(ACCEPT_UNSTACKABLE_ITEMS_KEY, NbtElement.BYTE_TYPE);
+        boolean acceptUnstackableItems = missingUnstackablePolicy
+                ? DigitalStorageConfig.get().allowUnstackableItems
+                : nbt.getBoolean(ACCEPT_UNSTACKABLE_ITEMS_KEY);
         DigitalStorageRecord record = new DigitalStorageRecord(
                 volumeId,
                 storedTierId,
                 lastKnownVariantCapacity,
+                acceptUnstackableItems,
                 dirtyCallback,
                 createdTime,
                 Math.max(createdTime, lastAccessTime)
@@ -130,7 +144,7 @@ public final class DigitalStorageRecord {
             record.storage.load(variant, amount, serializedVariant);
         }
 
-        if (migrated || missingMetadata) {
+        if (migrated || missingMetadata || missingUnstackablePolicy) {
             dirtyCallback.run();
         }
         return record;
@@ -178,6 +192,29 @@ public final class DigitalStorageRecord {
         return lastAccessTime;
     }
 
+    public boolean acceptsUnstackableItems() {
+        return acceptUnstackableItems;
+    }
+
+    public boolean setAcceptUnstackableItems(boolean value) {
+        if (acceptUnstackableItems == value) {
+            return false;
+        }
+        acceptUnstackableItems = value;
+        policyVersion++;
+        dirtyCallback.run();
+        return true;
+    }
+
+    public long policyVersion() {
+        return policyVersion;
+    }
+
+    public boolean canInsert(ItemVariant variant) {
+        return ItemSecurityPolicy.canInsert(variant, acceptUnstackableItems)
+                && (storage.amountOf(variant) > 0 || ItemSecurityPolicy.canCreateVariant(variant));
+    }
+
     public boolean setTier(Identifier requestedTierId) {
         if (DigitalStorageTierRegistry.INSTANCE.find(requestedTierId).isEmpty() || tierId.equals(requestedTierId)) {
             return false;
@@ -210,6 +247,7 @@ public final class DigitalStorageRecord {
         return new Snapshot(
                 tierId(),
                 lastKnownVariantCapacity,
+                acceptUnstackableItems,
                 createdTime,
                 lastAccessTime,
                 items
@@ -227,6 +265,7 @@ public final class DigitalStorageRecord {
     record Snapshot(
             Identifier tierId,
             int lastKnownVariantCapacity,
+            boolean acceptUnstackableItems,
             long createdTime,
             long lastAccessTime,
             List<DigitalItemStorage.StoredEntrySnapshot> items
@@ -238,6 +277,7 @@ public final class DigitalStorageRecord {
         void writeNbt(NbtCompound nbt) {
             nbt.putString(TIER_KEY, tierId.toString());
             nbt.putInt(LAST_KNOWN_VARIANT_CAPACITY_KEY, lastKnownVariantCapacity);
+            nbt.putBoolean(ACCEPT_UNSTACKABLE_ITEMS_KEY, acceptUnstackableItems);
             nbt.putLong(CREATED_TIME_KEY, createdTime);
             nbt.putLong(LAST_ACCESS_TIME_KEY, lastAccessTime);
 

@@ -43,7 +43,7 @@ import net.minecraft.util.WorldSavePath;
  */
 public final class DigitalStorageState {
     static final int ACCOUNT_SCHEMA_VERSION = 1;
-    static final int VOLUME_SCHEMA_VERSION = 1;
+    static final int VOLUME_SCHEMA_VERSION = 2;
     static final int MAX_INCREMENTAL_SNAPSHOT_RESTARTS = 4;
     static final long MAX_DIRTY_VOLUME_AGE_TICKS = 600;
     private static final String SCHEMA_VERSION_KEY = "SchemaVersion";

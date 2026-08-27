@@ -118,9 +118,10 @@ loaded accessor remains bound to it. Operator-only diagnostics remain available:
   a safety ceiling. Existing stored data above that ceiling remains extractable.
 - Insert and extract are transaction-safe, including nested atomic Tom hopper
   transfers.
-- `rejectUnstackableItems` defaults to `true`. Items whose maximum stack size is
-  one are checked and rejected on every insert, including inserts into an
-  existing variant. Extraction is always allowed.
+- `allowUnstackableItems` defaults to `true` and lets each Volume owner explicitly
+  opt in to max-stack-size-one items; new Volumes still default to Reject. Legacy
+  `rejectUnstackableItems` values are migrated inversely to preserve existing
+  server behavior. Extraction is always allowed, including after opting out.
 - Item/tag filters and per-variant NBT limits apply when creating a new variant.
 - Malformed volumes are quarantined individually and their raw NBT is retained.
 - A newer cloud schema is rejected instead of being rewritten by an older Mod.

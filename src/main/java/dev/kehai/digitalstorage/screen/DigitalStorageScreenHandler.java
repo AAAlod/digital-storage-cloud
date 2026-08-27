@@ -35,6 +35,8 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
     public static final int CLEAR_BINDING_BUTTON_ID = 1;
     public static final int MIGRATION_BUTTON_ID = 2;
     public static final int NETWORK_ANALYSIS_BUTTON_ID = 3;
+    public static final int SET_UNSTACKABLE_REJECT_BUTTON_ID = 4;
+    public static final int SET_UNSTACKABLE_ACCEPT_BUTTON_ID = 5;
     public static final int BIND_VOLUME_BUTTON_BASE = 100;
 
     private final PlayerInventory playerInventory;
@@ -45,6 +47,8 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
     private TomNetworkAnalysis.Report networkReport;
     private boolean migrationWasActive;
     private long lastContentVersion = Long.MIN_VALUE;
+    private long lastPolicyVersion = Long.MIN_VALUE;
+    private boolean lastServerAllowsUnstackableItems;
     private long nextStateSyncTick;
     private long nextNetworkAnalysisTick;
     private boolean initialStateSyncPending;
@@ -120,6 +124,36 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
         if (blockEntity == null) {
             status = Text.translatable("screen.digitalstorage.error.unavailable");
             statusSuccessful = false;
+            sendServerState();
+            return true;
+        }
+
+        if (id == SET_UNSTACKABLE_REJECT_BUTTON_ID || id == SET_UNSTACKABLE_ACCEPT_BUTTON_ID) {
+            StorageVolume volume = blockEntity.getVolume();
+            if (volume == null || !volume.ownerId().equals(serverPlayer.getUuid())) {
+                status = Text.translatable("screen.digitalstorage.error.not_owner");
+                statusSuccessful = false;
+                sendServerState();
+                return true;
+            }
+            if (TomMigrationManager.status(volume.id()).active()) {
+                status = Text.translatable("screen.digitalstorage.unstackables.error.migration_active");
+                statusSuccessful = false;
+                sendServerState();
+                return true;
+            }
+            if (!DigitalStorageConfig.get().allowUnstackableItems) {
+                status = Text.translatable("screen.digitalstorage.unstackables.error.server_disabled");
+                statusSuccessful = false;
+                sendServerState();
+                return true;
+            }
+
+            boolean requestedValue = id == SET_UNSTACKABLE_ACCEPT_BUTTON_ID;
+            volume.setAcceptUnstackableItems(requestedValue);
+            networkReport = null;
+            status = Text.translatable("screen.digitalstorage.unstackables.updated");
+            statusSuccessful = true;
             sendServerState();
             return true;
         }
@@ -263,20 +297,31 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
         long contentVersion = volume == null
                 ? Long.MIN_VALUE
                 : volume.record().storage().contentVersion();
+        long policyVersion = volume == null
+                ? Long.MIN_VALUE
+                : volume.record().policyVersion();
+        boolean serverAllowsUnstackableItems = DigitalStorageConfig.get().allowUnstackableItems;
         boolean migrationActive = volume != null && TomMigrationManager.status(volume.id()).active();
         boolean topologyInvalid = networkReport != null && networkReport.available()
                 && !TomNetworkCache.isCurrent(networkReport.topology());
         boolean migrationFinished = migrationWasActive && !migrationActive;
         boolean contentChanged = contentVersion != lastContentVersion;
+        boolean policyChanged = policyVersion != lastPolicyVersion;
+        boolean serverPolicyChanged = serverAllowsUnstackableItems != lastServerAllowsUnstackableItems;
         int interval = migrationActive ? 4 : 8;
         if (!topologyInvalid && !migrationFinished
-                && (!contentChanged || tick < nextStateSyncTick)
+                && (!(contentChanged || policyChanged || serverPolicyChanged) || tick < nextStateSyncTick)
                 && (!migrationActive || tick < nextStateSyncTick)) {
             return;
         }
 
+        if (policyChanged || serverPolicyChanged) {
+            networkReport = null;
+        }
         DigitalStorageScreenState updated = captureServerState(status).withStatus(status, statusSuccessful);
         lastContentVersion = contentVersion;
+        lastPolicyVersion = policyVersion;
+        lastServerAllowsUnstackableItems = serverAllowsUnstackableItems;
         nextStateSyncTick = tick + interval;
         if (!Objects.equals(updated, state)) {
             state = updated;
@@ -358,6 +403,10 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
         lastContentVersion = volume == null
                 ? Long.MIN_VALUE
                 : volume.record().storage().contentVersion();
+        lastPolicyVersion = volume == null
+                ? Long.MIN_VALUE
+                : volume.record().policyVersion();
+        lastServerAllowsUnstackableItems = DigitalStorageConfig.get().allowUnstackableItems;
     }
 
     private void createVolume(ServerPlayerEntity player, String requestedName) {

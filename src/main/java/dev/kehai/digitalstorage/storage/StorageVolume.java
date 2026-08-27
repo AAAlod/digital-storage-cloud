@@ -65,6 +65,14 @@ public final class StorageVolume {
         return record;
     }
 
+    public boolean acceptsUnstackableItems() {
+        return record.acceptsUnstackableItems();
+    }
+
+    public boolean setAcceptUnstackableItems(boolean value) {
+        return record.setAcceptUnstackableItems(value);
+    }
+
     public boolean rename(String requestedName) {
         String normalized = normalizeName(requestedName);
         if (name.equals(normalized)) {

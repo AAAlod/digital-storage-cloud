@@ -15,7 +15,7 @@ import dev.kehai.digitalstorage.security.DigitalStorageMountTracker;
 import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import dev.kehai.digitalstorage.tier.DigitalStorageTierRegistry;
 import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
+import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.object.builder.v1.block.FabricBlockSettings;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
@@ -26,11 +26,13 @@ import net.minecraft.block.MapColor;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
-import net.minecraft.item.ItemGroups;
+import net.minecraft.item.ItemGroup;
+import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
 import net.minecraft.resource.ResourceType;
 import net.minecraft.screen.ScreenHandlerType;
+import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import java.util.HashSet;
 import java.util.Set;
@@ -68,6 +70,19 @@ public final class DigitalStorageMod implements ModInitializer {
             new BlockItem(ADVANCED_INVENTORY_HOPPER, new Item.Settings())
     );
 
+    public static final ItemGroup DIGITAL_STORAGE_ITEM_GROUP = Registry.register(
+            Registries.ITEM_GROUP,
+            id("digital_storage_cloud"),
+            FabricItemGroup.builder()
+                    .displayName(Text.translatable("itemGroup.digitalstorage.digital_storage_cloud"))
+                    .icon(() -> new ItemStack(DIGITAL_STORAGE_ACCESSOR_ITEM))
+                    .entries((displayContext, entries) -> {
+                        entries.add(DIGITAL_STORAGE_ACCESSOR_ITEM);
+                        entries.add(ADVANCED_INVENTORY_HOPPER_ITEM);
+                    })
+                    .build()
+    );
+
     public static final BlockEntityType<DigitalStorageAccessorBlockEntity> DIGITAL_STORAGE_ACCESSOR_BLOCK_ENTITY =
             Registry.register(
                     Registries.BLOCK_ENTITY_TYPE,
@@ -101,12 +116,6 @@ public final class DigitalStorageMod implements ModInitializer {
                 (blockEntity, direction) -> blockEntity.getCanonicalStorage(),
                 DIGITAL_STORAGE_ACCESSOR_BLOCK_ENTITY
         );
-
-        ItemGroupEvents.modifyEntriesEvent(ItemGroups.REDSTONE)
-                .register(entries -> {
-                    entries.add(DIGITAL_STORAGE_ACCESSOR_ITEM);
-                    entries.add(ADVANCED_INVENTORY_HOPPER_ITEM);
-                });
 
         DigitalStorageCommands.register();
         LOGGER.info("Digital Storage Cloud initialized with Account -> Volume -> Accessor architecture");
