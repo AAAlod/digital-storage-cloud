@@ -39,17 +39,23 @@ public final class TomNetworkCache {
 
     static Topology topology(BlockEntity connector, Storage<ItemVariant> network) {
         Entry entry = ENTRIES.computeIfAbsent(connector, Entry::new);
+        TomNetworkIntrospection.RawDigitalSnapshot rawDigitalSnapshot =
+                TomNetworkIntrospection.rawDigitalSnapshot(network);
         Topology cached = entry.topology;
         if (cached != null && cached.version() == entry.version && cached.network().get() == network) {
-            List<Storage<ItemVariant>> physical = resolve(cached.physicalReferences());
-            List<DigitalItemStorage> digital = resolveDigital(cached.digitalReferences());
-            List<DigitalItemStorage> rawDigital = resolveDigital(cached.rawDigitalReferences());
-            if (physical != null && digital != null && rawDigital != null) {
-                return cached.withResolved(physical, digital, rawDigital);
+            if (cached.digitalEndpointFingerprint() != rawDigitalSnapshot.fingerprint()) {
+                invalidateEntry(entry, "digital endpoint topology changed");
+            } else {
+                List<Storage<ItemVariant>> physical = resolve(cached.physicalReferences());
+                List<DigitalItemStorage> digital = resolveDigital(cached.digitalReferences());
+                List<DigitalItemStorage> rawDigital = resolveDigital(cached.rawDigitalReferences());
+                if (physical != null && digital != null && rawDigital != null) {
+                    return cached.withResolved(physical, digital, rawDigital);
+                }
             }
         }
 
-        TomNetworkIntrospection.NetworkParts parts = TomNetworkIntrospection.parts(network);
+        TomNetworkIntrospection.NetworkParts parts = TomNetworkIntrospection.parts(network, rawDigitalSnapshot);
         List<WeakReference<Storage<ItemVariant>>> physicalReferences = weakReferences(parts.physical());
         List<WeakReference<DigitalItemStorage>> digitalReferences = weakDigitalReferences(parts.digital());
         List<WeakReference<DigitalItemStorage>> rawDigitalReferences = weakDigitalReferences(parts.rawDigital());
@@ -61,6 +67,7 @@ public final class TomNetworkCache {
                 entry.identity,
                 entry.version,
                 new WeakReference<>(network),
+                parts.digitalEndpointFingerprint(),
                 physicalReferences,
                 digitalReferences,
                 rawDigitalReferences,
@@ -95,7 +102,18 @@ public final class TomNetworkCache {
         }
         BlockEntity connector = token.identity().connector().get();
         Entry entry = connector == null ? null : ENTRIES.get(connector);
-        return connector != null && !connector.isRemoved() && entry != null && entry.version == token.version();
+        if (connector == null || connector.isRemoved() || entry == null || entry.version != token.version()) {
+            return false;
+        }
+        Topology topology = entry.topology;
+        Storage<ItemVariant> network = topology == null ? null : topology.network().get();
+        if (topology != null && network != null
+                && topology.digitalEndpointFingerprint()
+                != TomNetworkIntrospection.rawDigitalSnapshot(network).fingerprint()) {
+            invalidateEntry(entry, "digital endpoint topology changed");
+            return false;
+        }
+        return true;
     }
 
     static String staleDetail(Token token) {
@@ -153,6 +171,22 @@ public final class TomNetworkCache {
                     || !"inventory unloaded".equals(staleDetail(sourceToken))
                     || sourceTopology.physicalEndpoints().get(0).resolve(sourceToken) != null) {
                 throw new IllegalStateException("Tom lifecycle self-test retained an unloaded source endpoint");
+            }
+
+            com.tom.storagemod.util.MergedStorage trackedNetwork = new com.tom.storagemod.util.MergedStorage();
+            java.util.UUID volumeId = java.util.UUID.randomUUID();
+            DigitalItemStorage canonical = new DigitalItemStorage(volumeId, () -> { }, 64);
+            DigitalItemStorage alias = new DigitalItemStorage(volumeId, () -> { }, 64);
+            trackedNetwork.add(canonical);
+            Token singleEndpointToken = topology(connector, trackedNetwork).token();
+            trackedNetwork.add(alias);
+            if (isCurrent(singleEndpointToken)) {
+                throw new IllegalStateException("Tom duplicate endpoint change did not invalidate topology");
+            }
+            Topology duplicateTopology = topology(connector, trackedNetwork);
+            if (duplicateTopology.digitalEndpointCount(canonical) != 2
+                    || duplicateTopology.duplicateDigitalEndpointCount() != 1) {
+                throw new IllegalStateException("Tom duplicate endpoint topology count self-test failed");
             }
 
             Token connectorToken = topology(connector, source).token();
@@ -358,6 +392,7 @@ public final class TomNetworkCache {
             NetworkIdentity identity,
             long version,
             WeakReference<Storage<ItemVariant>> network,
+            long digitalEndpointFingerprint,
             List<WeakReference<Storage<ItemVariant>>> physicalReferences,
             List<WeakReference<DigitalItemStorage>> digitalReferences,
             List<WeakReference<DigitalItemStorage>> rawDigitalReferences,
@@ -379,6 +414,7 @@ public final class TomNetworkCache {
                     identity,
                     version,
                     network,
+                    digitalEndpointFingerprint,
                     physicalReferences,
                     digitalReferences,
                     rawDigitalReferences,
@@ -390,20 +426,11 @@ public final class TomNetworkCache {
         }
 
         int digitalEndpointCount(DigitalItemStorage target) {
-            return (int) rawDigital.stream().filter(storage -> storage == target).count();
+            return TomNetworkIntrospection.digitalEndpointCount(rawDigital, target);
         }
 
         int duplicateDigitalEndpointCount() {
-            java.util.Set<DigitalItemStorage> unique = java.util.Collections.newSetFromMap(
-                    new java.util.IdentityHashMap<>()
-            );
-            int duplicates = 0;
-            for (DigitalItemStorage storage : rawDigital) {
-                if (!unique.add(storage)) {
-                    duplicates++;
-                }
-            }
-            return duplicates;
+            return TomNetworkIntrospection.duplicateDigitalEndpointCount(rawDigital);
         }
     }
 

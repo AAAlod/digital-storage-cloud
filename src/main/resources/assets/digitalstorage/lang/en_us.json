@@ -38,6 +38,8 @@
   "screen.digitalstorage.create_volume": "Create",
   "screen.digitalstorage.rename_volume": "Rename",
   "screen.digitalstorage.delete_volume": "Delete",
+  "screen.digitalstorage.delete_volume.tooltip.empty": "Delete this empty storage volume. This cannot be undone.",
+  "screen.digitalstorage.delete_volume.tooltip.non_empty": "Empty this storage volume before deleting it.",
   "screen.digitalstorage.bind_volume": "Bind · %1$s · %2$s · %3$s",
   "screen.digitalstorage.volume_empty": "empty %1$s/%2$s",
   "screen.digitalstorage.volume_in_use": "used %1$s/%2$s",

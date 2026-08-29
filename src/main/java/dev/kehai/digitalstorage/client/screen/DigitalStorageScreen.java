@@ -235,6 +235,18 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     }
 
     @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (volumeNameField != null
+                && volumeNameField.visible
+                && volumeNameField.isFocused()
+                && client != null
+                && client.options.inventoryKey.matchesKey(keyCode, scanCode)) {
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         renderBackground(context);
         super.render(context, mouseX, mouseY, delta);
@@ -438,7 +450,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             );
             lineY += 2;
         }
-        if (diagnostic.recommendedVariants() > 0) {
+        if (!diagnostic.hasDuplicateTargetEndpoints() && diagnostic.recommendedVariants() > 0) {
             drawWrappedText(
                     context,
                     Text.translatable(
@@ -849,6 +861,9 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             button.active = button.visible && managementRequestedFromState == null;
             renameButton.visible = button.visible;
             deleteButton.visible = button.visible;
+            renameButton.active = false;
+            deleteButton.active = false;
+            deleteButton.setTooltip(null);
             if (hasChoice) {
                 DigitalStorageScreenState.VolumeChoice choice = choices.get(volumeIndex);
                 Text usage = Text.translatable(
@@ -867,6 +882,9 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                 renameButton.active = managementRequestedFromState == null
                         && !volumeNameField.getText().isBlank();
                 deleteButton.active = managementRequestedFromState == null && choice.usedVariants() == 0;
+                deleteButton.setTooltip(Tooltip.of(Text.translatable(choice.usedVariants() == 0
+                        ? "screen.digitalstorage.delete_volume.tooltip.empty"
+                        : "screen.digitalstorage.delete_volume.tooltip.non_empty")));
             }
         }
     }

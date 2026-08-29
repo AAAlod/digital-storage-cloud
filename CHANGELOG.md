@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.11 - 2026-08-29
+
+- Explain why non-empty storage volumes cannot be deleted with localized button
+  tooltips while retaining authoritative server-side deletion checks.
+- Keep the configured inventory key from closing the accessor screen while the
+  storage-volume name field is focused, without changing Escape behavior.
+
 ## 1.1.10 - 2026-08-27
 
 - Add an owner-controlled per-Volume policy for accepting unstackable items,

@@ -81,11 +81,9 @@ public final class TomNetworkAnalysis {
                 0,
                 (long) DigitalStorageConfig.get().maxVolumeVariantNbtBytes - target.totalVariantNbtBytes()
         );
-        List<Candidate> selected = selectWithinVariantBudget(
-                candidates,
-                remainingVariants,
-                remainingVariantNbtBytes
-        );
+        List<Candidate> selected = targetEndpointCount > 1
+                ? List.of()
+                : selectWithinVariantBudget(candidates, remainingVariants, remainingVariantNbtBytes);
         int estimatedFreedViews = selected.stream().mapToInt(Candidate::physicalViews).sum();
 
         long tick = accessor.getWorld() == null ? 0 : accessor.getWorld().getTime();
@@ -285,7 +283,9 @@ public final class TomNetworkAnalysis {
             TomNetworkIntrospection.NetworkParts parts = TomNetworkIntrospection.parts((Storage<ItemVariant>) merged);
             if (parts.physical().size() != 1 || parts.physical().get(0) != physical
                     || parts.digital().size() != 1 || parts.digital().get(0) != target
-                    || parts.rawDigital().size() != 1 || parts.rawDigital().get(0) != target) {
+                    || parts.rawDigital().size() != 2
+                    || TomNetworkIntrospection.digitalEndpointCount(parts.rawDigital(), target) != 2
+                    || TomNetworkIntrospection.duplicateDigitalEndpointCount(parts.rawDigital()) != 1) {
                 throw new IllegalStateException("Tom duplicate Volume prevention self-test failed");
             }
         } catch (ReflectiveOperationException exception) {

@@ -38,6 +38,8 @@
   "screen.digitalstorage.create_volume": "创建",
   "screen.digitalstorage.rename_volume": "重命名",
   "screen.digitalstorage.delete_volume": "删除",
+  "screen.digitalstorage.delete_volume.tooltip.empty": "删除这个空存储卷。此操作无法撤销。",
+  "screen.digitalstorage.delete_volume.tooltip.non_empty": "存储卷中仍有物品，请清空后再删除。",
   "screen.digitalstorage.bind_volume": "绑定 · %1$s · %2$s · %3$s",
   "screen.digitalstorage.volume_empty": "空 %1$s/%2$s",
   "screen.digitalstorage.volume_in_use": "已用 %1$s/%2$s",

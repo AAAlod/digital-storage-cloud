@@ -783,6 +783,10 @@ public final class DigitalItemStorageSelfTest {
             add.invoke(mergedStorage, alias);
             java.util.Collection<?> parts = (java.util.Collection<?>) getStorages.invoke(mergedStorage);
             expectEquals(1, parts.size(), "Tom MergedStorage Volume UUID deduplication");
+            dev.kehai.digitalstorage.optimization.TomDigitalEndpointTracker endpointTracker =
+                    (dev.kehai.digitalstorage.optimization.TomDigitalEndpointTracker) mergedStorage;
+            expectEquals(2, endpointTracker.digitalstorage$rawDigitalEndpoints().size(),
+                    "Tom pre-deduplication endpoint count");
 
             Object fallbackMerged = mergedStorageClass.getConstructor().newInstance();
             RejectingStorage rejecting = new RejectingStorage();
