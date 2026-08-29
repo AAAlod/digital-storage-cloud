@@ -273,9 +273,13 @@ public final class DigitalStorageCommands {
     }
 
     private static int reloadConfig(ServerCommandSource source) {
-        DigitalStorageConfig.load();
+        DigitalStorageConfig.LoadResult result = DigitalStorageConfig.reload();
+        if (!result.success()) {
+            source.sendError(Text.literal("Digital Storage config reload failed: " + result.message()));
+            return 0;
+        }
         ItemSecurityPolicy.reload();
-        source.sendFeedback(() -> Text.literal("Digital Storage config reloaded"), false);
+        source.sendFeedback(() -> Text.literal(result.message()), false);
         return 1;
     }
 

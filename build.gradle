@@ -1,6 +1,7 @@
 plugins {
     id 'fabric-loom' version "${loom_version}"
     id 'maven-publish'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 version = project.mod_version
@@ -77,11 +78,18 @@ repositories {
     mavenCentral()
 }
 
+configurations {
+    nightConfig
+    implementation.extendsFrom(nightConfig)
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    nightConfig "com.electronwill.night-config:core:${project.night_config_version}"
+    nightConfig "com.electronwill.night-config:toml:${project.night_config_version}"
 
     // Compile against the Tom's 1.7.1 compatibility baseline. The jar is not bundled.
     modCompileOnly files(tomCompileJar)
@@ -117,6 +125,22 @@ jar {
     from('LICENSE') {
         rename { "${it}_${project.base.archivesName.get()}" }
     }
+}
+
+shadowJar {
+    configurations = [project.configurations.nightConfig]
+    archiveClassifier = 'dev-shadow'
+    relocate 'com.electronwill.nightconfig', 'dev.kehai.digitalstorage.internal.nightconfig'
+    exclude 'module-info.class'
+    exclude 'META-INF/versions/**/module-info.class'
+    from('LICENSE') {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+}
+
+remapJar {
+    dependsOn shadowJar
+    inputFile = shadowJar.archiveFile
 }
 
 publishing {

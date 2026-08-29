@@ -1,0 +1,11 @@
+Digital Storage Cloud includes relocated NightConfig 3.9.0 core and TOML classes.
+
+NightConfig project: https://github.com/TheElectronWill/night-config
+NightConfig source tag: https://github.com/TheElectronWill/night-config/tree/v3.9.0
+License: GNU Lesser General Public License version 3.0 (LGPL-3.0)
+
+The NightConfig license text is retained at
+META-INF/licenses/NightConfig-LGPL-3.0.txt, with the incorporated GNU GPL v3
+terms at META-INF/licenses/GPL-3.0.txt. Exact corresponding source is available
+from the source tag above; this project's build.gradle records the dependency
+coordinates and reproducible package relocation.

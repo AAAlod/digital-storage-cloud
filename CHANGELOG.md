@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.12 - 2026-08-29
+
+- Replace the legacy JSON configuration with a documented, sectioned TOML file.
+- Automatically migrate existing `digitalstorage.json` values and archive the
+  original file after the new TOML configuration is safely written.
+- Preserve the last valid runtime configuration when `/digitalstorage
+  reloadconfig` encounters malformed TOML, and avoid rewriting unchanged files.
+- Tune new-install defaults toward stable server TPS with stronger hopper
+  backoff and lower per-tick migration and persistence budgets.
+
 ## 1.1.11 - 2026-08-29
 
 - Explain why non-empty storage volumes cannot be deleted with localized button
