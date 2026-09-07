@@ -16,6 +16,7 @@ import java.util.Set;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
 import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
+import net.fabricmc.fabric.api.transfer.v1.storage.StorageUtil;
 import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
 import net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext;
 import net.minecraft.item.Items;
@@ -48,6 +49,10 @@ public final class DigitalItemStorageSelfTest {
         oversizedVariantNbtIsMeasurableAndRejectable();
         aggregateVariantNbtBudgetIsTransactional();
         incrementalSnapshotRestartsAfterMutation();
+        incrementalSnapshotRestartsAfterProvisionalVariantRollback();
+        incrementalSnapshotTransactionMatrix();
+        incrementalSnapshotDiscardsPartialDataAfterUnexpectedIteratorFailure();
+        finalFlushAfterRollbackRoundTrips();
         continuouslyMutatingVolumeCannotStarvePersistence();
         agedDirtyVolumeForcesSnapshotCompletion();
         DigitalStorageConfig.runSelfTest();
@@ -442,6 +447,257 @@ public final class DigitalItemStorageSelfTest {
         } while (!progress.complete());
         long snapshotTotal = progress.snapshots().stream().mapToLong(DigitalItemStorage.StoredEntrySnapshot::amount).sum();
         expectEquals(10, snapshotTotal, "incremental snapshot did not restart after mutation");
+    }
+
+    private static void incrementalSnapshotRestartsAfterProvisionalVariantRollback() {
+        AtomicInteger dirtyCalls = new AtomicInteger();
+        DigitalItemStorage storage = new DigitalItemStorage(dirtyCalls::incrementAndGet, 8);
+        try (Transaction transaction = Transaction.openOuter()) {
+            storage.insert(ItemVariant.of(Items.STONE), 1, transaction);
+            storage.insert(ItemVariant.of(Items.DIRT), 2, transaction);
+            storage.insert(ItemVariant.of(Items.GRAVEL), 3, transaction);
+            transaction.commit();
+        }
+        long version = storage.contentVersion();
+        int dirty = dirtyCalls.get();
+        long nbtBytes = storage.totalVariantNbtBytes();
+        DigitalItemStorage.SnapshotCursor cursor = storage.snapshotCursor();
+        DigitalItemStorage.CursorProgress first = cursor.advance(1);
+        expectFalse(first.complete(), "rollback regression requires a retained iterator");
+        expectFalse(first.restarted(), "initial rollback snapshot reported a restart");
+        expectEquals(1, first.examinedEntries(), "rollback snapshot initial budget");
+        ItemVariant provisional = ItemVariant.of(Items.DIAMOND);
+        try (Transaction transaction = Transaction.openOuter()) {
+            expectEquals(7, storage.insert(provisional, 7, transaction), "provisional variant inserted");
+        }
+        expectEquals(version, storage.contentVersion(), "rollback changed committed content version");
+        expectEquals(dirty, dirtyCalls.get(), "rollback invoked dirty callback");
+        expectEquals(3, storage.variantCount(), "rollback restored variant count");
+        expectEquals(6, storage.totalItemCount(), "rollback restored item count");
+        expectEquals(nbtBytes, storage.totalVariantNbtBytes(), "rollback restored NBT bytes");
+        expectEquals(0, storage.amountOf(provisional), "rollback retained provisional variant");
+        DigitalItemStorage.CursorProgress progress = cursor.advance(1);
+        expectTrue(progress.restarted(), "provisional rollback did not restart invalidated iterator");
+        expectEquals(1, progress.examinedEntries(), "rollback must invalidate before next(), not just catch CME");
+        expectSnapshotMatches(storage, cursor, progress);
+    }
+
+    private static void expectSnapshotMatches(
+            DigitalItemStorage storage,
+            DigitalItemStorage.SnapshotCursor cursor,
+            DigitalItemStorage.CursorProgress progress
+    ) {
+        for (int step = 0; step < 32; step++) {
+            expectTrue(progress.examinedEntries() <= 1, "snapshot exceeded per-call variant budget");
+            if (progress.complete()) {
+                Map<ItemVariant, Long> expected = new HashMap<>();
+                storage.forEach(expected::put);
+                Map<ItemVariant, Long> actual = new HashMap<>();
+                for (DigitalItemStorage.StoredEntrySnapshot entry : progress.snapshots()) {
+                    ItemVariant variant = ItemVariant.fromNbt(entry.serializedVariant());
+                    expectFalse(actual.containsKey(variant), "snapshot duplicated a variant");
+                    actual.put(variant, entry.amount());
+                }
+                expectEquals(expected, actual, "snapshot differs from committed storage");
+                return;
+            }
+            progress = cursor.advance(1);
+            expectFalse(progress.restarted(), "unchanged storage restarted snapshot repeatedly");
+        }
+        throw new IllegalStateException("Snapshot did not finish within bounded regression steps");
+    }
+
+    private static void seedSnapshotStorage(DigitalItemStorage storage) {
+        try (Transaction transaction = Transaction.openOuter()) {
+            storage.insert(ItemVariant.of(Items.STONE), 1, transaction);
+            storage.insert(ItemVariant.of(Items.DIRT), 2, transaction);
+            storage.insert(ItemVariant.of(Items.GRAVEL), 3, transaction);
+            transaction.commit();
+        }
+    }
+
+    private enum SnapshotMutation {
+        ABORT_INSERT, COMMIT_INSERT, COMMIT_REMOVE, ABORT_EXTRACT,
+        SIMULATE_INSERT, HOPPER_ROLLBACK, NESTED_COMMIT_OUTER_ABORT, LOAD_NEW_ENTRY
+    }
+
+    private static void mutateSnapshotStorage(DigitalItemStorage storage, SnapshotMutation mutation) {
+        ItemVariant diamond = ItemVariant.of(Items.DIAMOND);
+        ItemVariant stone = ItemVariant.of(Items.STONE);
+        try (Transaction transaction = Transaction.openOuter()) {
+            switch (mutation) {
+                case ABORT_INSERT, COMMIT_INSERT -> {
+                    expectEquals(7, storage.insert(diamond, 7, transaction), "matrix new variant insert");
+                    if (mutation == SnapshotMutation.COMMIT_INSERT) {
+                        transaction.commit();
+                    }
+                }
+                case COMMIT_REMOVE, ABORT_EXTRACT -> {
+                    expectEquals(1, storage.extract(stone, 1, transaction), "matrix extract to zero");
+                    if (mutation == SnapshotMutation.COMMIT_REMOVE) {
+                        transaction.commit();
+                    }
+                }
+                case SIMULATE_INSERT -> {
+                    expectEquals(7, StorageUtil.simulateInsert(storage, diamond, 7, transaction),
+                            "matrix simulated new variant insert");
+                    transaction.commit();
+                }
+                case HOPPER_ROLLBACK -> {
+                    DigitalItemStorage source = storageWith(diamond, 2);
+                    NoIterationStorage wrappedSource = new NoIterationStorage(source);
+                    expectEquals(0, HopperTransferOptimizer.moveExact(wrappedSource, storage, diamond, 7, transaction),
+                            "insufficient hopper source must abort nested insert");
+                    expectEquals(1, wrappedSource.extractCalls, "hopper rollback reached source extraction");
+                    expectEquals(2, source.amountOf(diamond), "hopper rollback restored source items");
+                    expectEquals(0, source.contentVersion(), "hopper rollback committed source mutation");
+                    transaction.commit();
+                }
+                case NESTED_COMMIT_OUTER_ABORT -> {
+                    try (Transaction nested = transaction.openNested()) {
+                        expectEquals(7, storage.insert(diamond, 7, nested), "nested provisional insert");
+                        nested.commit();
+                    }
+                }
+                case LOAD_NEW_ENTRY -> storage.load(diamond, 7);
+            }
+        }
+    }
+
+    private static void incrementalSnapshotTransactionMatrix() {
+        for (SnapshotMutation mutation : SnapshotMutation.values()) {
+            AtomicInteger dirtyCalls = new AtomicInteger();
+            DigitalItemStorage storage = new DigitalItemStorage(dirtyCalls::incrementAndGet, 8);
+            seedSnapshotStorage(storage);
+            long version = storage.contentVersion();
+            int dirty = dirtyCalls.get();
+            DigitalItemStorage.SnapshotCursor cursor = storage.snapshotCursor();
+            expectFalse(cursor.advance(1).complete(), "matrix requires partial scan: " + mutation);
+            mutateSnapshotStorage(storage, mutation);
+            boolean committed = mutation == SnapshotMutation.COMMIT_INSERT || mutation == SnapshotMutation.COMMIT_REMOVE;
+            expectEquals(version + (committed ? 1 : 0), storage.contentVersion(), "matrix content version: " + mutation);
+            expectEquals(dirty + (committed ? 1 : 0), dirtyCalls.get(), "matrix dirty callbacks: " + mutation);
+            Map<ItemVariant, Long> expected = new HashMap<>();
+            expected.put(ItemVariant.of(Items.STONE), 1L);
+            expected.put(ItemVariant.of(Items.DIRT), 2L);
+            expected.put(ItemVariant.of(Items.GRAVEL), 3L);
+            if (mutation == SnapshotMutation.COMMIT_INSERT || mutation == SnapshotMutation.LOAD_NEW_ENTRY) {
+                expected.put(ItemVariant.of(Items.DIAMOND), 7L);
+            } else if (mutation == SnapshotMutation.COMMIT_REMOVE) {
+                expected.remove(ItemVariant.of(Items.STONE));
+            }
+            expectStorageMatches(expected, storage, "matrix " + mutation);
+            DigitalItemStorage.CursorProgress zeroBudget = cursor.advance(0);
+            expectEquals(0, zeroBudget.examinedEntries(), "zero budget performed work");
+            expectFalse(zeroBudget.restarted(), "zero budget consumed invalidation");
+            DigitalItemStorage.CursorProgress progress = cursor.advance(1);
+            expectEquals(mutation != SnapshotMutation.ABORT_EXTRACT, progress.restarted(),
+                    "matrix restart semantics: " + mutation);
+            expectEquals(1, progress.examinedEntries(), "matrix must detect invalidation before iteration: " + mutation);
+            expectSnapshotMatches(storage, cursor, progress);
+            // A completed cursor must invalidate too, without publishing stale data.
+            mutateSnapshotStorage(storage, SnapshotMutation.ABORT_INSERT);
+            progress = cursor.advance(1);
+            boolean newKey = !expected.containsKey(ItemVariant.of(Items.DIAMOND));
+            expectEquals(newKey, progress.restarted(), "completed cursor restart: " + mutation);
+            expectSnapshotMatches(storage, cursor, progress);
+        }
+    }
+
+    private static void expectStorageMatches(Map<ItemVariant, Long> expected, DigitalItemStorage storage, String label) {
+        Map<ItemVariant, Long> actual = new HashMap<>();
+        storage.forEach(actual::put);
+        expectEquals(expected, actual, label + " item ledger");
+        expectEquals(expected.size(), storage.variantCount(), label + " variant metric");
+        expectEquals(expected.values().stream().mapToLong(Long::longValue).sum(), storage.totalItemCount(),
+                label + " item metric");
+        expectEquals(expected.keySet().stream().mapToLong(variant -> variant.toNbt().getSizeInBytes()).sum(),
+                storage.totalVariantNbtBytes(), label + " NBT metric");
+    }
+
+    private static void incrementalSnapshotDiscardsPartialDataAfterUnexpectedIteratorFailure() {
+        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, 8);
+        seedSnapshotStorage(storage);
+        DigitalItemStorage.SnapshotCursor cursor = storage.snapshotCursor();
+        cursor.advance(1);
+        try {
+            // Inject an untracked iterator failure after one more entry was copied.
+            // No production hook or intentional corruption of the live ledger is needed.
+            java.lang.reflect.Field field = cursor.getClass().getDeclaredField("iterator");
+            field.setAccessible(true);
+            Iterator<?> delegate = (Iterator<?>) field.get(cursor);
+            field.set(cursor, new Iterator<Object>() {
+                private int reads;
+
+                @Override
+                public boolean hasNext() {
+                    return true;
+                }
+
+                @Override
+                public Object next() {
+                    if (reads++ == 0) {
+                        return delegate.next();
+                    }
+                    throw new java.util.ConcurrentModificationException("Injected untracked mutation");
+                }
+            });
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Could not inject iterator failure", exception);
+        }
+        DigitalItemStorage.CursorProgress failed = cursor.advance(2);
+        expectTrue(failed.restarted(), "defensive failure was not reported to scheduler");
+        expectFalse(failed.complete(), "defensive failure published an incomplete snapshot");
+        expectTrue(failed.snapshots().isEmpty(), "defensive failure exposed partial data");
+        expectEquals(1, failed.examinedEntries(), "defensive failure lost consumed budget");
+        expectSnapshotMatches(storage, cursor, cursor.advance(1));
+    }
+
+    private static void finalFlushAfterRollbackRoundTrips() {
+        for (SnapshotMutation mutation : new SnapshotMutation[] {
+                SnapshotMutation.ABORT_INSERT, SnapshotMutation.SIMULATE_INSERT,
+                SnapshotMutation.HOPPER_ROLLBACK, SnapshotMutation.NESTED_COMMIT_OUTER_ABORT
+        }) {
+            for (boolean closeDirectly : new boolean[] { false, true }) {
+                java.nio.file.Path root = temporaryStorageDirectory("snapshot-final-flush");
+                DigitalStorageState state = DigitalStorageState.openForTest(root);
+                boolean closed = false;
+                try {
+                    StorageVolume volume = state.createVolume(java.util.UUID.randomUUID(), "Rollback", 1).orElseThrow();
+                    DigitalItemStorage storage = volume.record().storage();
+                    seedSnapshotStorage(storage);
+                    // Persist account metadata before the test-only drain discards its batch.
+                    state.flushAndWaitForTest();
+                    try (Transaction transaction = Transaction.openOuter()) {
+                        storage.insert(ItemVariant.of(Items.DIRT), 10, transaction);
+                        transaction.commit();
+                    }
+                    expectTrue(state.drainVolumeSnapshotsForTest(1, 1).isEmpty(), "final flush requires a retained cursor");
+                    mutateSnapshotStorage(storage, mutation);
+                    Map<ItemVariant, Long> expected = new HashMap<>();
+                    storage.forEach(expected::put);
+                    if (!closeDirectly) {
+                        state.flushAndWaitForTest();
+                        expectEquals(0, state.dirtyVolumeCount(), "final flush left a dirty volume");
+                        expectEquals(0, state.pendingWriteBatches(), "final flush left writer work pending");
+                    }
+                    state.closeForTest();
+                    closed = true;
+                    DigitalStorageState restored = DigitalStorageState.openForTest(root);
+                    try {
+                        expectStorageMatches(expected, restored.volume(volume.id()).orElseThrow().record().storage(),
+                                "final flush round-trip " + mutation + "/close=" + closeDirectly);
+                    } finally {
+                        restored.closeForTest();
+                    }
+                } finally {
+                    if (!closed) {
+                        state.closeForTest();
+                    }
+                    deleteTemporaryStorageDirectory(root);
+                }
+            }
+        }
     }
 
     private static void continuouslyMutatingVolumeCannotStarvePersistence() {

@@ -890,6 +890,12 @@ public final class DigitalStorageState {
     }
 
     private void flushAndWait() {
+        synchronized (this) {
+            // Final flush starts from live storage, including after a failed tick.
+            // Keep dirty records and writer ordering; discard only partial scans.
+            volumeSnapshotCursors.clear();
+            volumeSnapshotRestarts.clear();
+        }
         flushRequested = true;
         for (int attempt = 1; attempt <= 4; attempt++) {
             flushAsync(Integer.MAX_VALUE, Integer.MAX_VALUE);

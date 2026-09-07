@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.13 - 2026-09-07
+
+- Fix incremental persistence snapshots crashing after a provisional item variant
+  is inserted and rolled back, including simulated insertion and failed hopper
+  transfers. Track map structure separately from committed content versions.
+- Discard partial snapshots after an unexpected iterator failure and rebuild
+  pending snapshots for final flush/shutdown without changing the storage format.
+- Add regression coverage for transaction invalidation, snapshot budgets, nested
+  hopper rollback, defensive recovery, and final-flush file round trips.
+
 ## 1.1.12 - 2026-08-29
 
 - Replace the legacy JSON configuration with a documented, sectioned TOML file.

@@ -1,6 +1,7 @@
 package dev.kehai.digitalstorage.storage;
 
 import java.util.ArrayList;
+import java.util.ConcurrentModificationException;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -39,6 +40,9 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
     private long totalItemCount;
     private long totalVariantNbtBytes;
     private long contentVersion;
+    // Unlike committed contentVersion, this also tracks provisional insert/rollback.
+    // A restored key set does not restore a HashMap iterator's modCount.
+    private long structureVersion;
 
     public DigitalItemStorage(Runnable dirtyCallback, int variantCapacity) {
         this(null, dirtyCallback, () -> variantCapacity, () -> Long.MAX_VALUE, variant -> true, variant -> true);
@@ -125,6 +129,7 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
             long newVariantNbtBytes = checkedVariantNbtTotal(variantNbtBytes);
             long newItemCount = checkedAdd(totalItemCount, amount);
             entries.put(resource, new Entry(resource, amount, storedVariant, variantNbtBytes));
+            structureVersion++;
             variantCount++;
             totalItemCount = newItemCount;
             totalVariantNbtBytes = newVariantNbtBytes;
@@ -159,6 +164,7 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
             }
             entry = new Entry(resource, 0, serializedVariant, variantNbtBytes);
             entries.put(resource, entry);
+            structureVersion++;
         }
 
         long availableSpace = Math.max(0, MAX_AMOUNT_PER_VARIANT - entry.amount);
@@ -277,15 +283,18 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
         private Iterator<Entry> iterator;
         private List<StoredEntrySnapshot> snapshots;
         private long expectedVersion = Long.MIN_VALUE;
+        private long expectedStructureVersion;
         private boolean complete;
 
         CursorProgress advance(int maximumEntries) {
             if (maximumEntries <= 0) {
                 return new CursorProgress(false, false, 0, List.of());
             }
-            boolean restarted = expectedVersion != Long.MIN_VALUE && expectedVersion != contentVersion;
-            if (expectedVersion != contentVersion) {
+            boolean invalidated = expectedVersion != contentVersion || expectedStructureVersion != structureVersion;
+            boolean restarted = iterator != null && invalidated;
+            if (iterator == null || invalidated) {
                 expectedVersion = contentVersion;
+                expectedStructureVersion = structureVersion;
                 iterator = entries.values().iterator();
                 snapshots = new ArrayList<>(variantCount);
                 complete = false;
@@ -295,16 +304,25 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
             }
 
             int examined = 0;
-            while (examined < maximumEntries && iterator.hasNext()) {
-                Entry entry = iterator.next();
-                examined++;
-                if (entry.amount > 0) {
-                    snapshots.add(new StoredEntrySnapshot(entry.serializedVariant, entry.amount));
+            try {
+                while (examined < maximumEntries && iterator.hasNext()) {
+                    Entry entry = iterator.next();
+                    examined++;
+                    if (entry.amount > 0) {
+                        snapshots.add(new StoredEntrySnapshot(entry.serializedVariant, entry.amount));
+                    }
                 }
-            }
-            if (!iterator.hasNext()) {
-                snapshots = List.copyOf(snapshots);
-                complete = true;
+                if (!iterator.hasNext()) {
+                    snapshots = List.copyOf(snapshots);
+                    complete = true;
+                }
+            } catch (ConcurrentModificationException exception) {
+                // Last-resort protection for an untracked structural mutation. Never
+                // publish partial data or retry unbounded work in the same tick.
+                iterator = null;
+                snapshots = null;
+                complete = false;
+                return new CursorProgress(false, true, examined, List.of());
             }
             return new CursorProgress(complete, restarted, examined, complete ? snapshots : List.of());
         }
@@ -331,15 +349,15 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
         @Override
         protected void readSnapshot(Long snapshot) {
             amount = snapshot;
-            if (amount == 0) {
-                entries.remove(resource, this);
+            if (amount == 0 && entries.remove(resource, this)) {
+                structureVersion++;
             }
         }
 
         @Override
         protected void onFinalCommit() {
-            if (amount == 0) {
-                entries.remove(resource, this);
+            if (amount == 0 && entries.remove(resource, this)) {
+                structureVersion++;
             }
             dirtyCallback.run();
         }
