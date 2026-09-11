@@ -10,6 +10,7 @@
     "AbstractInventoryHopperBlockEntityMixin",
     "BasicInventoryHopperBlockEntityMixin",
     "InventoryConnectorBlockEntityMixin",
+    "SidedInventoryStorageMixin",
     "MergedStorageMixin"
   ],
   "injectors": {

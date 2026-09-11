@@ -56,6 +56,7 @@ public final class TomNetworkCache {
         }
 
         TomNetworkIntrospection.NetworkParts parts = TomNetworkIntrospection.parts(network, rawDigitalSnapshot);
+        entry.structure = structure(parts);
         List<WeakReference<Storage<ItemVariant>>> physicalReferences = weakReferences(parts.physical());
         List<WeakReference<DigitalItemStorage>> digitalReferences = weakDigitalReferences(parts.digital());
         List<WeakReference<DigitalItemStorage>> rawDigitalReferences = weakDigitalReferences(parts.rawDigital());
@@ -86,6 +87,29 @@ public final class TomNetworkCache {
     public static void invalidate(BlockEntity connector) {
         Entry entry = ENTRIES.computeIfAbsent(connector, Entry::new);
         invalidateEntry(entry, "network changed");
+    }
+
+    /** Called after Tom rebuilds, and shared with the migration regression tests. */
+    public static void rebuilt(BlockEntity connector, Storage<ItemVariant> network) {
+        Entry entry = ENTRIES.get(connector);
+        if (entry == null || entry.topology == null) {
+            return;
+        }
+        Map<Object, Integer> current = structure(TomNetworkIntrospection.parts(network));
+        if (!current.equals(entry.structure)) {
+            invalidateEntry(entry, "network changed");
+        }
+    }
+
+    private static Map<Object, Integer> structure(TomNetworkIntrospection.NetworkParts parts) {
+        Map<Object, Integer> keys = new java.util.HashMap<>();
+        for (Storage<ItemVariant> storage : parts.physical()) {
+            keys.merge(TomStorageIdentity.key(storage), 1, Integer::sum);
+        }
+        for (DigitalItemStorage storage : parts.rawDigital()) {
+            keys.merge(TomStorageIdentity.key(storage), 1, Integer::sum);
+        }
+        return keys;
     }
 
     static NetworkIdentity networkFor(Storage<ItemVariant> storage) {
@@ -164,6 +188,21 @@ public final class TomNetworkCache {
             Token sourceToken = sourceTopology.token();
             if (!isCurrent(sourceToken) || sourceTopology.physicalEndpoints().size() != 1) {
                 throw new IllegalStateException("Tom lifecycle self-test could not create a current source endpoint");
+            }
+            var first = InventoryStorage.of(new net.minecraft.inventory.SimpleInventory(27), null);
+            var second = InventoryStorage.of(new net.minecraft.inventory.SimpleInventory(27), null);
+            var chest = new net.fabricmc.fabric.api.transfer.v1.storage.base.CombinedStorage<ItemVariant, Storage<ItemVariant>>(
+                    List.of(first, second));
+            var replacedChest = new net.fabricmc.fabric.api.transfer.v1.storage.base.CombinedStorage<ItemVariant, Storage<ItemVariant>>(
+                    List.of(first, second));
+            if (!TomStorageIdentity.key(chest).equals(TomStorageIdentity.key(replacedChest))
+                    || TomStorageIdentity.key(first).equals(TomStorageIdentity.key(second))) {
+                throw new IllegalStateException("Double chest identity/replaced inventory regression failed");
+            }
+            var changedChest = new net.fabricmc.fabric.api.transfer.v1.storage.base.CombinedStorage<ItemVariant, Storage<ItemVariant>>(
+                    List.of(first, InventoryStorage.of(new net.minecraft.inventory.SimpleInventory(27), null)));
+            if (TomStorageIdentity.key(chest).equals(TomStorageIdentity.key(changedChest))) {
+                throw new IllegalStateException("Replaced double chest half retained its identity");
             }
             invalidateStorage(source, "inventory unloaded");
             invalidate(connector);
@@ -283,6 +322,7 @@ public final class TomNetworkCache {
         boolean wasCurrent = entry.topology != null;
         entry.version++;
         entry.topology = null;
+        entry.structure = Map.of();
         if (wasCurrent || entry.invalidationDetail.isEmpty()) {
             entry.invalidationDetail = detail;
         }
@@ -438,6 +478,7 @@ public final class TomNetworkCache {
         private final NetworkIdentity identity;
         private long version;
         private Topology topology;
+        private Map<Object, Integer> structure = Map.of();
         private String invalidationDetail = "";
         private List<WeakReference<Storage<ItemVariant>>> registeredStorages = List.of();
 

@@ -173,7 +173,102 @@ public final class TomMigrationManager {
         if (rejected.moved != 0 || rejected.operations != 2 || rollbackSource.amountOf(stone) != 32) {
             throw new IllegalStateException("Tom migration rollback self-test failed");
         }
+        DigitalItemStorage partialTarget = new DigitalItemStorage(() -> { }, 64);
+        partialTarget.load(stone, DigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 10);
+        MoveResult partial = Job.moveView(rollbackView, partialTarget, stone, 32);
+        if (partial.moved != 0 || rollbackSource.amountOf(stone) != 32
+                || partialTarget.amountOf(stone) != DigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 10) {
+            throw new IllegalStateException("Tom migration partial insertion did not roll back both sides");
+        }
         TomNetworkCache.runSelfTest();
+        for (int slots : new int[] {3_000, 10_000, 20_001}) {
+            rebuildMigrationSelfTest(slots);
+        }
+    }
+
+    private static void rebuildMigrationSelfTest(int slots) {
+        var connector = new DigitalStorageAccessorBlockEntity(BlockPos.ORIGIN,
+                dev.kehai.digitalstorage.DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR.getDefaultState());
+        var inventory = new MigrationInventory(slots);
+        inventory.setStack(0, new net.minecraft.item.ItemStack(net.minecraft.item.Items.STONE, 64));
+        inventory.setStack(slots - 1, new net.minecraft.item.ItemStack(net.minecraft.item.Items.STONE, 32));
+        var network = new com.tom.storagemod.util.MergedStorage();
+        Storage<ItemVariant> original = net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(
+                inventory, net.minecraft.util.math.Direction.UP);
+        network.add(original);
+        var topology = TomNetworkCache.topology(connector, network);
+        var record = dev.kehai.digitalstorage.storage.DigitalStorageRecord.createNew(() -> { });
+        var job = new Job(UUID.randomUUID(), UUID.randomUUID(), World.OVERWORLD, BlockPos.ORIGIN,
+                List.of(ItemVariant.of(net.minecraft.item.Items.STONE)), 2, topology.token(), topology.physicalEndpoints());
+        State result = State.RUNNING;
+        int ticks = 0;
+        try {
+            while (result == State.RUNNING && ticks < 300) {
+                if (++ticks % 20 == 0) {
+                    var replacement = net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(
+                            inventory, net.minecraft.util.math.Direction.UP);
+                    if (replacement == original || !TomStorageIdentity.key(original).equals(TomStorageIdentity.key(replacement))) {
+                        throw new IllegalStateException("Sided wrapper churn fixture/identity failed");
+                    }
+                    network.clear();
+                    network.add(replacement);
+                    TomNetworkCache.rebuilt(connector, network);
+                }
+                long previous = job.scannedViews;
+                result = job.tick(record, 128);
+                if (job.scannedViews - previous > 128) {
+                    throw new IllegalStateException("Migration exceeded its empty-slot scan budget");
+                }
+            }
+            if (result != State.COMPLETE || ticks <= 20 || job.scannedViews != slots
+                    || job.movedItems != 96 || !inventory.isEmpty()
+                    || record.storage().amountOf(ItemVariant.of(net.minecraft.item.Items.STONE)) != 96) {
+                throw new IllegalStateException("Bulk migration rebuild regression failed: " + slots + "/" + result);
+            }
+            dev.kehai.digitalstorage.DigitalStorageMod.LOGGER.info(
+                    "Bulk migration regression passed: views={}, ticks={}, rebuilds={}, moved={}, budget=128, state={}",
+                    slots, ticks, ticks / 20, job.movedItems, result);
+            // Same endpoint count but changed side or exposed slot set must invalidate.
+            network.clear();
+            network.add(net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(inventory, net.minecraft.util.math.Direction.DOWN));
+            TomNetworkCache.rebuilt(connector, network);
+            if (TomNetworkCache.isCurrent(topology.token()) || job.tick(record, 128) != State.STOPPED) {
+                throw new IllegalStateException("Migration accepted a changed access direction");
+            }
+            var sideTopology = TomNetworkCache.topology(connector, network);
+            inventory.limit = slots - 1;
+            network.clear();
+            network.add(net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(inventory, net.minecraft.util.math.Direction.DOWN));
+            TomNetworkCache.rebuilt(connector, network);
+            if (TomNetworkCache.isCurrent(sideTopology.token())) {
+                throw new IllegalStateException("Migration accepted changed exposed slots");
+            }
+            var removedTopology = TomNetworkCache.topology(connector, network);
+            network.clear();
+            TomNetworkCache.rebuilt(connector, network);
+            if (TomNetworkCache.isCurrent(removedTopology.token())) {
+                throw new IllegalStateException("Migration accepted removed endpoint");
+            }
+            var emptyTopology = TomNetworkCache.topology(connector, network);
+            network.add(original);
+            TomNetworkCache.rebuilt(connector, network);
+            if (TomNetworkCache.isCurrent(emptyTopology.token())) {
+                throw new IllegalStateException("Migration accepted added endpoint");
+            }
+        } finally {
+            TomNetworkCache.invalidate(connector);
+        }
+    }
+
+    private static final class MigrationInventory extends net.minecraft.inventory.SimpleInventory
+            implements net.minecraft.inventory.SidedInventory {
+        private int limit;
+        private MigrationInventory(int size) { super(size); limit = size; }
+        @Override public int[] getAvailableSlots(net.minecraft.util.math.Direction side) {
+            return java.util.stream.IntStream.range(0, limit).toArray();
+        }
+        @Override public boolean canInsert(int slot, net.minecraft.item.ItemStack stack, net.minecraft.util.math.Direction side) { return true; }
+        @Override public boolean canExtract(int slot, net.minecraft.item.ItemStack stack, net.minecraft.util.math.Direction side) { return true; }
     }
 
     static long benchmarkMoveView(
@@ -232,6 +327,9 @@ public final class TomMigrationManager {
         private final int estimatedFreedViews;
         private final TomNetworkCache.Token topology;
         private final List<TomNetworkCache.Endpoint> sources;
+        // Equivalent wrappers can disappear from Tom's handlers during a rebuild.
+        // Keep their canonical transactional views alive until this job finishes.
+        private final List<Storage<ItemVariant>> sourceHandles;
         private final Set<ItemVariant> migratedVariants = new HashSet<>();
         private long movedItems;
         private int sourceIndex;
@@ -260,15 +358,20 @@ public final class TomMigrationManager {
             this.estimatedFreedViews = estimatedFreedViews;
             this.topology = topology;
             this.sources = List.copyOf(sources);
+            this.sourceHandles = sources.stream().map(endpoint -> endpoint.resolve(topology)).toList();
         }
 
         private State tick(DigitalStorageAccessorBlockEntity accessor, int viewBudget) {
-            DigitalItemStorage target = accessor.getCanonicalStorage();
+            return tick(accessor.getRecord(), viewBudget);
+        }
+
+        private State tick(dev.kehai.digitalstorage.storage.DigitalStorageRecord record, int viewBudget) {
+            DigitalItemStorage target = record == null ? null : record.storage();
             if (target == null) {
                 stopDetail = "target unavailable";
                 return State.STOPPED;
             }
-        if (!TomNetworkCache.isCurrent(topology)) {
+            if (!TomNetworkCache.isCurrent(topology)) {
                 stopDetail = TomNetworkCache.staleDetail(topology);
                 return State.STOPPED;
             }
@@ -281,7 +384,7 @@ public final class TomMigrationManager {
                         }
                         return blocked ? State.STOPPED : State.COMPLETE;
                     }
-                    Storage<ItemVariant> source = sources.get(sourceIndex++).resolve(topology);
+                    Storage<ItemVariant> source = sourceHandles.get(sourceIndex++);
                     if (source == null) {
                         stopDetail = "inventory unloaded";
                         return State.STOPPED;
@@ -300,8 +403,8 @@ public final class TomMigrationManager {
                 }
                 ItemVariant variant = view.getResource();
                 boolean exists = target.amountOf(variant) > 0;
-                if (!accessor.getRecord().canInsert(variant)
-                        || (!exists && target.variantCount() >= accessor.getRecord().variantCapacity())) {
+                if (!record.canInsert(variant)
+                        || (!exists && target.variantCount() >= record.variantCapacity())) {
                     blocked = true;
                     continue;
                 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.14 - 2026-09-11
+
+- Keep bulk migrations running across Tom's periodic rebuilds when Fabric sided
+  inventory wrappers or transparent double-chest containers are replaced without
+  changing their underlying slots or access direction. Unknown storage wrappers
+  still invalidate conservatively; real endpoint changes still stop migration.
+- Retain migration source handles for the job lifetime and preserve the per-tick
+  scan budget, including empty slots, and transactional rollback protection.
+
 ## 1.1.13 - 2026-09-07
 
 - Fix incremental persistence snapshots crashing after a provisional item variant
