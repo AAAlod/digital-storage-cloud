@@ -3,6 +3,6 @@
   "minVersion": "0.8",
   "package": "dev.kehai.digitalstorage.forge.mixin",
   "compatibilityLevel": "JAVA_17",
-  "mixins": ["MultiItemHandlerMixin", "FilteredInventoryHandlerMixin", "BasicInventoryHopperTelemetryMixin"],
+  "mixins": ["MultiItemHandlerMixin", "FilteredInventoryHandlerMixin", "BasicInventoryHopperTelemetryMixin", "BasicInventoryHopperStateMixin"],
   "injectors": { "defaultRequire": 1 }
 }
