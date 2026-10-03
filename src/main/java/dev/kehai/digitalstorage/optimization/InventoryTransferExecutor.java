@@ -8,6 +8,15 @@ import dev.kehai.digitalstorage.storage.VolumeLedger;
 public interface InventoryTransferExecutor {
     MoveResult move(InventoryEndpoint.View source, VolumeLedger target, ItemKey resource, long maximum);
 
-    record MoveResult(long moved, int operations) {
+    record MoveResult(long moved, int operations, String stopDetail, boolean revisitSource) {
+        public MoveResult(long moved, int operations) { this(moved, operations, "", false); }
+        public MoveResult(long moved, int operations, String stopDetail) { this(moved, operations, stopDetail, false); }
+        public MoveResult {
+            if (moved < 0 || operations < 0) throw new IllegalArgumentException("Negative transfer settlement count");
+            java.util.Objects.requireNonNull(stopDetail);
+            if (revisitSource && (moved == 0 || !stopDetail.isEmpty())) {
+                throw new IllegalArgumentException("Repeated source needs progress and an active transfer");
+            }
+        }
     }
 }

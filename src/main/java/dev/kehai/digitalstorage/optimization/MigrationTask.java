@@ -20,6 +20,7 @@ public final class MigrationTask {
     private final InventoryTransferExecutor executor;
     private final Set<ItemKey> migrated = new HashSet<>();
     private Iterator<InventoryEndpoint.View> currentViews = Collections.emptyIterator();
+    private InventoryEndpoint.View pendingView;
     private int sourceIndex;
     private long movedItems;
     private long scannedViews;
@@ -49,7 +50,7 @@ public final class MigrationTask {
         VolumeLedger target = record.storage();
         int scannedThisTick = 0;
         while (scannedThisTick < viewBudget) {
-            while (!currentViews.hasNext()) {
+            while (pendingView == null && !currentViews.hasNext()) {
                 if (sourceIndex >= sourceHandles.size()) {
                     if (blocked) stopDetail = "target full or inventory changed";
                     return blocked ? State.STOPPED : State.COMPLETE;
@@ -61,7 +62,8 @@ public final class MigrationTask {
                 }
                 currentViews = source.supportsExtraction() ? source.iterator() : Collections.emptyIterator();
             }
-            InventoryEndpoint.View view = currentViews.next();
+            InventoryEndpoint.View view = pendingView == null ? currentViews.next() : pendingView;
+            pendingView = null;
             scannedThisTick++;
             scannedViews++;
             if (view.isBlank() || view.amount() <= 0) continue;
@@ -85,6 +87,14 @@ public final class MigrationTask {
             } else if (move.operations() > 0) {
                 blocked = true;
             }
+            if (!move.stopDetail().isEmpty()) {
+                stopDetail = move.stopDetail();
+                return State.STOPPED;
+            }
+            // Forge extraction is stack-sized even when one physical slot
+            // reports a larger count. Revisit it within the same view budget,
+            // rather than treating a partial batch as a completed source slot.
+            if (move.revisitSource()) pendingView = view;
         }
         return State.RUNNING;
     }

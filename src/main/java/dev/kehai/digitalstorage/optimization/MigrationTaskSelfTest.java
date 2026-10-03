@@ -79,6 +79,72 @@ public final class MigrationTaskSelfTest {
         if (forbidden.tick(record, 128) != MigrationTask.State.STOPPED || forbidden.movedItems() != 0) {
             throw new IllegalStateException("Shared migration ignored target policy");
         }
+        settlementStopRetainsProgress(token, stone);
+        boundedBatchesRevisitTheSameSource(token, stone);
+    }
+
+    private static void boundedBatchesRevisitTheSameSource(TestToken token, ItemKey resource) {
+        var record = DigitalStorageRecord.createNew(() -> { });
+        TestView first = new TestView(resource, 160);
+        TestView second = new TestView(resource, 10);
+        var task = new MigrationTask(List.of(resource), 2, token,
+                List.of(() -> endpoint(true, List.of(first, second))), (view, target, key, maximum) -> {
+                    var current = (TestView) view;
+                    long requested = Math.min(32, Math.min(maximum, current.amount));
+                    try (LedgerTransaction transaction = LedgerTransaction.open()) {
+                        if (target.insert(key, requested, transaction) != requested) {
+                            throw new IllegalStateException("Batch fixture insertion failed");
+                        }
+                        transaction.commit();
+                    }
+                    current.amount -= requested;
+                    return new InventoryTransferExecutor.MoveResult(requested, 2, "", current.amount > 0);
+                });
+        var state = task.tick(record, 3);
+        if (state != MigrationTask.State.RUNNING || task.movedItems() != 96 || first.amount != 64 || second.amount != 10) {
+            throw new IllegalStateException("Partial source batch was skipped or ignored the per-tick budget");
+        }
+        int ticks = 1;
+        while (state == MigrationTask.State.RUNNING && ticks++ < 5) {
+            long before = task.scannedViews();
+            state = task.tick(record, 3);
+            if (task.scannedViews() - before > 3) throw new IllegalStateException("Repeated source bypassed scan budget");
+        }
+        if (state != MigrationTask.State.COMPLETE || ticks != 3 || task.scannedViews() != 6
+                || task.movedItems() != 170 || first.amount != 0 || second.amount != 0
+                || record.storage().amountOf(resource) != 170 || task.status(12, state, "").inventoryOperations() != 12) {
+            throw new IllegalStateException("Bounded source batches did not finish with conserved quantities");
+        }
+    }
+
+    private static void settlementStopRetainsProgress(TestToken token, ItemKey resource) {
+        var record = DigitalStorageRecord.createNew(() -> { });
+        TestView first = new TestView(resource, 8);
+        TestView second = new TestView(resource, 8);
+        var task = new MigrationTask(List.of(resource), 2, token,
+                List.of(() -> endpoint(true, List.of(first, second))), (view, target, key, maximum) -> {
+                    try (LedgerTransaction transaction = LedgerTransaction.open()) {
+                        if (target.insert(key, 3, transaction) != 3) throw new IllegalStateException("Settlement fixture insertion failed");
+                        transaction.commit();
+                    }
+                    ((TestView) view).amount -= 3;
+                    return new InventoryTransferExecutor.MoveResult(3, 2, "transfer requires recovery");
+                });
+        var state = task.tick(record, 128);
+        var status = task.status(7, state, task.stopDetail());
+        if (state != MigrationTask.State.STOPPED || task.movedItems() != 3 || task.scannedViews() != 1
+                || record.storage().amountOf(resource) != 3 || first.amount != 5 || second.amount != 8
+                || status.inventoryOperations() != 2 || status.completedCandidates() != 1
+                || !status.detail().equals("transfer requires recovery")) {
+            throw new IllegalStateException("Settlement stop lost confirmed progress or continued to another source view");
+        }
+        var held = new MigrationTask(List.of(resource), 1, token,
+                List.of(() -> endpoint(true, List.of(second))),
+                (view, target, key, maximum) -> new InventoryTransferExecutor.MoveResult(0, 2, "returned items held"));
+        if (held.tick(record, 128) != MigrationTask.State.STOPPED || held.movedItems() != 0
+                || !held.stopDetail().equals("returned items held") || second.amount != 8) {
+            throw new IllegalStateException("Held recovery items were counted as target settlement");
+        }
     }
 
     private static InventoryTransferExecutor settledExecutor() {
