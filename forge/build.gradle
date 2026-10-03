@@ -1,5 +1,6 @@
 plugins {
     id 'net.minecraftforge.gradle' version '6.0.54'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 def product = new Properties()
@@ -12,12 +13,26 @@ java {
     toolchain.languageVersion = JavaLanguageVersion.of(17)
     withSourcesJar()
 }
-minecraft { mappings channel: 'official', version: product.minecraft_version }
+minecraft {
+    mappings channel: 'official', version: product.minecraft_version
+    runs {
+        server {
+            workingDirectory project.hasProperty('dscRunDir') ? file(project.property('dscRunDir')) : file('run')
+            args '--nogui'
+            mods { digitalstorage { source sourceSets.main } }
+        }
+        client {
+            workingDirectory file('run')
+            mods { digitalstorage { source sourceSets.main } }
+        }
+    }
+}
 repositories { mavenCentral() }
+configurations { shade; implementation.extendsFrom shade }
 dependencies {
     minecraft "net.minecraftforge:forge:${product.minecraft_version}-47.4.10"
-    compileOnly "com.electronwill.night-config:core:${product.night_config_version}"
-    compileOnly "com.electronwill.night-config:toml:${product.night_config_version}"
+    shade "com.electronwill.night-config:core:${product.night_config_version}"
+    shade "com.electronwill.night-config:toml:${product.night_config_version}"
     compileOnly 'org.jetbrains:annotations:23.0.0'
 }
 
@@ -28,6 +43,18 @@ sourceSets.main.java {
     srcDir '../src/main/java'
     exclude dscCommonExcludes
 }
+sourceSets.main.resources {
+    srcDir '../src/main/resources'
+    exclude 'fabric.mod.json', 'digitalstorage.mixins.json', '**/*.md'
+    // Advanced Tom hopper registration is a later integration stage.
+    exclude 'data/digitalstorage/recipes/advanced_inventory_hopper.json'
+    exclude 'data/minecraft/tags/blocks/mineable/pickaxe.json'
+    exclude 'data/minecraft/tags/blocks/needs_iron_tool.json'
+}
+tasks.named('processResources') {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/mods.toml') { expand version: project.version }
+}
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 17
@@ -36,14 +63,57 @@ tasks.register('verifySharedSources') {
     dependsOn tasks.named('compileJava')
     doLast {
         def shared = fileTree('../src/main/java') { include '**/*.java'; exclude dscCommonExcludes }
-        def forbidden = ~/net[.\/]fabricmc|net[.\/]minecraftforge|com[.\/]tom|dev[.\/]kehai[.\/]digitalstorage[.\/]platform/
+        def forbidden = ~/net[.\/]fabricmc|net[.\/]minecraftforge|com[.\/]tom|dev[.\/]kehai[.\/]digitalstorage[.\/](platform|forge)/
         shared.each { source ->
             if (source.getText('UTF-8') =~ forbidden) {
                 throw new GradleException("Platform reference in shared source: ${source.name}")
             }
         }
-        logger.lifecycle("Forge shared compilation passed: ${shared.files.size()} authoritative sources")
+        def classes = sourceSets.main.output.classesDirs.asFileTree.matching {
+            include '**/*.class'
+            exclude 'dev/kehai/digitalstorage/forge/**'
+        }
+        classes.each { compiled ->
+            if (new String(compiled.bytes, java.nio.charset.StandardCharsets.ISO_8859_1) =~ forbidden) {
+                throw new GradleException("Platform reference in Forge-compiled shared bytecode: ${compiled.name}")
+            }
+        }
+        if (classes.isEmpty()) throw new GradleException('No Forge-compiled shared classes inspected')
+        logger.lifecycle("Forge shared boundary passed: ${shared.files.size()} authoritative sources, ${classes.files.size()} classes")
     }
 }
 tasks.named('check') { dependsOn tasks.named('verifySharedSources') }
-tasks.named('jar') { finalizedBy 'reobfJar' }
+tasks.named('jar') { archiveClassifier = 'dev' }
+tasks.named('shadowJar') {
+    archiveClassifier = ''
+    configurations = [project.configurations.shade]
+    relocate 'com.electronwill.nightconfig', 'dev.kehai.digitalstorage.internal.nightconfig'
+}
+reobf { shadowJar {} }
+tasks.named('build') { dependsOn 'reobfShadowJar' }
+tasks.register('verifyForgeArtifact') {
+    dependsOn 'reobfShadowJar'
+    doLast {
+        def archive = new java.util.zip.ZipFile(tasks.shadowJar.archiveFile.get().asFile)
+        try {
+            def entries = archive.entries().toList()
+            def forbidden = entries.findAll {
+                it.name == 'fabric.mod.json' || it.name.endsWith('.md') ||
+                        it.name.startsWith('com/tom/') || it.name.startsWith('me/shedaniel/') ||
+                        it.name.startsWith('net/fabricmc/') || it.name.startsWith('META-INF/jars/') ||
+                        it.name.startsWith('dev/kehai/digitalstorage/platform/fabric/')
+            }
+            if (forbidden) throw new GradleException("Forbidden Forge JAR entries: ${forbidden*.name}")
+            if (entries*.name.toSet().size() != entries.size()) throw new GradleException('Duplicate Forge JAR entries')
+            def metadata = archive.getEntry('META-INF/mods.toml')
+            if (metadata == null || !archive.getInputStream(metadata).getText('UTF-8').contains('version="' + project.version + '"')) {
+                throw new GradleException('Forge metadata version mismatch')
+            }
+            logger.lifecycle("Forge artifact passed: ${entries.size()} entries, no forbidden dependency payload")
+        } finally { archive.close() }
+    }
+}
+tasks.named('check') { dependsOn 'verifyForgeArtifact' }
+tasks.withType(JavaExec).configureEach {
+    if (name == 'runServer') standardInput = System.in
+}
