@@ -38,6 +38,33 @@ dependencies {
     compileOnly 'org.jetbrains:annotations:23.0.0'
 }
 
+// Toml 3.9.0 declares Multi-Release but has no META-INF/versions entries.
+// Forge's development SecureJar scanner cannot open that empty version tree.
+// Repair only the development runtime copy; release shading uses the exact dependency.
+def developmentToml = tasks.register('developmentToml', Jar) {
+    archiveFileName = "toml-${product.night_config_version}-forge-development.jar"
+    destinationDirectory = layout.buildDirectory.dir('development-libs')
+    def original = providers.provider {
+        configurations.shade.files.find { it.name == "toml-${product.night_config_version}.jar" }
+                ?: { throw new GradleException('Toml development dependency missing') }()
+    }
+    from({ zipTree(original.get()) }) { exclude 'META-INF/MANIFEST.MF' }
+    doFirst {
+        def archive = new java.util.jar.JarFile(original.get())
+        try {
+            if (archive.entries().toList().any { it.name.startsWith('META-INF/versions/') }) {
+                throw new GradleException('Recheck Toml development repair: versioned entries now exist')
+            }
+            manifest.attributes(archive.manifest.mainAttributes.collectEntries { key, value ->
+                key.toString().equalsIgnoreCase('Multi-Release') ? [:] : [(key.toString()): value.toString()]
+            })
+        } finally { archive.close() }
+    }
+}
+configurations.runtimeClasspath.exclude group: 'com.electronwill.night-config', module: 'toml'
+dependencies { runtimeOnly files(developmentToml) }
+apply from: 'development-runtime.gradle'
+
 // Compile the same authoritative shared sources against Forge's patched Minecraft.
 // Keep FG and Loom in separate Gradle builds, with no plugin/classloader coupling.
 apply from: '../common/source-layout.gradle'

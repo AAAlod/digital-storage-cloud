@@ -1,0 +1,59 @@
+// Development-only copy of the exact mapped Tom dependency. Production uses
+// the untouched external mod; compileJava still uses fg.deobf on the original.
+buildscript {
+    dependencies { classpath fileTree(dir: new File(gradle.gradleHomeDir, 'lib'), include: ['asm-*.jar']) }
+}
+def mappedTom = providers.provider {
+    configurations.compileClasspath.files.find { it.name.startsWith('toms_storage-') && it.name.endsWith('.jar') }
+            ?: { throw new GradleException('Mapped Tom development dependency missing') }()
+}
+def patchedClass = layout.buildDirectory.file('development-tom/com/tom/storagemod/StorageMod.class')
+def prepareDevelopmentTom = tasks.register('prepareDevelopmentTom') {
+    inputs.file(mappedTom)
+    outputs.file(patchedClass)
+    doLast {
+        def archive = new java.util.jar.JarFile(mappedTom.get())
+        try {
+            def node = new org.objectweb.asm.tree.ClassNode()
+            new org.objectweb.asm.ClassReader(archive.getInputStream(archive.getJarEntry('com/tom/storagemod/StorageMod.class'))).accept(node, 0)
+            int changes = 0
+            node.methods.each { method ->
+                method.instructions.each { instruction ->
+                    if (instruction instanceof org.objectweb.asm.tree.MethodInsnNode
+                            && instruction.owner == 'net/minecraftforge/fml/DistExecutor'
+                            && instruction.name == 'safeRunWhenOn'
+                            && instruction.desc == '(Lnet/minecraftforge/api/distmarker/Dist;Ljava/util/function/Supplier;)V') {
+                        // Forge's dev validation evaluates Tom's client supplier
+                        // even on a dedicated server. Preserve the actual dist
+                        // guard while avoiding that development-only evaluation.
+                        instruction.name = 'unsafeRunWhenOn'
+                        changes++
+                    }
+                }
+            }
+            if (changes != 1) throw new GradleException("Recheck Tom development bootstrap: expected one call, found ${changes}")
+            def writer = new org.objectweb.asm.ClassWriter(0)
+            node.accept(writer)
+            def output = patchedClass.get().asFile
+            output.parentFile.mkdirs()
+            output.bytes = writer.toByteArray()
+        } finally { archive.close() }
+    }
+}
+def developmentTom = tasks.register('developmentTom', Jar) {
+    dependsOn prepareDevelopmentTom
+    archiveFileName = 'toms-storage-forge-development.jar'
+    destinationDirectory = layout.buildDirectory.dir('development-libs')
+    from({ zipTree(mappedTom.get()) }) { exclude 'META-INF/MANIFEST.MF', 'com/tom/storagemod/StorageMod.class' }
+    from(patchedClass) { into 'com/tom/storagemod' }
+    doFirst {
+        def archive = new java.util.jar.JarFile(mappedTom.get())
+        try {
+            manifest.attributes(archive.manifest.mainAttributes.collectEntries { key, value -> [(key.toString()): value.toString()] })
+        } finally { archive.close() }
+    }
+}
+configurations.runtimeClasspath.exclude group: 'local.tom', module: 'toms_storage'
+dependencies { runtimeOnly files(developmentTom) }
+// Source folders do not carry the release JAR's MixinConfigs manifest.
+minecraft.runs.configureEach { args '--mixin.config', 'digitalstorage.forge.mixins.json' }
