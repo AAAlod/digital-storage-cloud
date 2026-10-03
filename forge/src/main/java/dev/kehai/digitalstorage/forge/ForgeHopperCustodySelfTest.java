@@ -124,10 +124,36 @@ public final class ForgeHopperCustodySelfTest {
             var collision = new ForgeHopperCustody(startupRoot);
             expect(!collision.retain(priorId, "minecraft:overworld", pos, engine, engine::saveState), "Late identity retained");
             Files.delete(startupRoot); Files.move(backupRoot, startupRoot);
-            expect(!collision.flush() && !collision.opened() && collision.retainsIdentity(priorId, engine)
-                    && collision.unsavedCount() == 1 && collision.openingFailure().contains("conflicts")
+            expect(collision.flush() && collision.opened() && collision.pendingCount() == 3
+                    && collision.unsavedCount() == 0
                     && java.util.Arrays.equals(priorBytes, Files.readAllBytes(startupRoot.resolve(priorId + ".dat"))),
-                    "Late disk collision preserves both disk evidence and original live ownership without overwrite");
+                    "Late disk collision preserves disk evidence and durably isolates live ownership");
+            UUID branchId = collision.entries().stream().filter(entry -> priorId.equals(entry.conflictsWith()))
+                    .findFirst().orElseThrow().id();
+            expect(collision.retainsIdentity(branchId, engine) && !collision.available()
+                    && collision.entries().stream().filter(entry -> entry.id().equals(priorId) || entry.id().equals(branchId))
+                            .noneMatch(ForgeHopperCustody.Summary::confirmed), "Both late collision branches remain unconfirmed");
+            var relocated = collision.bind(priorId, "minecraft:overworld", pos, engine, engine::saveState);
+            expect(relocated.id().equals(branchId) && relocated.engine() == engine && collision.pendingCount() == 3,
+                    "Live device rebinds its own branch rather than a matching disk candidate");
+            expect(collision.retain(priorId, "minecraft:overworld", pos, engine, engine::saveState)
+                    && collision.pendingCount() == 3 && java.util.Arrays.equals(priorBytes,
+                            Files.readAllBytes(startupRoot.resolve(priorId + ".dat"))), "Old live identity retries only its branch");
+            var diskBranches = new ForgeHopperCustody(startupRoot);
+            expect(diskBranches.pendingCount() == 3 && diskBranches.state(branchId).equals(collision.state(branchId)),
+                    "Independent late branch survives disk reopen");
+            var ambiguousMirror = ForgeHopperTransfer.restore(engine.saveState());
+            var ambiguousBinding = collision.bind(priorId, "minecraft:overworld", pos, ambiguousMirror, ambiguousMirror::saveState);
+            expect(!ambiguousBinding.id().equals(priorId) && !ambiguousBinding.id().equals(branchId)
+                    && ambiguousBinding.engine() == ambiguousMirror && ambiguousMirror.blocked()
+                    && collision.pendingCount() == 4 && collision.retainsIdentity(branchId, engine),
+                    "Fresh matching mirror cannot choose between unresolved late branches");
+            collision.retire(ambiguousBinding.id(), UUID.randomUUID(), "External inspection identifies additional old mirror");
+            collision.retire(branchId, UUID.randomUUID(), "External evidence identifies live candidate as an old mirror");
+            var afterRetirement = collision.bind(priorId, "minecraft:overworld", pos, engine, engine::saveState);
+            expect(!afterRetirement.id().equals(priorId) && !afterRetirement.id().equals(branchId)
+                    && !afterRetirement.engine().blocked() && afterRetirement.engine().heldCount() == 0,
+                    "Weak live alias resolves its settled branch instead of reviving disk source");
 
             var evidence = directory.resolve("unreadable");
             Files.createDirectories(evidence);

@@ -21,6 +21,7 @@ import dev.kehai.digitalstorage.storage.ItemKeyCodec;
 public final class ForgeHopperCustody {
     private final Path root;
     private final Map<UUID, Record> records = new LinkedHashMap<>();
+    private final Map<ForgeHopperTransfer, UUID> relocatedEngines = new java.util.WeakHashMap<>();
     private int unreadable;
     private boolean opened;
     private String openingFailure = "";
@@ -108,12 +109,24 @@ public final class ForgeHopperCustody {
                     } catch (IOException | RuntimeException failure) { damaged++; }
                 }
             }
-            // A device retained while the directory was inaccessible cannot
-            // authorize replacement of a record discovered only after repair.
-            for (var id : loaded.keySet()) if (records.containsKey(id)) {
-                throw new IOException("Late disk identity conflicts with retained live hopper " + id);
+            // Keep disk evidence under its original identity. The live owner
+            // gets a distinct branch; matching bytes cannot prove it is a mirror.
+            var merged = new LinkedHashMap<>(records);
+            var aliases = new java.util.IdentityHashMap<ForgeHopperTransfer, UUID>();
+            for (var entry : loaded.entrySet()) {
+                var live = merged.put(entry.getKey(), entry.getValue());
+                if (live == null) continue;
+                UUID branchId;
+                do { branchId = UUID.randomUUID(); } while (merged.containsKey(branchId) || loaded.containsKey(branchId));
+                var branch = new Record(branchId, live.dimension, live.position, live.identity,
+                        live.encoded == null ? null : live.encoded.copy(), false);
+                branch.snapshot = live.snapshot; branch.identityEvidence = live.identityEvidence;
+                branch.evidenceSnapshot = live.evidenceSnapshot; branch.conflictsWith = live.id;
+                merged.put(branchId, branch);
+                if (live.identity instanceof ForgeHopperTransfer engine) aliases.put(engine, branchId);
             }
-            records.putAll(loaded);
+            records.clear(); records.putAll(merged);
+            relocatedEngines.putAll(aliases);
             unreadable = damaged;
             opened = true;
             openingFailure = "";
@@ -136,6 +149,7 @@ public final class ForgeHopperCustody {
         java.util.Objects.requireNonNull(snapshot);
         if (dimension == null || dimension.isBlank()) throw new IllegalArgumentException("Missing dimension");
         open();
+        if (identity instanceof ForgeHopperTransfer engine) id = relocatedEngines.getOrDefault(engine, id);
         Record previous = records.get(id);
         if (previous != null && previous.phase != Phase.PENDING) {
             // HANDOFF/EXPORTED are authoritative receipts, not snapshots that a
@@ -190,6 +204,7 @@ public final class ForgeHopperCustody {
     public Binding bind(UUID id, String dimension, BlockPos position, ForgeHopperTransfer incoming,
                         Supplier<Tag> snapshot, Supplier<Tag> evidence) {
         open();
+        id = relocatedEngines.getOrDefault(incoming, id);
         Record record = records.get(id);
         if (record == null) {
             if (incoming.blocked()) retain(id, dimension, position, incoming, snapshot, evidence);
@@ -209,7 +224,10 @@ public final class ForgeHopperCustody {
         if (record.identity == incoming && record.dimension.equals(dimension) && record.position.equals(position)) {
             return new Binding(id, incoming, null);
         }
-        boolean matches = record.dimension.equals(dimension) && record.position.equals(position);
+        boolean ambiguous = false;
+        for (var candidate : records.values()) if (id.equals(candidate.conflictsWith)
+                && (!settled(candidate) || !candidate.durable)) { ambiguous = true; break; }
+        boolean matches = !ambiguous && record.dimension.equals(dimension) && record.position.equals(position);
         Tag canonical = record.encoded;
         if (matches && !incoming.blocked() && record.identity instanceof ForgeHopperTransfer existing) {
             // The old chunk can be empty while the actual returned stack cannot
@@ -386,6 +404,15 @@ public final class ForgeHopperCustody {
     private boolean persist(Record record) {
         try {
             if (!open()) throw new IllegalStateException("Cannot open hopper custody: " + openingFailure);
+            if (records.get(record.id) != record) {
+                // A repair can discover a collision between retain and persist.
+                // Resolve to the branch that still owns this exact live token.
+                Record branch = null;
+                for (var candidate : records.values()) if (record.id.equals(candidate.conflictsWith)
+                        && candidate.identity == record.identity) { branch = candidate; break; }
+                if (branch == null) throw new IllegalStateException("Hopper custody identity was replaced");
+                record = branch;
+            }
             requireFresh(record);
             Tag encoded = (record.phase == Phase.PENDING
                     ? java.util.Objects.requireNonNull(record.snapshot.get(), "Missing hopper state") : record.encoded).copy();

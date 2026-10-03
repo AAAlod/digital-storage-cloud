@@ -100,11 +100,31 @@ public final class ForgeHopperDeviceSelfTest {
         java.nio.file.Path directory = null;
         try {
             directory = java.nio.file.Files.createTempDirectory("digitalstorage-hopper-identity-");
-            var custody = new ForgeHopperCustody(directory);
+            var records = directory.resolve("records");
+            java.nio.file.Files.writeString(records, "directory unavailable before device retention");
+            var custody = new ForgeHopperCustody(records);
+            var originalEngine = transfer(entity);
+            var beforeRepair = entity.saveWithFullMetadata();
+            var originalId = beforeRepair.getUUID(ForgeHopperState.CUSTODY_ID_KEY);
             ((ForgeHopperState) entity).digitalstorage$retain(custody, "minecraft:overworld", BlockPos.ZERO);
-            expect(custody.unsavedCount() == 0 && custody.pendingCount() == 1, "Identity evidence saved independently");
-            var reopened = new ForgeHopperCustody(directory);
-            var entry = reopened.entries().get(0);
+            expect(custody.unsavedCount() == 1 && custody.pendingCount() == 1
+                    && custody.retainsIdentity(originalId, originalEngine), "Device retained before directory opens");
+            var priorRoot = directory.resolve("prior");
+            var prior = new ForgeHopperCustody(priorRoot);
+            var diskState = beforeRepair.get(ForgeHopperState.NBT_KEY).copy();
+            expect(prior.retain(originalId, "minecraft:overworld", BlockPos.ZERO, new Object(), diskState::copy),
+                    "Preexisting same identity disk fixture");
+            byte[] originalBytes = java.nio.file.Files.readAllBytes(priorRoot.resolve(originalId + ".dat"));
+            java.nio.file.Files.delete(records); java.nio.file.Files.move(priorRoot, records);
+            expect(custody.flush() && custody.pendingCount() == 2 && custody.unsavedCount() == 0
+                    && java.util.Arrays.equals(originalBytes, java.nio.file.Files.readAllBytes(records.resolve(originalId + ".dat"))),
+                    "Repair preserves original disk evidence and saves separate device branch");
+            ((ForgeHopperState) entity).digitalstorage$reconcile(custody, "minecraft:overworld", BlockPos.ZERO);
+            var relocatedId = entity.saveWithFullMetadata().getUUID(ForgeHopperState.CUSTODY_ID_KEY);
+            expect(!relocatedId.equals(originalId) && transfer(entity) == originalEngine
+                    && custody.retainsIdentity(relocatedId, originalEngine), "Mixed-in device saves its relocated live lineage");
+            var reopened = new ForgeHopperCustody(records);
+            var entry = reopened.entries().stream().filter(candidate -> candidate.id().equals(relocatedId)).findFirst().orElseThrow();
             var identity = (CompoundTag) reopened.identityEvidence(entry.id());
             expect(identity != null && identity.getBoolean("PresentAtLoad") == present
                     && (raw == null ? !identity.contains("RawIdentity") : raw.equals(identity.get("RawIdentity"))),

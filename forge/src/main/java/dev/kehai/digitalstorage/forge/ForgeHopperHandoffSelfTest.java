@@ -265,6 +265,35 @@ public final class ForgeHopperHandoffSelfTest {
             try { rejected.reconcileHandoff(unknownId, owner, volume, admin, 1, 0, "cannot infer a returned stack", partialRecovery); }
             catch (IllegalStateException expected) { phantomRejected = true; }
             expect(phantomRejected && partialRecovery.pendingCount() == 0, "Unknown observation cannot manufacture a positive remainder");
+            Path lateRoot = root.resolve("late-positive"); Files.createDirectories(lateRoot);
+            Path lateRecords = lateRoot.resolve("custody"); Files.writeString(lateRecords, "unavailable before retention");
+            var lateCustody = new ForgeHopperCustody(lateRecords);
+            var lateEngine = held(); UUID lateId = UUID.randomUUID();
+            expect(!lateCustody.retain(lateId, "minecraft:overworld", BlockPos.ZERO, lateEngine, lateEngine::saveState),
+                    "Late positive fixture retains actual source before directory opens");
+            Path priorRoot = lateRoot.resolve("prior");
+            var priorStore = new ForgeHopperCustody(priorRoot);
+            var priorMirror = lateEngine.saveState();
+            priorStore.retain(lateId, "minecraft:overworld", BlockPos.ZERO, new Object(), priorMirror::copy);
+            byte[] priorEvidence = Files.readAllBytes(priorRoot.resolve(lateId + ".dat"));
+            Files.delete(lateRecords); Files.move(priorRoot, lateRecords);
+            expect(lateCustody.flush() && java.util.Arrays.equals(priorEvidence, Files.readAllBytes(lateRecords.resolve(lateId + ".dat"))),
+                    "Late positive collision never overwrites original disk evidence");
+            var lateBinding = lateCustody.bind(lateId, "minecraft:overworld", BlockPos.ZERO, lateEngine, lateEngine::saveState);
+            var lateRecovery = new ForgeTransferRecovery(lateRoot.resolve("recovery"));
+            boolean unresolvedLateRejected = false;
+            try { lateCustody.reconcileHandoff(lateBinding.id(), owner, volume, admin, 8, 0, "Primary unresolved", lateRecovery); }
+            catch (IllegalStateException expected) { unresolvedLateRejected = true; }
+            expect(unresolvedLateRejected && lateEngine.heldCount() == 8 && lateRecovery.pendingCount() == 0,
+                    "Late live branch cannot bypass unresolved disk identity");
+            lateCustody.retire(lateId, admin, "External evidence identifies disk record as superseded mirror");
+            lateCustody.reconcileHandoff(lateBinding.id(), owner, volume, admin, 8, 0,
+                    "Actual original returned source confirmed independently", lateRecovery);
+            var lateLedger = new VolumeLedger(volume, () -> { }, 32);
+            ForgeRecoveryDelivery.deliver(lateRecovery, lateRecovery.ownedEntry(lateBinding.id(), owner), owner, 8, lateLedger, () -> { });
+            expect(lateEngine.heldCount() == 0 && lateLedger.amountOf(ItemKey.of(Items.STONE)) == 8
+                    && lateRecovery.entry(lateId) == null && new ForgeHopperCustody(lateRecords).available(),
+                    "Late source settles exactly once under its distinct branch after explicit disk reconciliation");
             DigitalStorage.LOGGER.info("Forge hopper handoff self-test passed: stable recovery identity, target guard, permanent receipt, stale writer rejection, old mirror retirement, exact ledger delivery, recovery/receipt failures, explicit restart retry and administrator zero-remainder retirement; administrator commands covered separately");
         } catch (IOException failure) { throw new IllegalStateException("Hopper handoff fixture failed", failure); }
         finally {
