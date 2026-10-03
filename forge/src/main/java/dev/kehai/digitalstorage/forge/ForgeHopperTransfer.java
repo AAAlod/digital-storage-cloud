@@ -2,6 +2,8 @@ package dev.kehai.digitalstorage.forge;
 
 import dev.kehai.digitalstorage.storage.ItemKey;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraftforge.items.IItemHandler;
 
 /** Sequential Forge transfer with explicit returned-stack ownership.
@@ -14,6 +16,7 @@ public final class ForgeHopperTransfer {
     private boolean blocked;
     private boolean running;
     private String detail = "";
+    private CompoundTag unreadableState;
 
     public boolean blocked() { return blocked; }
     public boolean uncertain() { return uncertain; }
@@ -21,6 +24,68 @@ public final class ForgeHopperTransfer {
     /** Original returned instance: the owning device must retain it even if encoding fails. */
     ItemStack heldStack() { return held; }
     public String detail() { return detail; }
+
+    /** Caller must persist the returned compound; a successful encoding is not a disk flush. */
+    public CompoundTag saveState() {
+        if (running) throw new IllegalStateException("Cannot snapshot an active hopper callback");
+        if (unreadableState != null) return unreadableState.copy();
+        var saved = new CompoundTag();
+        saved.putInt("Version", 1);
+        saved.putBoolean("Blocked", blocked);
+        saved.putBoolean("Uncertain", uncertain);
+        saved.putString("Detail", detail);
+        int amount = held.getCount();
+        saved.putInt("Amount", amount);
+        if (amount > 0) {
+            // ItemStack's vanilla Count is a byte. Keep the authoritative amount
+            // separately so malformed excessive returns cannot wrap on restart.
+            var item = held.save(new CompoundTag());
+            item.putByte("Count", (byte) 1);
+            saved.put("Item", item);
+        }
+        return saved;
+    }
+
+    /** Invalid/future state is retained verbatim and blocks transfer; never silently reset it. */
+    public static ForgeHopperTransfer restore(CompoundTag saved) {
+        var engine = new ForgeHopperTransfer();
+        try {
+            require(saved.contains("Version", Tag.TAG_INT) && saved.getInt("Version") == 1, "Unsupported version");
+            require(saved.contains("Blocked", Tag.TAG_BYTE) && saved.contains("Uncertain", Tag.TAG_BYTE)
+                    && (saved.getByte("Blocked") == 0 || saved.getByte("Blocked") == 1)
+                    && (saved.getByte("Uncertain") == 0 || saved.getByte("Uncertain") == 1), "Invalid flags");
+            require(saved.contains("Amount", Tag.TAG_INT) && saved.getInt("Amount") >= 0
+                    && saved.contains("Detail", Tag.TAG_STRING) && saved.getString("Detail").length() <= 512, "Invalid fields");
+            int amount = saved.getInt("Amount");
+            boolean blocked = saved.getBoolean("Blocked");
+            boolean uncertain = saved.getBoolean("Uncertain");
+            String detail = saved.getString("Detail");
+            require(blocked ? !detail.isBlank() : amount == 0 && !uncertain && detail.isEmpty(), "Inconsistent state");
+            ItemStack stack = ItemStack.EMPTY;
+            if (amount > 0) {
+                require(saved.contains("Item", Tag.TAG_COMPOUND), "Missing returned item");
+                var item = saved.getCompound("Item");
+                require(item.contains("Count", Tag.TAG_BYTE) && item.getByte("Count") == 1, "Invalid encoded count");
+                stack = ItemStack.of(item.copy());
+                require(!stack.isEmpty(), "Unreadable returned item");
+                stack.setCount(amount);
+            } else require(!saved.contains("Item"), "Unexpected returned item");
+            engine.held = stack;
+            engine.blocked = blocked;
+            engine.uncertain = uncertain;
+            engine.detail = detail;
+        } catch (RuntimeException failure) {
+            engine.blocked = true;
+            engine.uncertain = true;
+            engine.detail = "hopper state requires attention: " + failure.getClass().getSimpleName();
+            engine.unreadableState = saved.copy();
+        }
+        return engine;
+    }
+
+    private static void require(boolean value, String reason) {
+        if (!value) throw new IllegalArgumentException(reason);
+    }
 
     public Result move(IItemHandler source, int slot, IItemHandler destination, int maximum) {
         if (running) return new Result(0, true, "reentrant hopper transfer");
