@@ -68,6 +68,7 @@ public final class DigitalItemStorageSelfTest {
         stressVariantCapacityAtHardLimit();
         randomizedTransactionsConserveItems();
         accountVolumeLimitAndCanonicalIdentityAreStable();
+        retainedInventoryKeepsCleanVolumeCanonical();
         forceClearResetsBothBindingFields();
         orphanedBindingSelfHealsAfterVolumeDeletion();
         dev.kehai.digitalstorage.security.DigitalStorageMountTracker.runSelfTest();
@@ -968,6 +969,52 @@ public final class DigitalItemStorageSelfTest {
             deleteTemporaryStorageDirectory(root);
         }
     }
+
+    private static void retainedInventoryKeepsCleanVolumeCanonical() {
+        var root = temporaryStorageDirectory("retained-inventory");
+        var state = DigitalStorageState.openForTest(root);
+        java.util.UUID volumeId;
+        try {
+            var fixture = retainedInventory(state);
+            volumeId = fixture.id();
+            state.flushAndWaitForTest();
+            System.gc();
+            var volume = fixture.owner().get();
+            expectTrue(volume != null, "Live Fabric inventory lost its clean volume owner");
+            expectTrue(state.volume(fixture.id()).orElseThrow() == volume,
+                    "Weak state cache reloaded a second live volume");
+            expectTrue(FabricDigitalItemStorage.of(volume.record().storage()) == fixture.inventory(),
+                    "Live Fabric inventory lost its canonical identity after GC");
+            try (Transaction transaction = Transaction.openOuter()) {
+                fixture.inventory().insert(ItemVariant.of(Items.STONE), 7, transaction);
+                transaction.commit();
+            }
+            state.flushAndWaitForTest();
+        } finally {
+            state.closeForTest();
+        }
+        try {
+            var reloaded = DigitalStorageState.openForTest(root);
+            try {
+                var restored = reloaded.volume(volumeId).orElseThrow().record().storage();
+                expectEquals(7L, restored.amountOf(ItemKey.of(Items.STONE)),
+                        "Retained inventory commit was not persisted");
+            } finally {
+                reloaded.closeForTest();
+            }
+        } finally {
+            deleteTemporaryStorageDirectory(root);
+        }
+    }
+
+    private static RetainedInventory retainedInventory(DigitalStorageState state) {
+        var volume = state.createVolume(java.util.UUID.randomUUID(), "Retained inventory", 1).orElseThrow();
+        return new RetainedInventory(volume.id(), FabricDigitalItemStorage.of(volume.record().storage()),
+                new java.lang.ref.WeakReference<>(volume));
+    }
+
+    private record RetainedInventory(java.util.UUID id, FabricDigitalItemStorage inventory,
+                                     java.lang.ref.WeakReference<StorageVolume> owner) { }
 
     private static void forceClearResetsBothBindingFields() {
         dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity accessor =

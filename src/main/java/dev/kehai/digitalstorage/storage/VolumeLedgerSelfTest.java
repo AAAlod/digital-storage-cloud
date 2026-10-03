@@ -15,7 +15,24 @@ public final class VolumeLedgerSelfTest {
         randomizedConservation();
         closedScopeCannotLeaveProvisionalEntries();
         transactionOrderIsEnforced();
+        retainedLedgerKeepsItsVolumeAlive();
     }
+
+    private static void retainedLedgerKeepsItsVolumeAlive() {
+        var fixture = retainedVolume();
+        System.gc();
+        var volume = fixture.owner().get();
+        expect(volume != null && volume.record().storage() == fixture.ledger(),
+                "Live ledger lost its owning volume; weak state cache can reload a second ledger");
+    }
+
+    private static RetainedVolume retainedVolume() {
+        var volume = StorageVolume.create(java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                "Ledger lifetime selftest", () -> { });
+        return new RetainedVolume(volume.record().storage(), new java.lang.ref.WeakReference<>(volume));
+    }
+
+    private record RetainedVolume(VolumeLedger ledger, java.lang.ref.WeakReference<StorageVolume> owner) { }
 
     private static void nestedTransactions() {
         AtomicInteger dirty = new AtomicInteger();

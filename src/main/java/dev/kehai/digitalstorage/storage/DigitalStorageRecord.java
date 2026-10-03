@@ -29,6 +29,10 @@ public final class DigitalStorageRecord {
     private static final String ACCEPT_UNSTACKABLE_ITEMS_KEY = "AcceptUnstackableItems";
     private final Runnable dirtyCallback;
     private final VolumeLedger storage;
+    // State caches clean volumes weakly. A retained record/ledger must retain
+    // its owner so a second lookup cannot reload a second live ledger.
+    // This local cycle is collectible when no inventory or writer holds it.
+    private StorageVolume owner;
     private ResourceLocation tierId;
     private int lastKnownVariantCapacity;
     private boolean acceptUnstackableItems;
@@ -147,6 +151,13 @@ public final class DigitalStorageRecord {
             dirtyCallback.run();
         }
         return record;
+    }
+
+    void attachOwner(StorageVolume volume) {
+        if (owner != null && owner != volume) {
+            throw new IllegalStateException("Storage record already belongs to a volume");
+        }
+        owner = volume;
     }
 
     public VolumeLedger storage() {

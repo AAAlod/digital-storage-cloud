@@ -29,6 +29,7 @@ public final class StorageVolume {
         this.name = normalizeName(name);
         this.record = record;
         this.dirtyCallback = dirtyCallback;
+        record.attachOwner(this);
     }
 
     static StorageVolume create(UUID id, UUID ownerId, String name, Runnable dirtyCallback) {
