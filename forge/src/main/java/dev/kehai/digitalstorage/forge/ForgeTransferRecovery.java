@@ -19,6 +19,7 @@ import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.Tag;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * Ownership of returned Forge transfer items that cannot settle into a volume.
@@ -32,6 +33,7 @@ public final class ForgeTransferRecovery {
     private final Map<UUID, Entry> entries = new LinkedHashMap<>();
     private final List<Path> unreadable = new ArrayList<>();
     private final Map<UUID, Entry> unsaved = new LinkedHashMap<>();
+    private final Map<UUID, ReturnedStack> uncaptured = new LinkedHashMap<>();
 
     public ForgeTransferRecovery(Path directory) {
         this.directory = directory.toAbsolutePath().normalize();
@@ -56,15 +58,43 @@ public final class ForgeTransferRecovery {
         }
     }
 
-    public boolean available() { return unreadable.isEmpty() && unsaved.isEmpty(); }
+    public boolean available() { return unreadable.isEmpty() && unsaved.isEmpty() && uncaptured.isEmpty(); }
     public int unreadableFiles() { return unreadable.size(); }
-    public int unsavedCount() { return unsaved.size(); }
+    public int unsavedCount() { return unsaved.size() + uncaptured.size(); }
+    public int uncapturedCount() { return uncaptured.size(); }
     public List<Entry> entries(UUID owner) {
         return entries.values().stream().filter(entry -> entry.owner().equals(owner)
                 && entry.state() != State.DELIVERED).toList();
     }
-    public int pendingCount() { return (int) entries.values().stream().filter(entry -> entry.state() != State.DELIVERED).count(); }
+    public int pendingCount() { return uncaptured.size() + (int) entries.values().stream().filter(entry -> entry.state() != State.DELIVERED).count(); }
     public Entry entry(UUID id) { return entries.get(id); }
+
+    /** Transfers ownership of the actual returned instance before any mod capability serializer runs. */
+    public UUID holdReturnedStack(UUID owner, UUID volume, ItemStack returned, String reason) {
+        java.util.Objects.requireNonNull(owner);
+        java.util.Objects.requireNonNull(volume);
+        java.util.Objects.requireNonNull(returned);
+        java.util.Objects.requireNonNull(reason);
+        if (returned.isEmpty() || returned.getCount() <= 0) throw new IllegalArgumentException("No returned items to hold");
+        UUID id = UUID.randomUUID();
+        var owned = new ReturnedStack(id, owner, volume, returned, returned.getCount(),
+                System.currentTimeMillis(), reason.substring(0, Math.min(512, reason.length())));
+        // Do not copy here: ItemStack.copy may itself invoke the failing capability
+        // serializer. Caller relinquishes this actual stack and must not mutate it.
+        uncaptured.put(id, owned);
+        captureReturned(owned);
+        return id;
+    }
+
+    private void captureReturned(ReturnedStack owned) {
+        ItemKey key = ItemKey.of(owned.stack());
+        Entry entry = new Entry(owned.id(), owned.owner(), owned.volume(), key, owned.amount(),
+                State.HELD, 0, owned.createdMillis(), owned.reason());
+        entries.put(entry.id(), entry);
+        uncaptured.remove(entry.id());
+        try { write(entry); }
+        catch (RuntimeException failure) { unsaved.put(entry.id(), entry); throw failure; }
+    }
 
     /** Call only with an actually returned, owned stack; never with simulated or guessed items. */
     public Entry hold(UUID owner, UUID volume, ItemKey key, long amount, String reason) {
@@ -83,11 +113,15 @@ public final class ForgeTransferRecovery {
     }
 
     public void flushUnsaved() {
+        for (var owned : List.copyOf(uncaptured.values())) captureReturned(owned);
         for (var entry : List.copyOf(unsaved.values())) {
             write(entry);
             unsaved.remove(entry.id());
         }
     }
+
+    private record ReturnedStack(UUID id, UUID owner, UUID volume, ItemStack stack,
+                                 long amount, long createdMillis, String reason) { }
 
     /** Persist before committing delivery. A crash from here cannot cause an automatic second delivery. */
     public Entry beginDelivery(UUID id, UUID owner, long amount) {

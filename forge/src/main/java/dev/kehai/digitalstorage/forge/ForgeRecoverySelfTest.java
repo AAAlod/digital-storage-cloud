@@ -109,6 +109,30 @@ public final class ForgeRecoverySelfTest {
         } finally { remove(root); }
     }
 
+    public static void capabilityCaptureFailure(ItemStack stack, Runnable failOn, Runnable failOff) {
+        Path root = temporary();
+        try {
+            var store = new ForgeTransferRecovery(root);
+            UUID owner = UUID.randomUUID();
+            UUID volume = UUID.randomUUID();
+            ItemKey expected = ItemKey.of(stack);
+            failOn.run();
+            boolean failed = false;
+            try { store.holdReturnedStack(owner, volume, stack, "Actual capability serializer failed"); }
+            catch (IllegalStateException injected) { failed = true; }
+            expect(failed && !store.available() && store.pendingCount() == 1
+                            && store.uncapturedCount() == 1 && store.unsavedCount() == 1,
+                    "Returned stack ownership was lost before its capability could be serialized");
+            failOff.run();
+            store.flushUnsaved();
+            var reopened = new ForgeTransferRecovery(root);
+            var recovered = reopened.entries(owner).get(0);
+            expect(store.available() && store.uncapturedCount() == 0 && store.unsavedCount() == 0
+                            && recovered.amount() == stack.getCount() && recovered.key().equals(expected),
+                    "Retained actual stack did not persist after capability serialization recovered");
+        } finally { failOff.run(); remove(root); }
+    }
+
     private static Path temporary() {
         try { return Files.createTempDirectory("digitalstorage-forge-recovery-").toAbsolutePath().normalize(); }
         catch (IOException failure) { throw new IllegalStateException("Could not create recovery test directory", failure); }

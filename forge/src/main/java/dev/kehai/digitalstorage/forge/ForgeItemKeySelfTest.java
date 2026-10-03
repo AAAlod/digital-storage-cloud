@@ -20,6 +20,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 /** A real Forge energy capability attached only during this server-thread regression. */
 public final class ForgeItemKeySelfTest {
     private static final ThreadLocal<Boolean> ACTIVE = ThreadLocal.withInitial(() -> false);
+    private static final ThreadLocal<Boolean> FAIL_SERIALIZATION = ThreadLocal.withInitial(() -> false);
     private ForgeItemKeySelfTest() { }
 
     @SubscribeEvent
@@ -48,6 +49,8 @@ public final class ForgeItemKeySelfTest {
             energy.extractEnergy(10, false);
             ForgeLedgerSelfTest.capabilityRoundTrip(stack);
             ForgeRecoverySelfTest.capabilityRoundTrip(stack);
+            ForgeRecoverySelfTest.capabilityCaptureFailure(stack,
+                    () -> FAIL_SERIALIZATION.set(true), () -> FAIL_SERIALIZATION.remove());
             expect(!key.equals(ItemKey.of(stack)) && key.equals(ItemKey.of(key.toStack(1))),
                     "Mutable capability data changed an existing key or stack count entered identity");
             restored.getCapability(ForgeCapabilities.ENERGY).orElseThrow(() ->
@@ -64,7 +67,7 @@ public final class ForgeItemKeySelfTest {
                 ItemKey loaded = ItemKeyCodec.read(snapshot.serializedVariant());
                 expect(loaded.hasAttachments(), "Ledger snapshot lost platform data");
             }
-        } finally { ACTIVE.remove(); }
+        } finally { ACTIVE.remove(); FAIL_SERIALIZATION.remove(); }
     }
 
     private static final class Provider implements ICapabilitySerializable<CompoundTag> {
@@ -74,6 +77,7 @@ public final class ForgeItemKeySelfTest {
             return requested == ForgeCapabilities.ENERGY ? capability.cast() : LazyOptional.empty();
         }
         public CompoundTag serializeNBT() {
+            if (FAIL_SERIALIZATION.get()) throw new IllegalStateException("Injected Forge capability serialization failure");
             CompoundTag tag = new CompoundTag();
             tag.putInt("Energy", energy.getEnergyStored());
             return tag;
