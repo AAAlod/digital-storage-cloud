@@ -61,7 +61,7 @@ public final class ForgeServerEvents {
                     }
                 }))
                 .then(Commands.literal("diagnostics").executes(context -> {
-                    context.getSource().sendSuccess(() -> Component.literal("Forge bootstrap/capability ACTIVE; Tom dedup ACTIVE; analysis/migration pending"), false);
+                    context.getSource().sendSuccess(() -> Component.literal("Forge bootstrap/capability ACTIVE; Tom dedup/analysis ACTIVE; scanner telemetry/migration pending"), false);
                     return 1;
                 }))
                 .then(Commands.literal("flush").executes(context -> {

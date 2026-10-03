@@ -8,7 +8,7 @@ Forge 1.20.1 / 47.4.10 使用独立 Gradle 构建，复用上级工程的 wrappe
 .\gradlew.bat -p forge build --console=plain
 ```
 
-当前处于移植阶段：接入器注册、菜单网络、服务器生命周期、可撤销 IItemHandler 库存和 Tom 聚合器同卷去重已接入；高级漏斗及 Tom 网络分析/迁移仍待实现。`digitalstorage selftest` 验证共享回归、真实 ForgeCaps、库存模拟/余量/稳定槽位、绑定生命周期和实际 Tom 聚合器/过滤器，diagnostics 明确报告未接通部分；完整运行验收完成前不使用构建产物替换玩家安装。
+当前处于移植阶段：接入器注册、菜单网络、服务器生命周期、可撤销 IItemHandler 库存、Tom 聚合器同卷去重和共享网络分析已接入；高级漏斗、扫描器统计及安全迁移仍待实现。`digitalstorage selftest` 验证共享回归、真实 ForgeCaps、库存模拟/余量/稳定槽位、绑定生命周期、实际 Tom 连接器/聚合器/过滤器及拓扑失效，diagnostics 明确报告未接通部分；完整运行验收完成前不使用构建产物替换玩家安装。
 
 最终 Forge 工作 JAR 为 `build/libs/digital-storage-cloud-forge-<version>.jar`。NightConfig 单独 relocation；Tom 是外部依赖，不嵌入发行 JAR。`build` 同时检查共享源码/字节码平台边界、元数据版本、重复 ZIP entry 和禁止依赖载荷。
 
