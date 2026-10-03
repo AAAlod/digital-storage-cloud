@@ -48,6 +48,7 @@ public final class ForgeTransferSessions {
         private final Path root;
         private ForgeTransferRecovery recovery;
         private ForgeTransferIncidents incidents;
+        private ForgeHopperCustody hoppers;
         private boolean initialized;
         private Session(Path root) { this.root = root; flush(); }
         public ForgeTransferRecovery recovery() {
@@ -58,7 +59,12 @@ public final class ForgeTransferSessions {
             if (!initialized) throw new IllegalStateException("Forge transfer incident initialization failed");
             return incidents;
         }
-        public boolean available() { return initialized && recovery.available() && recovery.inFlightCount() == 0 && incidents.available(); }
+        public ForgeHopperCustody hoppers() {
+            if (!initialized) throw new IllegalStateException("Forge hopper custody initialization failed");
+            return hoppers;
+        }
+        public boolean available() { return initialized && recovery.available() && recovery.inFlightCount() == 0
+                && incidents.available() && hoppers.available(); }
         public ForgeInventoryTransferExecutor executor(UUID owner, UUID volume) {
             return executor(owner, volume, ForgeInventoryTransferExecutor.Origin.unknown());
         }
@@ -82,11 +88,19 @@ public final class ForgeTransferSessions {
                 successful = false;
                 DigitalStorage.LOGGER.error("Forge transfer incident flush failed at {}", root, failure);
             }
-            initialized = recovery != null && incidents != null;
+            try {
+                if (hoppers == null) hoppers = new ForgeHopperCustody(root.resolve("hoppers"));
+                successful &= hoppers.flush();
+            } catch (RuntimeException failure) {
+                successful = false;
+                DigitalStorage.LOGGER.error("Forge hopper custody flush failed at {}", root, failure);
+            }
+            initialized = recovery != null && incidents != null && hoppers != null;
             return successful;
         }
         public boolean hasUnflushed() {
-            return (recovery != null && recovery.unsavedCount() > 0) || (incidents != null && incidents.unsavedCount() > 0);
+            return (recovery != null && recovery.unsavedCount() > 0) || (incidents != null && incidents.unsavedCount() > 0)
+                    || (hoppers != null && hoppers.unsavedCount() > 0);
         }
         public String diagnostics() {
             if (!initialized) return "transfer stores unavailable; migration blocked";
@@ -94,7 +108,9 @@ public final class ForgeTransferSessions {
                     + ", delivering=" + recovery.inFlightCount() + ", raw=" + recovery.uncapturedCount()
                     + ", unsaved=" + recovery.unsavedCount() + ", unreadable=" + recovery.unreadableFiles()
                     + "; incidents unresolved=" + incidents.unresolvedCount() + ", unsaved=" + incidents.unsavedCount()
-                    + ", unreadable=" + incidents.unreadableFiles();
+                    + ", unreadable=" + incidents.unreadableFiles()
+                    + "; hoppers pending=" + hoppers.pendingCount() + ", unsaved=" + hoppers.unsavedCount()
+                    + ", unreadable=" + hoppers.unreadableFiles();
         }
     }
 }

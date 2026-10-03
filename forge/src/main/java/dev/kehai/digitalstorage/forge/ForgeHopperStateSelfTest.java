@@ -132,6 +132,7 @@ public final class ForgeHopperStateSelfTest {
             try { engine.saveState(); } catch (RuntimeException expected) { rejected = true; }
             expect(rejected && engine.heldStack() == raw && engine.heldCount() == raw.getCount(),
                     "Failed encoding cannot discard raw ownership");
+            ForgeHopperCustodySelfTest.capabilityCaptureFailure(engine, raw, energy, allow);
         } finally { allow.run(); }
         var restored = ForgeHopperTransfer.restore(engine.saveState());
         expect(restored.blocked() && !restored.uncertain() && restored.heldCount() == raw.getCount()

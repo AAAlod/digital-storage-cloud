@@ -136,6 +136,25 @@ public final class ForgeTransferSessionSelfTest {
             original = Files.readAllBytes(temp);
             expect(!new ForgeTransferRecovery(interrupted).available() && !new ForgeTransferIncidents(interrupted).available()
                     && java.util.Arrays.equals(original, Files.readAllBytes(temp)), "Interrupted temporary evidence was ignored or modified");
+
+            var custodySession = ForgeTransferSessions.openForTest(root.resolve("custody"));
+            UUID device = UUID.randomUUID();
+            var token = new Object();
+            boolean[] encodingFails = {true};
+            var deviceState = net.minecraft.nbt.StringTag.valueOf("opaque stopped hopper state");
+            expect(!custodySession.hoppers().retain(device, "minecraft:overworld", net.minecraft.core.BlockPos.ZERO,
+                    token, () -> {
+                        if (encodingFails[0]) throw new IllegalStateException("Injected device encoding failure");
+                        return deviceState;
+                    }) && custodySession.hasUnflushed() && !custodySession.available(),
+                    "Session lost raw hopper ownership or allowed new transfer");
+            expect(!custodySession.flush() && custodySession.hasUnflushed(), "Failed hopper flush reported success");
+            encodingFails[0] = false;
+            expect(custodySession.flush() && !custodySession.hasUnflushed() && !custodySession.available(),
+                    "Durable hopper pending state should still block transfer");
+            var custodyReopened = ForgeTransferSessions.openForTest(root.resolve("custody"));
+            expect(!custodyReopened.available() && custodyReopened.hoppers().state(device).equals(deviceState)
+                    && custodyReopened.diagnostics().contains("hoppers pending=1"), "Session reopen lost hopper custody");
         } catch (IOException failure) { throw new IllegalStateException("Transfer session fixture failed", failure); }
         finally {
             if (!root.getFileName().toString().startsWith("digitalstorage-forge-session-")) throw new IllegalStateException("Unexpected session cleanup root");
