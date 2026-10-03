@@ -2,13 +2,15 @@ package dev.kehai.digitalstorage.forge;
 
 import dev.kehai.digitalstorage.DigitalStorage;
 
-/** Shared regressions only. Does not claim Forge capability or Tom integration coverage. */
+/** Shared and Forge capability regressions. Tom topology/transfer integration is verified separately. */
 public final class ForgeSharedSelfTest {
     private ForgeSharedSelfTest() { }
 
-    public static void run() {
+    public static void run(net.minecraft.server.MinecraftServer server) {
         dev.kehai.digitalstorage.storage.ItemKeySelfTest.run();
         ForgeItemKeySelfTest.run();
+        ForgeLedgerSelfTest.run();
+        ForgeAccessorSelfTest.run(server);
         dev.kehai.digitalstorage.storage.VolumeLedgerSelfTest.run();
         dev.kehai.digitalstorage.optimization.NetworkAnalysis.runSelfTest();
         dev.kehai.digitalstorage.optimization.MigrationTaskSelfTest.run();
@@ -25,6 +27,6 @@ public final class ForgeSharedSelfTest {
         if (!(entity instanceof ForgeAccessorBlockEntity) || entity.getType() != ForgeDigitalStorage.ACCESSOR_TYPE.get()) {
             throw new IllegalStateException("Forge accessor registration created an incorrect entity");
         }
-        DigitalStorage.LOGGER.info("Forge shared self-test passed: keys, ledger/nested transactions, analysis, migration scheduling, policy, configuration, mounts, upgrades, screen codec and registration; capability/Tom integration not covered");
+        DigitalStorage.LOGGER.info("Forge shared self-test passed: keys/ForgeCaps, stable IItemHandler slots/simulation/remainders/leases, ledger/nested transactions, analysis, migration scheduling, policy, configuration, mounts, upgrades, screen codec and registration; Tom topology/transfer integration not covered");
     }
 }

@@ -51,7 +51,7 @@ public final class ForgeServerEvents {
         event.getDispatcher().register(Commands.literal("digitalstorage").requires(source -> source.hasPermission(2))
                 .then(Commands.literal("selftest").executes(context -> {
                     try {
-                        ForgeSharedSelfTest.run();
+                        ForgeSharedSelfTest.run(context.getSource().getServer());
                         context.getSource().sendSuccess(() -> Component.literal("Forge shared self-test passed"), false);
                         return 1;
                     } catch (RuntimeException failure) {
@@ -61,7 +61,7 @@ public final class ForgeServerEvents {
                     }
                 }))
                 .then(Commands.literal("diagnostics").executes(context -> {
-                    context.getSource().sendSuccess(() -> Component.literal("Forge bootstrap ACTIVE; capability/Tom migration pending"), false);
+                    context.getSource().sendSuccess(() -> Component.literal("Forge bootstrap/capability ACTIVE; Tom dedup/analysis/migration pending"), false);
                     return 1;
                 }))
                 .then(Commands.literal("flush").executes(context -> {
