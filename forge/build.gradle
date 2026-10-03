@@ -48,6 +48,7 @@ sourceSets.main.resources {
     exclude 'fabric.mod.json', 'digitalstorage.mixins.json', '**/*.md'
     // Advanced Tom hopper registration is a later integration stage.
     exclude 'data/digitalstorage/recipes/advanced_inventory_hopper.json'
+    exclude 'data/digitalstorage/loot_tables/blocks/advanced_inventory_hopper.json'
     exclude 'data/minecraft/tags/blocks/mineable/pickaxe.json'
     exclude 'data/minecraft/tags/blocks/needs_iron_tool.json'
 }
