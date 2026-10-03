@@ -1,8 +1,8 @@
 {
   "required": true,
   "minVersion": "0.8",
-  "package": "dev.kehai.digitalstorage.mixin",
-  "plugin": "dev.kehai.digitalstorage.mixin.DigitalStorageMixinPlugin",
+  "package": "dev.kehai.digitalstorage.platform.fabric.mixin",
+  "plugin": "dev.kehai.digitalstorage.platform.fabric.mixin.DigitalStorageMixinPlugin",
   "compatibilityLevel": "JAVA_17",
   "refmap": "digitalstorage.refmap.json",
   "mixins": [

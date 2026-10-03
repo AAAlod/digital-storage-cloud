@@ -1,6 +1,6 @@
-package dev.kehai.digitalstorage.mixin;
+package dev.kehai.digitalstorage.platform.fabric.mixin;
 
-import dev.kehai.digitalstorage.optimization.TomStorageIdentity;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomStorageIdentity;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
 import net.minecraft.util.math.Direction;
 import org.spongepowered.asm.mixin.Mixin;

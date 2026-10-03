@@ -1,9 +1,9 @@
-package dev.kehai.digitalstorage.mixin;
+package dev.kehai.digitalstorage.platform.fabric.mixin;
 
 import com.tom.storagemod.util.MergedStorage;
-import dev.kehai.digitalstorage.optimization.TomNetworkIntrospection;
-import dev.kehai.digitalstorage.optimization.TomDigitalEndpointTracker;
-import dev.kehai.digitalstorage.hopper.HopperTransferOptimizer;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkIntrospection;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomDigitalEndpointTracker;
+import dev.kehai.digitalstorage.platform.fabric.hopper.HopperTransferOptimizer;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import java.util.ArrayList;
 import java.util.Collections;

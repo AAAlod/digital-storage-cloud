@@ -5,10 +5,11 @@
 and topology checks; it delegates settled transfers to `InventoryTransferExecutor`.
 These policies do not import loader inventory or Tom types.
 
-`TomNetworkIntrospection` reads the Fabric Tom network; `TomNetworkAnalysis`
-builds the shared snapshot. `TomMigrationManager` owns player/world lifetime
-and injects `platform/fabric/FabricTransferExecutor`. The integration mixins live
-in the sibling `mixin/` package; Tom's Storage 1.7.1 is the verification baseline.
+`NetworkServices` lets the screen call the loader-installed backend without
+depending on its implementation. Fabric discovery, lifetime and telemetry live
+in [platform/fabric/tom](../platform/fabric/tom/); loader-specific mixins live in
+[platform/fabric/mixin](../platform/fabric/mixin/). Tom's Storage 1.7.1 is the
+verification baseline.
 
 Network aggregation deduplicates canonical digital storage, while endpoint
 diagnostics still count accessor aliases. Migration excludes digital storage

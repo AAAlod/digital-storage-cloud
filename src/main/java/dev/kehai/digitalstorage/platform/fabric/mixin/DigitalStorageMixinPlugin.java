@@ -1,4 +1,4 @@
-package dev.kehai.digitalstorage.mixin;
+package dev.kehai.digitalstorage.platform.fabric.mixin;
 
 import dev.kehai.digitalstorage.integration.TomIntegrationStatus;
 import java.util.List;

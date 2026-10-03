@@ -7,7 +7,7 @@ import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenHandler;
 import dev.kehai.digitalstorage.security.ItemSecurityPolicy;
-import dev.kehai.digitalstorage.mixin.BlockEntityTypeAccessor;
+import dev.kehai.digitalstorage.platform.fabric.mixin.BlockEntityTypeAccessor;
 import dev.kehai.digitalstorage.integration.TomIntegrationStatus;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
@@ -96,6 +96,8 @@ public final class DigitalStorageMod implements ModInitializer {
     @Override
     public void onInitialize() {
         DigitalStorageConfig.load(FabricLoader.getInstance().getConfigDir());
+        dev.kehai.digitalstorage.optimization.NetworkServices.install(
+                new dev.kehai.digitalstorage.platform.fabric.FabricNetworkServices());
         FabricServerEvents.register();
         FabricScreenNetworking.register();
         ItemSecurityPolicy.reload();

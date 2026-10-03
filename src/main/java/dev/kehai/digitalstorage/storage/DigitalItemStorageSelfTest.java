@@ -3,7 +3,7 @@ package dev.kehai.digitalstorage.storage;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import dev.kehai.digitalstorage.hopper.HopperTransferOptimizer;
+import dev.kehai.digitalstorage.platform.fabric.hopper.HopperTransferOptimizer;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenState;
 import dev.kehai.digitalstorage.security.ItemSecurityPolicy;
 import dev.kehai.digitalstorage.tier.DigitalStorageTierRegistry;
@@ -28,6 +28,7 @@ public final class DigitalItemStorageSelfTest {
     }
 
     public static String run() {
+        dev.kehai.digitalstorage.hopper.HopperPolicy.runSelfTest();
         ItemVariant stone = ItemVariant.of(Items.STONE);
         ItemKeySelfTest.run();
         VolumeLedgerSelfTest.run();
@@ -71,8 +72,8 @@ public final class DigitalItemStorageSelfTest {
         dev.kehai.digitalstorage.security.DigitalStorageMountTracker.runSelfTest();
         hopperTierBatchLimitsAreDeviceScoped();
         tomsMergedStorageDeduplicatesAndFallsBack(stone);
-        dev.kehai.digitalstorage.optimization.TomNetworkAnalysis.runSelfTest();
-        dev.kehai.digitalstorage.optimization.TomMigrationManager.runSelfTest();
+        dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkAnalysis.runSelfTest();
+        dev.kehai.digitalstorage.platform.fabric.tom.TomMigrationManager.runSelfTest();
         DigitalStorageUpgradeService.runSelfTest();
         DigitalStorageScreenState.runCodecSelfTest();
         dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol.runCompatibilitySelfTest();
@@ -1046,8 +1047,8 @@ public final class DigitalItemStorageSelfTest {
             add.invoke(mergedStorage, alias);
             java.util.Collection<?> parts = (java.util.Collection<?>) getStorages.invoke(mergedStorage);
             expectEquals(1, parts.size(), "Tom MergedStorage Volume UUID deduplication");
-            dev.kehai.digitalstorage.optimization.TomDigitalEndpointTracker endpointTracker =
-                    (dev.kehai.digitalstorage.optimization.TomDigitalEndpointTracker) mergedStorage;
+            dev.kehai.digitalstorage.platform.fabric.tom.TomDigitalEndpointTracker endpointTracker =
+                    (dev.kehai.digitalstorage.platform.fabric.tom.TomDigitalEndpointTracker) mergedStorage;
             expectEquals(2, endpointTracker.digitalstorage$rawDigitalEndpoints().size(),
                     "Tom pre-deduplication endpoint count");
 

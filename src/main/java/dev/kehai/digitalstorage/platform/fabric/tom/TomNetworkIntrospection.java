@@ -1,4 +1,4 @@
-package dev.kehai.digitalstorage.optimization;
+package dev.kehai.digitalstorage.platform.fabric.tom;
 
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;

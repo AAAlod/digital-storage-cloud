@@ -1,6 +1,6 @@
-package dev.kehai.digitalstorage.optimization;
+package dev.kehai.digitalstorage.platform.fabric.tom;
 
-import dev.kehai.digitalstorage.hopper.HopperTransferOptimizer;
+import dev.kehai.digitalstorage.platform.fabric.hopper.HopperTransferOptimizer;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import java.lang.reflect.Method;
 import java.util.ArrayList;

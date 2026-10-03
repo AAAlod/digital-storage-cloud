@@ -9,7 +9,7 @@ import dev.kehai.digitalstorage.integration.TomIntegrationStatus;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.security.DigitalStorageMountTracker;
 import dev.kehai.digitalstorage.security.ItemSecurityPolicy;
-import dev.kehai.digitalstorage.optimization.TomPerformanceBenchmark;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomPerformanceBenchmark;
 import dev.kehai.digitalstorage.storage.DigitalItemStorageSelfTest;
 import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import dev.kehai.digitalstorage.storage.StorageVolume;

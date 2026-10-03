@@ -1,4 +1,6 @@
-package dev.kehai.digitalstorage.hopper;
+package dev.kehai.digitalstorage.platform.fabric.hopper;
+
+import dev.kehai.digitalstorage.hopper.HopperPolicy;
 
 import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
@@ -27,9 +29,7 @@ public final class HopperTransferOptimizer {
     /** Resolve the device tier from its cached state; this performs no registry or world lookup. */
     public static long batchLimit(BlockEntity hopper) {
         DigitalStorageConfig config = DigitalStorageConfig.get();
-        return hopper.getCachedState().isOf(DigitalStorageMod.ADVANCED_INVENTORY_HOPPER)
-                ? config.advancedHopperBatchSize
-                : config.normalHopperBatchSize;
+        return HopperPolicy.batchLimit(hopper.getCachedState().isOf(DigitalStorageMod.ADVANCED_INVENTORY_HOPPER), config);
     }
 
     public static long moveFiltered(

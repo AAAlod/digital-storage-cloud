@@ -1,4 +1,4 @@
-package dev.kehai.digitalstorage.mixin;
+package dev.kehai.digitalstorage.platform.fabric.mixin;
 
 import com.tom.storagemod.tile.AbstractInventoryHopperBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
@@ -29,6 +29,6 @@ public abstract class AbstractInventoryHopperBlockEntityMixin {
         }
 
         BlockPos pos = ((BlockEntity) (Object) this).getPos();
-        return world.getTime() + Math.floorMod(pos.hashCode(), 20);
+        return dev.kehai.digitalstorage.hopper.HopperPolicy.staggeredScanTime(world.getTime(), pos.hashCode());
     }
 }

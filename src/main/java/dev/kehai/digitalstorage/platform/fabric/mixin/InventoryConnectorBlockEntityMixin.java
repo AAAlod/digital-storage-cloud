@@ -1,8 +1,8 @@
-package dev.kehai.digitalstorage.mixin;
+package dev.kehai.digitalstorage.platform.fabric.mixin;
 
 import com.tom.storagemod.tile.InventoryConnectorBlockEntity;
 import com.tom.storagemod.util.MergedStorage;
-import dev.kehai.digitalstorage.optimization.TomNetworkCache;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkCache;
 import net.minecraft.block.entity.BlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;

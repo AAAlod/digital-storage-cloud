@@ -5,7 +5,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** Runtime confirmation that every required Tom integration hook is active. */
 public final class TomIntegrationStatus {
-    private static final String MIXIN_PREFIX = "dev.kehai.digitalstorage.mixin.";
+    private static final String MIXIN_PREFIX = "dev.kehai.digitalstorage.platform.fabric.mixin.";
     private static final Set<String> APPLIED_MIXINS = ConcurrentHashMap.newKeySet();
     private static volatile boolean advancedHopperSupportActive;
 

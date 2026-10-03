@@ -2,8 +2,8 @@ package dev.kehai.digitalstorage.platform.fabric;
 
 import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.command.DigitalStorageCommands;
-import dev.kehai.digitalstorage.optimization.TomMigrationManager;
-import dev.kehai.digitalstorage.optimization.TomNetworkCache;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomMigrationManager;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkCache;
 import dev.kehai.digitalstorage.security.DigitalStorageMountTracker;
 import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;

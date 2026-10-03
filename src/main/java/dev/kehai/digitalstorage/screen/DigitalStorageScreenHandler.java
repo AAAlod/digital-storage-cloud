@@ -3,9 +3,8 @@ package dev.kehai.digitalstorage.screen;
 import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import dev.kehai.digitalstorage.optimization.TomMigrationManager;
+import dev.kehai.digitalstorage.optimization.NetworkServices;
 import dev.kehai.digitalstorage.optimization.MigrationTask;
-import dev.kehai.digitalstorage.optimization.TomNetworkAnalysis;
 import dev.kehai.digitalstorage.optimization.NetworkAnalysis;
 import dev.kehai.digitalstorage.optimization.TopologyToken;
 import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
@@ -122,7 +121,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
                 sendServerState();
                 return true;
             }
-            if (TomMigrationManager.status(volume.id()).active()) {
+            if (NetworkServices.get().status(volume.id()).active()) {
                 status = Text.translatable("screen.digitalstorage.unstackables.error.migration_active");
                 statusSuccessful = false;
                 sendServerState();
@@ -165,20 +164,20 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
                 sendServerState();
                 return true;
             }
-            MigrationTask.Status migration = TomMigrationManager.status(volume.id());
+            MigrationTask.Status migration = NetworkServices.get().status(volume.id());
             if (migration.active()) {
-                statusSuccessful = TomMigrationManager.cancel(serverPlayer, volume.id());
+                statusSuccessful = NetworkServices.get().cancel(serverPlayer, volume.id());
                 status = Text.translatable(statusSuccessful
                         ? "screen.digitalstorage.migration.cancelled"
                         : "screen.digitalstorage.migration.cancel_failed");
             } else {
-                networkReport = TomNetworkAnalysis.analyze(blockEntity);
-                TomMigrationManager.StartResult result = TomMigrationManager.start(
+                networkReport = NetworkServices.get().analyze(blockEntity);
+                NetworkServices.StartResult result = NetworkServices.get().start(
                         serverPlayer, blockEntity, networkReport
                 );
-                statusSuccessful = result == TomMigrationManager.StartResult.STARTED;
+                statusSuccessful = result == NetworkServices.StartResult.STARTED;
                 migrationWasActive = statusSuccessful;
-                status = result == TomMigrationManager.StartResult.DUPLICATE_TARGET_ENDPOINTS
+                status = result == NetworkServices.StartResult.DUPLICATE_TARGET_ENDPOINTS
                         ? Text.translatable("screen.digitalstorage.migration.duplicate_target")
                         : Text.translatable(
                                 statusSuccessful
@@ -203,7 +202,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
                 return true;
             }
             nextNetworkAnalysisTick = tick + NETWORK_ANALYSIS_COOLDOWN_TICKS;
-            networkReport = TomNetworkAnalysis.analyze(blockEntity);
+            networkReport = NetworkServices.get().analyze(blockEntity);
             status = Text.translatable("screen.digitalstorage.network.refreshed");
             statusSuccessful = true;
             sendServerState();
@@ -287,7 +286,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
                 ? Long.MIN_VALUE
                 : volume.record().policyVersion();
         boolean serverAllowsUnstackableItems = DigitalStorageConfig.get().allowUnstackableItems;
-        boolean migrationActive = volume != null && TomMigrationManager.status(volume.id()).active();
+        boolean migrationActive = volume != null && NetworkServices.get().status(volume.id()).active();
         boolean topologyInvalid = networkReport != null && networkReport.available()
                 && !TopologyToken.isCurrent(networkReport.topology());
         boolean migrationFinished = migrationWasActive && !migrationActive;
@@ -359,14 +358,14 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
         if (volume == null) {
             return DigitalStorageScreenState.NetworkDiagnostic.unavailable();
         }
-        MigrationTask.Status migration = TomMigrationManager.status(volume.id());
+        MigrationTask.Status migration = NetworkServices.get().status(volume.id());
         boolean migrationActive = migration.active();
         if (networkReport != null && networkReport.available()
                 && !TopologyToken.isCurrent(networkReport.topology())) {
             networkReport = null;
         }
         if (networkReport == null || (migrationWasActive && !migrationActive)) {
-            networkReport = TomNetworkAnalysis.analyze(blockEntity);
+            networkReport = NetworkServices.get().analyze(blockEntity);
         }
         migrationWasActive = migrationActive;
         return DigitalStorageScreenState.NetworkDiagnostic.from(networkReport, migration);

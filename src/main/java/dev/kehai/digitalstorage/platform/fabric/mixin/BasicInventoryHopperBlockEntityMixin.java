@@ -1,10 +1,10 @@
-package dev.kehai.digitalstorage.mixin;
+package dev.kehai.digitalstorage.platform.fabric.mixin;
 
 import com.tom.storagemod.item.IItemFilter;
 import com.tom.storagemod.tile.BasicInventoryHopperBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import dev.kehai.digitalstorage.hopper.HopperTransferOptimizer;
-import dev.kehai.digitalstorage.optimization.TomScannerTelemetry;
+import dev.kehai.digitalstorage.platform.fabric.hopper.HopperTransferOptimizer;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomScannerTelemetry;
 import java.util.function.Predicate;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;

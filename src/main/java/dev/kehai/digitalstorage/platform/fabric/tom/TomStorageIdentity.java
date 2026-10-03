@@ -1,4 +1,4 @@
-package dev.kehai.digitalstorage.optimization;
+package dev.kehai.digitalstorage.platform.fabric.tom;
 
 import java.util.List;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;

@@ -1,4 +1,4 @@
-package dev.kehai.digitalstorage.mixin;
+package dev.kehai.digitalstorage.platform.fabric.mixin;
 
 import java.util.Set;
 import net.minecraft.block.Block;

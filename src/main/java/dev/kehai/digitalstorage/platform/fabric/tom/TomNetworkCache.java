@@ -1,4 +1,7 @@
-package dev.kehai.digitalstorage.optimization;
+package dev.kehai.digitalstorage.platform.fabric.tom;
+
+import dev.kehai.digitalstorage.optimization.TopologyToken;
+import dev.kehai.digitalstorage.optimization.InventoryEndpoint;
 
 import com.google.common.collect.MapMaker;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;

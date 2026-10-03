@@ -1,4 +1,11 @@
-package dev.kehai.digitalstorage.optimization;
+package dev.kehai.digitalstorage.platform.fabric.tom;
+
+import dev.kehai.digitalstorage.optimization.MigrationTask;
+import dev.kehai.digitalstorage.optimization.MigrationTaskSelfTest;
+import dev.kehai.digitalstorage.optimization.NetworkAnalysis;
+import dev.kehai.digitalstorage.optimization.InventoryEndpoint;
+import dev.kehai.digitalstorage.optimization.TopologyToken;
+import dev.kehai.digitalstorage.optimization.NetworkServices.StartResult;
 
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
@@ -276,17 +283,7 @@ public final class TomMigrationManager {
         return FabricTransferExecutor.moveView(view, target, variant, FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT).moved();
     }
 
-    public enum StartResult {
-        STARTED,
-        NOT_OWNER,
-        NO_NETWORK,
-        NOTHING_TO_MOVE,
-        DUPLICATE_TARGET_ENDPOINTS,
-        NETWORK_CHANGED,
-        ALREADY_RUNNING
-    }
-
-    private static final class Job {
+private static final class Job {
         private final UUID volumeId;
         private final UUID ownerId;
         private final RegistryKey<World> worldKey;

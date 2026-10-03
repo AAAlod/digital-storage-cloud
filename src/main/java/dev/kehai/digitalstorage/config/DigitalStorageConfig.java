@@ -91,8 +91,7 @@ public final class DigitalStorageConfig {
     }
 
     public int failureCooldown(int consecutiveFailures) {
-        int index = Math.max(0, Math.min(consecutiveFailures - 1, hopperFailureCooldowns.length - 1));
-        return hopperFailureCooldowns[index];
+        return dev.kehai.digitalstorage.hopper.HopperPolicy.failureCooldown(consecutiveFailures, hopperFailureCooldowns);
     }
 
     void normalize() {
