@@ -99,6 +99,36 @@ public final class ForgeHopperCustodySelfTest {
             Files.delete(failureRoot.resolve(failedId + ".tmp"));
             expect(failing.flush() && new ForgeHopperCustody(failureRoot).pendingCount() == 1, "Disk retry");
 
+            var startupRoot = directory.resolve("startup-failure");
+            var preexisting = new ForgeHopperCustody(startupRoot);
+            UUID priorId = UUID.randomUUID();
+            expect(preexisting.retain(priorId, "minecraft:overworld", pos, engine, engine::saveState), "Prior disk record");
+            var backupRoot = directory.resolve("startup-backup");
+            Files.move(startupRoot, backupRoot);
+            Files.writeString(startupRoot, "inaccessible directory fixture");
+            var unavailable = new ForgeHopperCustody(startupRoot);
+            UUID liveId = UUID.randomUUID();
+            expect(!unavailable.opened() && !unavailable.available() && !unavailable.openingFailure().isEmpty(),
+                    "Startup disk failure creates an unavailable live custody owner");
+            expect(!unavailable.retain(liveId, "minecraft:overworld", pos, engine, engine::saveState)
+                    && unavailable.retainsIdentity(liveId, engine) && unavailable.unsavedCount() == 1
+                    && !unavailable.flush() && engine.heldCount() == 8, "Unavailable startup retains actual returned stack");
+            Files.delete(startupRoot); Files.move(backupRoot, startupRoot);
+            expect(unavailable.flush() && unavailable.opened() && unavailable.unsavedCount() == 0
+                    && unavailable.pendingCount() == 2 && unavailable.openingFailure().isEmpty(),
+                    "Repair loads preexisting evidence before persisting live ownership");
+            expect(new ForgeHopperCustody(startupRoot).pendingCount() == 2, "Repaired startup survives reopen");
+
+            byte[] priorBytes = Files.readAllBytes(startupRoot.resolve(priorId + ".dat"));
+            Files.move(startupRoot, backupRoot); Files.writeString(startupRoot, "blocked again");
+            var collision = new ForgeHopperCustody(startupRoot);
+            expect(!collision.retain(priorId, "minecraft:overworld", pos, engine, engine::saveState), "Late identity retained");
+            Files.delete(startupRoot); Files.move(backupRoot, startupRoot);
+            expect(!collision.flush() && !collision.opened() && collision.retainsIdentity(priorId, engine)
+                    && collision.unsavedCount() == 1 && collision.openingFailure().contains("conflicts")
+                    && java.util.Arrays.equals(priorBytes, Files.readAllBytes(startupRoot.resolve(priorId + ".dat"))),
+                    "Late disk collision preserves both disk evidence and original live ownership without overwrite");
+
             var evidence = directory.resolve("unreadable");
             Files.createDirectories(evidence);
             byte[] originalBytes = {1, 2, 3};

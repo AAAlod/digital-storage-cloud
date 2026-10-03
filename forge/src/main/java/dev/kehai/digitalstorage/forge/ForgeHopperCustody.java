@@ -22,15 +22,23 @@ public final class ForgeHopperCustody {
     private final Path root;
     private final Map<UUID, Record> records = new LinkedHashMap<>();
     private int unreadable;
+    private boolean opened;
+    private String openingFailure = "";
 
     public ForgeHopperCustody(Path root) {
         this.root = root;
+        open();
+    }
+    private boolean open() {
+        if (opened) return true;
         try {
             Files.createDirectories(root);
+            var loaded = new LinkedHashMap<UUID, Record>();
+            int damaged = 0;
             try (var files = Files.list(root)) {
                 for (var file : files.filter(path -> path.getFileName().toString().endsWith(".dat")
                         || path.getFileName().toString().endsWith(".tmp")).toList()) {
-                    if (file.getFileName().toString().endsWith(".tmp")) { unreadable++; continue; }
+                    if (file.getFileName().toString().endsWith(".tmp")) { damaged++; continue; }
                     try {
                         var saved = NbtIo.readCompressed(file.toFile());
                         if (saved == null || !saved.contains("Version", Tag.TAG_INT)
@@ -39,7 +47,7 @@ public final class ForgeHopperCustody {
                                 || saved.getString("Dimension").isBlank() || !saved.contains("Position", Tag.TAG_LONG)
                                 || !saved.contains("State")) throw new IllegalArgumentException("Invalid custody record");
                         UUID id = saved.getUUID("Id");
-                        if (!file.getFileName().toString().equals(id + ".dat") || records.containsKey(id)) {
+                        if (!file.getFileName().toString().equals(id + ".dat") || loaded.containsKey(id)) {
                             throw new IllegalArgumentException("Custody identity mismatch");
                         }
                         var record = new Record(id, saved.getString("Dimension"),
@@ -67,12 +75,27 @@ public final class ForgeHopperCustody {
                             if (!saved.hasUUID("ConflictsWith")) throw new IllegalArgumentException("Invalid conflict identity");
                             record.conflictsWith = saved.getUUID("ConflictsWith");
                         }
-                        records.put(id, record);
-                    } catch (IOException | RuntimeException failure) { unreadable++; }
+                        loaded.put(id, record);
+                    } catch (IOException | RuntimeException failure) { damaged++; }
                 }
             }
-        } catch (IOException failure) { throw new IllegalStateException("Cannot open hopper custody", failure); }
+            // A device retained while the directory was inaccessible cannot
+            // authorize replacement of a record discovered only after repair.
+            for (var id : loaded.keySet()) if (records.containsKey(id)) {
+                throw new IOException("Late disk identity conflicts with retained live hopper " + id);
+            }
+            records.putAll(loaded);
+            unreadable = damaged;
+            opened = true;
+            openingFailure = "";
+            return true;
+        } catch (IOException | RuntimeException failure) {
+            openingFailure = failure.getClass().getSimpleName() + ": " + failure.getMessage();
+            return false;
+        }
     }
+    public boolean opened() { return opened; }
+    public String openingFailure() { return openingFailure; }
 
     /** The identity token must be the actual retained device/engine, not a transient snapshot. */
     public boolean retain(UUID id, String dimension, BlockPos position, Object identity, Supplier<Tag> snapshot) {
@@ -83,6 +106,7 @@ public final class ForgeHopperCustody {
         java.util.Objects.requireNonNull(identity);
         java.util.Objects.requireNonNull(snapshot);
         if (dimension == null || dimension.isBlank()) throw new IllegalArgumentException("Missing dimension");
+        open();
         Record previous = records.get(id);
         if (previous != null && previous.phase != Phase.PENDING) {
             // HANDOFF/EXPORTED are authoritative receipts, not snapshots that a
@@ -125,6 +149,7 @@ public final class ForgeHopperCustody {
     }
 
     public boolean flush() {
+        if (!open()) return false;
         boolean successful = true;
         for (var record : records.values()) if (!record.durable) successful &= persist(record);
         return successful;
@@ -135,6 +160,7 @@ public final class ForgeHopperCustody {
     }
     public Binding bind(UUID id, String dimension, BlockPos position, ForgeHopperTransfer incoming,
                         Supplier<Tag> snapshot, Supplier<Tag> evidence) {
+        open();
         Record record = records.get(id);
         if (record == null) {
             if (incoming.blocked()) retain(id, dimension, position, incoming, snapshot, evidence);
@@ -193,7 +219,7 @@ public final class ForgeHopperCustody {
     public int pendingCount() { return (int) records.values().stream().filter(record -> record.phase != Phase.EXPORTED || !record.durable).count(); }
     public int unsavedCount() { return (int) records.values().stream().filter(record -> !record.durable).count(); }
     public int unreadableFiles() { return unreadable; }
-    public boolean available() { return pendingCount() == 0 && unreadable == 0; }
+    public boolean available() { return opened && pendingCount() == 0 && unreadable == 0; }
     public java.util.List<Summary> entries() {
         var conflicts = new java.util.HashSet<UUID>();
         for (var record : records.values()) if (record.conflictsWith != null) conflicts.add(record.conflictsWith);
@@ -231,6 +257,7 @@ public final class ForgeHopperCustody {
         if (explanation == null || explanation.isBlank() || explanation.length() > 512) {
             throw new IllegalArgumentException("A concise handoff explanation is required");
         }
+        if (!open()) throw new IllegalStateException("Hopper custody directory requires repair: " + openingFailure);
         var record = records.get(id);
         if (record == null || unreadable != 0 || record.conflictsWith != null
                 || records.values().stream().anyMatch(candidate -> id.equals(candidate.conflictsWith))) {
@@ -282,6 +309,7 @@ public final class ForgeHopperCustody {
 
     private boolean persist(Record record) {
         try {
+            if (!open()) throw new IllegalStateException("Cannot open hopper custody: " + openingFailure);
             requireFresh(record);
             Tag encoded = (record.phase == Phase.PENDING
                     ? java.util.Objects.requireNonNull(record.snapshot.get(), "Missing hopper state") : record.encoded).copy();

@@ -155,6 +155,22 @@ public final class ForgeTransferSessionSelfTest {
             var custodyReopened = ForgeTransferSessions.openForTest(root.resolve("custody"));
             expect(!custodyReopened.available() && custodyReopened.hoppers().state(device).equals(deviceState)
                     && custodyReopened.diagnostics().contains("hoppers pending=1"), "Session reopen lost hopper custody");
+
+            Path blockedParent = root.resolve("startup-blocked");
+            Files.writeString(blockedParent, "all transfer directories unavailable");
+            var startup = ForgeTransferSessions.openForTest(blockedParent);
+            UUID startupId = UUID.randomUUID();
+            expect(!startup.available() && !startup.hoppers().opened()
+                    && !startup.hoppers().retain(startupId, "minecraft:overworld", net.minecraft.core.BlockPos.ZERO,
+                            token, () -> deviceState)
+                    && startup.hasUnflushed() && startup.hoppers().retainsIdentity(startupId, token)
+                    && startup.diagnostics().contains("hoppers pending=1"),
+                    "Hopper removal owner remains accessible when other session stores fail initialization");
+            Files.delete(blockedParent);
+            expect(startup.flush() && !startup.hasUnflushed() && !startup.available()
+                    && startup.hoppers().retainsIdentity(startupId, token)
+                    && ForgeTransferSessions.openForTest(blockedParent).hoppers().state(startupId).equals(deviceState),
+                    "Session repair persists pending ownership without permitting new transfer");
         } catch (IOException failure) { throw new IllegalStateException("Transfer session fixture failed", failure); }
         finally {
             if (!root.getFileName().toString().startsWith("digitalstorage-forge-session-")) throw new IllegalStateException("Unexpected session cleanup root");

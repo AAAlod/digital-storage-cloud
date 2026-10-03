@@ -43,15 +43,24 @@ public final class ForgeTransferSessions {
         }
         DigitalStorage.LOGGER.info("Forge transfer session closed: {}", session.diagnostics());
     }
-    static Session openForTest(Path root) { return new Session(root.toAbsolutePath().normalize()); }
+    static Session openForTest(Path root) { return new Session(root.toAbsolutePath().normalize(), true); }
 
     public static final class Session {
         private final Path root;
+        private final boolean privateFixture;
         private ForgeTransferRecovery recovery;
         private ForgeTransferIncidents incidents;
         private ForgeHopperCustody hoppers;
         private boolean initialized;
-        private Session(Path root) { this.root = root; flush(); }
+        private Session(Path root) { this(root, false); }
+        private Session(Path root, boolean privateFixture) {
+            this.root = root; this.privateFixture = privateFixture; flush();
+        }
+        private void failure(String store, RuntimeException failure) {
+            if (privateFixture) DigitalStorage.LOGGER.info("Forge transfer private fixture expected store failure [{}] at {}: {}",
+                    store, root, failure.toString());
+            else DigitalStorage.LOGGER.error("Forge {} flush failed at {}", store, root, failure);
+        }
         public ForgeTransferRecovery recovery() {
             if (!initialized) throw new IllegalStateException("Forge transfer recovery initialization failed");
             return recovery;
@@ -61,7 +70,7 @@ public final class ForgeTransferSessions {
             return incidents;
         }
         public ForgeHopperCustody hoppers() {
-            if (!initialized) throw new IllegalStateException("Forge hopper custody initialization failed");
+            if (hoppers == null) throw new IllegalStateException("Forge hopper custody initialization failed");
             return hoppers;
         }
         public boolean available() { return initialized && recovery.available() && recovery.inFlightCount() == 0
@@ -75,26 +84,28 @@ public final class ForgeTransferSessions {
         }
         public boolean flush() {
             boolean successful = true;
+            // The hopper owner must exist even if another store cannot open.
+            // Removal hooks can then retain returned instances before disk retry.
+            if (hoppers == null) hoppers = new ForgeHopperCustody(root.resolve("hoppers"));
             try {
                 if (recovery == null) recovery = new ForgeTransferRecovery(root.resolve("recovery"));
                 recovery.flushUnsaved();
             } catch (RuntimeException failure) {
                 successful = false;
-                DigitalStorage.LOGGER.error("Forge transfer recovery flush failed at {}", root, failure);
+                failure("transfer recovery", failure);
             }
             try {
                 if (incidents == null) incidents = new ForgeTransferIncidents(root.resolve("incidents"));
                 incidents.flushUnsaved();
             } catch (RuntimeException failure) {
                 successful = false;
-                DigitalStorage.LOGGER.error("Forge transfer incident flush failed at {}", root, failure);
+                failure("transfer incident", failure);
             }
             try {
-                if (hoppers == null) hoppers = new ForgeHopperCustody(root.resolve("hoppers"));
                 successful &= hoppers.flush();
             } catch (RuntimeException failure) {
                 successful = false;
-                DigitalStorage.LOGGER.error("Forge hopper custody flush failed at {}", root, failure);
+                failure("hopper custody", failure);
             }
             initialized = recovery != null && incidents != null && hoppers != null;
             return successful;
@@ -104,14 +115,17 @@ public final class ForgeTransferSessions {
                     || (hoppers != null && hoppers.unsavedCount() > 0);
         }
         public String diagnostics() {
-            if (!initialized) return "transfer stores unavailable; migration blocked";
+            if (!initialized) return "transfer stores unavailable; migration blocked; hoppers pending=" + hoppers.pendingCount()
+                    + ", unsaved=" + hoppers.unsavedCount() + ", opened=" + hoppers.opened()
+                    + ", opening failure=" + hoppers.openingFailure();
             return "transfer ready=" + available() + ", recovery pending=" + recovery.pendingCount()
                     + ", delivering=" + recovery.inFlightCount() + ", raw=" + recovery.uncapturedCount()
                     + ", unsaved=" + recovery.unsavedCount() + ", unreadable=" + recovery.unreadableFiles()
                     + "; incidents unresolved=" + incidents.unresolvedCount() + ", unsaved=" + incidents.unsavedCount()
                     + ", unreadable=" + incidents.unreadableFiles()
                     + "; hoppers pending=" + hoppers.pendingCount() + ", unsaved=" + hoppers.unsavedCount()
-                    + ", unreadable=" + hoppers.unreadableFiles();
+                    + ", unreadable=" + hoppers.unreadableFiles() + ", opened=" + hoppers.opened()
+                    + ", opening failure=" + hoppers.openingFailure();
         }
     }
 }

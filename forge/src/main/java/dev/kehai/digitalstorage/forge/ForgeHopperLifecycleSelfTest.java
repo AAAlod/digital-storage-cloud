@@ -38,6 +38,7 @@ public final class ForgeHopperLifecycleSelfTest {
             expect(world.getBlockState(pos).isAir() && chunk.getBlockEntities().isEmpty(), "Untouched private chunk");
             for (var block : new net.minecraft.world.level.block.Block[]{Content.invHopperBasic.get(), ForgeDigitalStorage.ADVANCED_HOPPER.get()}) {
                 Path records = fixtureRoot.resolve(UUID.randomUUID().toString());
+                Files.writeString(records, "unavailable custody at startup");
                 var custody = new ForgeHopperCustody(records);
                 ForgeHopperLifecycle.withStoreForTest(custody, () -> {
                     try {
@@ -61,7 +62,12 @@ public final class ForgeHopperLifecycleSelfTest {
                         var saved = hopper.saveWithFullMetadata();
                         UUID id = saved.getUUID(ForgeHopperState.ID_KEY);
                         expect(custody.pendingCount() == previous + 1 && custody.retainsIdentity(id, engine)
-                                && !custody.available(), "Real chunk removal retains engine");
+                                && !custody.available() && !custody.opened() && custody.unsavedCount() == 1,
+                                "Real chunk removal retains engine despite startup directory failure");
+                        try { Files.delete(records); }
+                        catch (IOException failure) { throw new IllegalStateException("Cannot repair fixture directory", failure); }
+                        expect(custody.flush() && custody.opened() && custody.unsavedCount() == 0
+                                && custody.retainsIdentity(id, engine), "Directory repair persists original removed engine");
                         var restored = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(pos, block.defaultBlockState(), saved);
                         chunk.setBlockEntity(restored);
                         expect(transfer(restored) == engine && custody.pendingCount() == previous + 1,
