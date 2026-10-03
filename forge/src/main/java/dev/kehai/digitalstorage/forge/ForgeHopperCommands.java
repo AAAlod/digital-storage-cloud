@@ -34,6 +34,21 @@ public final class ForgeHopperCommands {
                             + " 管理员=" + entry.administrator() + " " + entry.explanation() + " " + entry.failure()), false);
                     return 1;
                 })))
+                .then(Commands.literal("reconcile-empty").then(Commands.argument("id", UuidArgument.uuid())
+                        .then(Commands.argument("explanation", StringArgumentType.greedyString()).executes(context -> {
+                            var administrator = context.getSource().getPlayerOrException();
+                            try {
+                                ForgeTransferSessions.get(context.getSource().getServer()).hoppers().retire(
+                                        UuidArgument.getUuid(context, "id"), administrator.getUUID(),
+                                        StringArgumentType.getString(context, "explanation"));
+                                context.getSource().sendSuccess(() -> Component.literal(
+                                        "外部核对为无可交付余量，永久退役收据已保存；原始证据保留，不产生恢复物品。"), false);
+                                return 1;
+                            } catch (RuntimeException failure) {
+                                context.getSource().sendFailure(Component.literal("漏斗核对失败：" + failure.getMessage()));
+                                return 0;
+                            }
+                        }))))
                 .then(Commands.literal("handoff").then(Commands.argument("id", UuidArgument.uuid())
                         .then(Commands.argument("volume", UuidArgument.uuid())
                                 .then(Commands.argument("explanation", StringArgumentType.greedyString()).executes(context -> {

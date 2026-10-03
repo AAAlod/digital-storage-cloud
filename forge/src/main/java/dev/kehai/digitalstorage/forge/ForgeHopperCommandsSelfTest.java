@@ -64,6 +64,19 @@ public final class ForgeHopperCommandsSelfTest {
                     && ledger.amountOf(ItemKey.of(Items.STONE)) == 8, "Owner alias delivers exactly eight");
             expect(dispatcher.execute(handoff, adminSource) == 1 && ledger.amountOf(ItemKey.of(Items.STONE)) == 8,
                     "Repeated handoff cannot recreate delivered recovery");
+            expect(dispatcher.execute("dsc hopperrecovery reconcile-empty " + id + " Cannot retire adopted ownership", adminSource) == 0,
+                    "Reconciliation cannot retire a handoff receipt");
+            UUID unknownId = UUID.randomUUID();
+            var opaque = net.minecraft.nbt.StringTag.valueOf("unknown device observation");
+            session.hoppers().retain(unknownId, "minecraft:overworld", net.minecraft.core.BlockPos.ZERO, new Object(), () -> opaque);
+            String retire = "dsc hopperrecovery reconcile-empty " + unknownId + " External inventories inspected; no deliverable source";
+            forbidden = false;
+            try { dispatcher.execute(retire, ownerSource); }
+            catch (com.mojang.brigadier.exceptions.CommandSyntaxException expected) { forbidden = true; }
+            expect(forbidden && session.hoppers().pendingCount() == pending + 1, "Player cannot retire custody evidence");
+            expect(dispatcher.execute(retire, adminSource) == 1 && dispatcher.execute(retire, adminSource) == 1
+                    && session.hoppers().state(unknownId).equals(opaque) && session.recovery().entry(unknownId) == null,
+                    "Administrator retirement is durable, repeatable and creates no items");
             expect(session.hoppers().pendingCount() == pending && session.recovery().pendingCount() == recoveryPending,
                     "Only settled audit receipts remain");
         } catch (com.mojang.brigadier.exceptions.CommandSyntaxException failure) {

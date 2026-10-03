@@ -41,6 +41,12 @@ public abstract class BasicInventoryHopperStateMixin implements ForgeHopperState
                 this::digitalstorage$snapshot, evidence::copy);
         digitalstorage$id = binding.id();
         digitalstorage$transfer = binding.engine();
+        if (binding.state() != null && !digitalstorage$transfer.blocked()) {
+            // The journal retains the original invalid identity evidence.
+            // A settled lineage rotates the device's new operational identity.
+            digitalstorage$unreadableIdentity = null;
+            digitalstorage$missingIdentity = false;
+        }
         if (binding.state() != null) digitalstorage$unreadableTag = binding.state() instanceof CompoundTag ? null : binding.state().copy();
         digitalstorage$resolved = true;
         digitalstorage$journaled = digitalstorage$transfer.blocked();
@@ -56,6 +62,7 @@ public abstract class BasicInventoryHopperStateMixin implements ForgeHopperState
         ForgeHopperLifecycle.checkpoint((net.minecraft.world.level.block.entity.BlockEntity) (Object) this);
         if (digitalstorage$unreadableIdentity != null) tag.put(ID_KEY, digitalstorage$unreadableIdentity.copy());
         else tag.putUUID(ID_KEY, digitalstorage$id);
+        tag.putUUID(CUSTODY_ID_KEY, digitalstorage$id);
         tag.put(NBT_KEY, digitalstorage$snapshot());
     }
 
@@ -70,6 +77,7 @@ public abstract class BasicInventoryHopperStateMixin implements ForgeHopperState
         digitalstorage$missingIdentity = !tag.contains(ID_KEY);
         if (tag.hasUUID(ID_KEY)) digitalstorage$id = tag.getUUID(ID_KEY);
         else if (tag.contains(ID_KEY)) digitalstorage$unreadableIdentity = tag.get(ID_KEY).copy();
+        if (tag.hasUUID(CUSTODY_ID_KEY)) digitalstorage$id = tag.getUUID(CUSTODY_ID_KEY);
         digitalstorage$unreadableTag = null;
         if (!tag.contains(NBT_KEY)) {
             digitalstorage$transfer = new ForgeHopperTransfer();

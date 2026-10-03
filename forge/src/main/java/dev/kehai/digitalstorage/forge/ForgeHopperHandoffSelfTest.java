@@ -124,7 +124,68 @@ public final class ForgeHopperHandoffSelfTest {
             try { rejected.export(conflictId, owner, volume, admin, "unresolved conflict", recovery); }
             catch (IllegalStateException expected) { conflictRejected = true; }
             expect(conflictRejected, "Unresolved duplicate evidence prohibits handoff");
-            DigitalStorage.LOGGER.info("Forge hopper handoff self-test passed: stable recovery identity, target guard, permanent receipt, stale writer rejection, old mirror retirement, exact ledger delivery, recovery/receipt failures and explicit restart retry; administrator commands covered separately");
+            UUID shadowId = rejected.entries().stream().filter(entry -> conflictId.equals(entry.conflictsWith()))
+                    .findFirst().orElseThrow().id();
+            Path shadowTemp = root.resolve("rejected").resolve(shadowId + ".tmp");
+            Files.createDirectory(shadowTemp);
+            try { rejected.retire(shadowId, admin, "External evidence identifies this branch as duplicate"); }
+            catch (IllegalStateException expected) { }
+            conflictRejected = false;
+            try { rejected.export(conflictId, owner, volume, admin, "receipt not durable", recovery); }
+            catch (IllegalStateException expected) { conflictRejected = true; }
+            expect(conflictRejected, "Unflushed retirement cannot unblock the primary source");
+            Files.delete(shadowTemp);
+            expect(rejected.flush(), "Conflict retirement receipt retries");
+            rejected.export(conflictId, owner, volume, admin, "Duplicate branch independently retired", recovery);
+            expect(original.heldCount() == 0 && recovery.ownedEntry(conflictId, owner).amount() == 8,
+                    "Durable duplicate retirement permits only original confirmed source handoff");
+            var retirementRoot = root.resolve("retirement");
+            var retiring = new ForgeHopperCustody(retirementRoot);
+            UUID retiredId = UUID.randomUUID();
+            var retirementEngine = held(); retirementEngine.markUncertain("external outcome requires reconciliation");
+            var mirror = retirementEngine.saveState();
+            retiring.retain(retiredId, "minecraft:overworld", BlockPos.ZERO, retirementEngine, retirementEngine::saveState);
+            var staleRetirement = new ForgeHopperCustody(retirementRoot);
+            Path retirementTemp = retirementRoot.resolve(retiredId + ".tmp");
+            Files.createDirectory(retirementTemp);
+            boolean retirementFailed = false;
+            try { retiring.retire(retiredId, admin, "External destination verified; no deliverable remainder"); }
+            catch (IllegalStateException expected) { retirementFailed = true; }
+            expect(retirementFailed && retirementEngine.heldCount() == 8 && retiring.retainsIdentity(retiredId, retirementEngine)
+                    && retiring.unsavedCount() == 1, "Retirement write failure preserves original owner");
+            Files.delete(retirementTemp);
+            expect(retiring.flush() && retirementEngine.heldCount() == 0 && retiring.pendingCount() == 0,
+                    "Only durable retirement releases original live source");
+            var retiredDisk = new ForgeHopperCustody(retirementRoot);
+            expect(retiredDisk.available() && retiredDisk.entries().get(0).phase().equals("RETIRED")
+                    && retiredDisk.entries().get(0).observedAmount() == 8
+                    && !retiredDisk.entries().get(0).confirmed() && retiredDisk.state(retiredId).equals(mirror),
+                    "Retirement preserves original observation and raw audit state");
+            retiredDisk.retire(retiredId, UUID.randomUUID(), "repeat cannot rewrite evidence");
+            expect(retiredDisk.entries().get(0).administrator().equals(admin), "Retirement receipt is immutable on retry");
+            boolean staleRetirementRejected = false;
+            try { staleRetirement.retire(retiredId, admin, "stale reconciliation"); }
+            catch (IllegalStateException expected) { staleRetirementRejected = true; }
+            expect(staleRetirementRejected, "Stale retirement cannot overwrite newer evidence");
+            var retiredMirror = ForgeHopperTransfer.restore(mirror);
+            var readyBinding = retiredDisk.bind(retiredId, "minecraft:overworld", BlockPos.ZERO,
+                    retiredMirror, retiredMirror::saveState);
+            expect(!readyBinding.id().equals(retiredId) && !readyBinding.engine().blocked()
+                    && readyBinding.engine().heldCount() == 0, "Retired mirror cannot resurrect ownership");
+            int recoveryBefore = recovery.pendingCount();
+            boolean retiredExportRejected = false;
+            try { retiredDisk.export(retiredId, owner, volume, admin, "cannot resurrect", recovery); }
+            catch (IllegalStateException expected) { retiredExportRejected = true; }
+            expect(retiredExportRejected && recovery.pendingCount() == recoveryBefore, "Retirement creates no recovery items");
+            UUID opaqueRetired = UUID.randomUUID();
+            var opaqueState = net.minecraft.nbt.StringTag.valueOf("unknown state; no observed items");
+            retiredDisk.retain(opaqueRetired, "minecraft:overworld", BlockPos.ZERO, new Object(), () -> opaqueState);
+            retiredDisk.retire(opaqueRetired, admin, "External inventories inspected; no owned returned stack");
+            expect(new ForgeHopperCustody(retirementRoot).state(opaqueRetired).equals(opaqueState)
+                    && ForgeHopperCommands.observed(retiredDisk.entries().stream()
+                            .filter(entry -> entry.id().equals(opaqueRetired)).findFirst().orElseThrow()).equals("未知"),
+                    "Unknown retirement does not invent zero observation or alter opaque evidence");
+            DigitalStorage.LOGGER.info("Forge hopper handoff self-test passed: stable recovery identity, target guard, permanent receipt, stale writer rejection, old mirror retirement, exact ledger delivery, recovery/receipt failures, explicit restart retry and administrator zero-remainder retirement; administrator commands covered separately");
         } catch (IOException failure) { throw new IllegalStateException("Hopper handoff fixture failed", failure); }
         finally {
             if (root != null) {

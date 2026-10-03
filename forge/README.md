@@ -20,7 +20,9 @@ Forge 1.20.1 / 47.4.10 使用独立 Gradle 构建，复用上级工程的 wrappe
 
 恢复会话与物理提取结算已接入迁移。`digitalstorage recovery list` 查看自己的恢复条目，`recovery deliver <id> [amount]` 显式交付到自己拥有的原目标卷。容量/策略拒绝保留待恢复数量；交付中断或刷盘失败的 `DELIVERING` 不允许重试，需要管理员核对外部持久化结果。
 
-漏斗没有可靠的玩家归属，管理员使用权限等级 2 的 `digitalstorage hopperrecovery list`、`inspect <id>` 查看独立托管记录，再以 `hopperrecovery handoff <id> <volume> <explanation>` 明确选择现存目标卷。已确认余量生成固定标识的卷主恢复条目，由卷主使用 `recovery deliver <id>` 交付。交接记录保留管理员说明及永久收据，重复请求不新增条目；旧区块镜像退役身份并清除已交接的镜像状态。目标卷不能在重试时更换。“已确认”描述原调用返回的余量，交接前仍需核对外部库存的持久化结果，特别是异常退出后；不同库存与世界文件之间没有共同原子提交。未知、损坏、冲突、不确定或缺少有效稳定身份的停止条目拒绝交接，保留证据；其核对入口仍待后续移植阶段完善。未决交接和写盘失败继续阻止新迁移。
+漏斗没有可靠的玩家归属，管理员使用权限等级 2 的 `digitalstorage hopperrecovery list`、`inspect <id>` 查看独立托管记录，再以 `hopperrecovery handoff <id> <volume> <explanation>` 明确选择现存目标卷。已确认余量生成固定标识的卷主恢复条目，由卷主使用 `recovery deliver <id>` 交付。交接记录保留管理员说明及永久收据，重复请求不新增条目；旧区块镜像退役身份并清除已交接的镜像状态。目标卷不能在重试时更换。“已确认”描述原调用返回的余量，交接前仍需核对外部库存的持久化结果，特别是异常退出后；不同库存与世界文件之间没有共同原子提交。未知、损坏、冲突、不确定或缺少有效稳定身份的停止条目拒绝交接，保留证据；无可交付余量的核对见下文，其他未决结果仍待完善。未决交接和写盘失败继续阻止新迁移。
+
+漏斗核对命令 `digitalstorage hopperrecovery reconcile-empty <id> <explanation>` 要求权限等级 2 的玩家管理员。只有在外部核对确认该条目无可交付余量时执行，说明必须写明依据；该操作保存永久退役收据并释放原托管来源，不生成恢复物品。原始 State、身份、观察数量仍作证据保留，旧镜像用独立托管身份匹配收据后更新为就绪设备。收据写入失败保留原实例，修复后 flush 或显式重试；重复核对不改写原收据。已进入交接的条目必须继续原恢复流程，不能在此退役。确认仍有余量、不确定数量的部分结算，以及迟发现的磁盘同身份冲突核对仍待完善。
 
 管理员可用 `digitalstorage transferincident list`、`inspect <id>` 查看事件，`acknowledge <id> <explanation>` 保存明确核对说明和收据。事件只记录观察，核对事件不会交付物品或解除 `DELIVERING`。selftest、diagnostics、flush 和 transferincident 均要求权限等级 2。
 

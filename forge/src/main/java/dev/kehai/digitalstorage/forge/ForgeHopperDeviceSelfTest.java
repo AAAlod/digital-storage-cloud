@@ -116,6 +116,16 @@ public final class ForgeHopperDeviceSelfTest {
                     "Uncertain observed quantity is distinct from unknown quantity");
             if (unknown) expect(reopened.state(entry.id()).equals(StringTag.valueOf("unknown typed data")),
                     "Opaque transfer state is not wrapped or replaced by identity evidence");
+            var oldMirror = entity.saveWithFullMetadata();
+            expect(oldMirror.hasUUID(ForgeHopperState.CUSTODY_ID_KEY), "Opaque or missing identity still has stable journal lineage");
+            reopened.retire(entry.id(), java.util.UUID.randomUUID(), "External device state inspected; no deliverable remainder");
+            var mirrorEntity = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, entity.getBlockState(), oldMirror);
+            ((ForgeHopperState) mirrorEntity).digitalstorage$reconcile(reopened, "minecraft:overworld", BlockPos.ZERO);
+            var ready = mirrorEntity.saveWithFullMetadata();
+            expect(!transfer(mirrorEntity).blocked() && transfer(mirrorEntity).heldCount() == 0
+                    && ready.hasUUID(ForgeHopperState.ID_KEY)
+                    && !ready.getUUID(ForgeHopperState.CUSTODY_ID_KEY).equals(entry.id()),
+                    "Actual unknown-identity mirror retires lineage without resurrection");
         } catch (java.io.IOException failure) {
             throw new IllegalStateException("Hopper identity evidence fixture failed", failure);
         } finally {
