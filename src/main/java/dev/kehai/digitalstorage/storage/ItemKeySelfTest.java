@@ -15,6 +15,7 @@ public final class ItemKeySelfTest {
         immutableIdentity();
         legacyRecordRoundTrip();
         invalidAndBlankKeys();
+        opaqueAttachmentsRoundTrip();
     }
 
     private static void immutableIdentity() {
@@ -94,6 +95,37 @@ public final class ItemKeySelfTest {
         expect(ItemKeyCodec.read(parse("{item:'missing:unregistered'}")).isBlank(), "Unknown item did not become blank");
         expect(ItemKey.of(Items.AIR, parse("{Payload:1}")).equals(ItemKey.blank()), "Blank key retained a tag");
         expect(ItemKeyCodec.read(ItemKeyCodec.write(ItemKey.blank())).isBlank(), "Blank codec changed identity");
+    }
+
+    private static void opaqueAttachmentsRoundTrip() {
+        CompoundTag attachments = parse("{Opaque:{Stored:42,Nested:[I;1,2,3]}}");
+        ItemKey key = ItemKey.of(Items.PAPER, null, attachments);
+        var map = new HashMap<ItemKey, Long>();
+        map.put(key, 12L);
+        ItemKey original = ItemKeyCodec.read(ItemKeyCodec.write(key));
+        int bytes = key.tagBytes();
+        attachments.getCompound("Opaque").putInt("Stored", 13);
+        key.copyAttachments().getCompound("Opaque").putInt("Stored", 14);
+        expect(key.equals(original) && map.get(original) == 12 && key.tagBytes() == bytes,
+                "Opaque platform data mutated a stored key");
+        expect(!key.equals(ItemKey.of(Items.PAPER)) && !key.equals(ItemKey.of(Items.PAPER, null, attachments)),
+                "Different platform data collapsed into one key");
+        expect(bytes > 0 && !ItemKeyCodec.write(ItemKey.of(Items.PAPER)).contains("attachments"),
+                "Platform data escaped size accounting or changed tagless legacy encoding");
+        VolumeLedger ledger = new VolumeLedger(() -> { }, 2);
+        ledger.load(key, 7);
+        ledger.load(ItemKey.of(Items.PAPER), 3);
+        expect(ledger.variantCount() == 2 && ledger.amountOf(original) == 7,
+                "Ledger merged distinct attachment identities");
+        DigitalStorageRecord record = DigitalStorageRecord.createNew(() -> { });
+        record.storage().load(key, 7);
+        record.storage().load(ItemKey.of(Items.PAPER), 3);
+        CompoundTag written = new CompoundTag();
+        record.writeNbt(written);
+        DigitalStorageRecord reread = DigitalStorageRecord.fromNbt(written, () -> { });
+        expect(reread.storage().variantCount() == 2 && reread.storage().amountOf(original) == 7
+                        && reread.storage().totalVariantNbtBytes() == record.storage().totalVariantNbtBytes(),
+                "Record persistence lost attachment identity or size accounting");
     }
 
     private static CompoundTag parse(String snbt) {

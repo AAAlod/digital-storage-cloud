@@ -8,6 +8,7 @@ public final class ForgeSharedSelfTest {
 
     public static void run() {
         dev.kehai.digitalstorage.storage.ItemKeySelfTest.run();
+        ForgeItemKeySelfTest.run();
         dev.kehai.digitalstorage.storage.VolumeLedgerSelfTest.run();
         dev.kehai.digitalstorage.optimization.NetworkAnalysis.runSelfTest();
         dev.kehai.digitalstorage.optimization.MigrationTaskSelfTest.run();

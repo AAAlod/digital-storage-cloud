@@ -18,6 +18,7 @@ public final class FabricItemKeys {
     }
 
     public static ItemVariant toVariant(ItemKey key) {
+        if (key.hasAttachments()) throw new IllegalArgumentException("Fabric ItemVariant cannot represent platform stack attachments");
         return ItemVariant.of(key.item(), key.copyTag());
     }
 }

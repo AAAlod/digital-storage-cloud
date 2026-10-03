@@ -37,5 +37,12 @@ public final class FabricItemKeySelfTest {
         if (!key.equals(ItemKeyCodec.read(variants[3].toNbt()))) {
             throw new IllegalStateException("Fabric adapter exposed the item key compound");
         }
+        boolean rejected = false;
+        try {
+            FabricItemKeys.toVariant(ItemKey.of(Items.PAPER, null, nested));
+        } catch (IllegalArgumentException expected) {
+            rejected = true;
+        }
+        if (!rejected) throw new IllegalStateException("Fabric silently discarded unsupported platform attachments");
     }
 }

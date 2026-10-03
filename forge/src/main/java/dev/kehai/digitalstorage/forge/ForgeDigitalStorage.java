@@ -56,11 +56,13 @@ public final class ForgeDigitalStorage {
         MENUS.register(bus);
         TABS.register(bus);
         DigitalStorageContent.install(ACCESSOR_TYPE, MENU, ACCESSOR_ITEM, ForgeAccessorBlockEntity::new);
+        dev.kehai.digitalstorage.storage.ItemKey.installStackDataAdapter(new ForgeItemKeys());
         DigitalStorageConfig.load(FMLPaths.CONFIGDIR.get());
         dev.kehai.digitalstorage.optimization.NetworkServices.install(new ForgeNetworkServices());
         ItemSecurityPolicy.reload();
         ForgeScreenNetworking.register();
         MinecraftForge.EVENT_BUS.register(ForgeServerEvents.class);
+        MinecraftForge.EVENT_BUS.register(ForgeItemKeySelfTest.class);
         DigitalStorage.LOGGER.info("Forge platform bootstrap initialized; Tom capability integration is under development");
     }
 }

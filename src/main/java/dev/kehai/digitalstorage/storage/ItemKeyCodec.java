@@ -6,7 +6,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 
-/** Reads the existing Variant compound (item string, optional tag), without loader APIs. */
+/** Legacy item/tag Variant encoding with optional opaque stack attachments; no loader APIs. */
 public final class ItemKeyCodec {
     private ItemKeyCodec() {
     }
@@ -14,7 +14,8 @@ public final class ItemKeyCodec {
     public static ItemKey read(CompoundTag serialized) {
         try {
             Item item = BuiltInRegistries.ITEM.get(new ResourceLocation(serialized.getString("item")));
-            return ItemKey.of(item, serialized.contains("tag") ? serialized.getCompound("tag") : null);
+            return ItemKey.of(item, serialized.contains("tag") ? serialized.getCompound("tag") : null,
+                    serialized.contains("attachments") ? serialized.getCompound("attachments") : null);
         } catch (RuntimeException exception) {
             DigitalStorage.LOGGER.debug("Tried to load an invalid item key from NBT: {}", serialized, exception);
             return ItemKey.blank();
@@ -28,6 +29,8 @@ public final class ItemKeyCodec {
         if (tag != null) {
             serialized.put("tag", tag);
         }
+        CompoundTag attachments = key.copyAttachments();
+        if (attachments != null) serialized.put("attachments", attachments);
         return serialized;
     }
 }
