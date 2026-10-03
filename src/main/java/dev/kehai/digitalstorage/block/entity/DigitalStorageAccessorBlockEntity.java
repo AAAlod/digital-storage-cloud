@@ -1,35 +1,26 @@
 package dev.kehai.digitalstorage.block.entity;
 
-import dev.kehai.digitalstorage.DigitalStorageMod;
+import dev.kehai.digitalstorage.DigitalStorageContent;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenHandler;
 import dev.kehai.digitalstorage.security.DigitalStorageMountTracker;
-import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
 import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import dev.kehai.digitalstorage.storage.StorageVolume;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.Optional;
 import java.util.UUID;
-import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
-import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
-import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
-import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
-import net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.nbt.NbtCompound;
-import net.minecraft.network.PacketByteBuf;
+import net.minecraft.screen.NamedScreenHandlerFactory;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 
-public final class DigitalStorageAccessorBlockEntity extends BlockEntity
-        implements Storage<ItemVariant>, ExtendedScreenHandlerFactory {
+public class DigitalStorageAccessorBlockEntity extends BlockEntity implements NamedScreenHandlerFactory {
     private static final String CONTROLLER_ID_KEY = "ControllerId";
     private static final String BOUND_VOLUME_ID_KEY = "BoundVolumeId";
 
@@ -37,7 +28,7 @@ public final class DigitalStorageAccessorBlockEntity extends BlockEntity
     private UUID boundVolumeId;
 
     public DigitalStorageAccessorBlockEntity(BlockPos pos, BlockState state) {
-        super(DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR_BLOCK_ENTITY, pos, state);
+        super(DigitalStorageContent.accessorType(), pos, state);
     }
 
     public Optional<UUID> controllerId() {
@@ -86,11 +77,6 @@ public final class DigitalStorageAccessorBlockEntity extends BlockEntity
         boundVolumeId = null;
         markDirtyAndSync();
         return true;
-    }
-
-    public FabricDigitalItemStorage getCanonicalStorage() {
-        DigitalStorageRecord record = getRecord();
-        return record == null ? null : FabricDigitalItemStorage.of(record.storage());
     }
 
     public BindResult bind(ServerPlayerEntity player, UUID requestedVolumeId) {
@@ -155,30 +141,6 @@ public final class DigitalStorageAccessorBlockEntity extends BlockEntity
     @Override
     public ScreenHandler createMenu(int syncId, PlayerInventory playerInventory, PlayerEntity player) {
         return new DigitalStorageScreenHandler(syncId, playerInventory, this);
-    }
-
-    @Override
-    public void writeScreenOpeningData(ServerPlayerEntity player, PacketByteBuf buf) {
-        buf.writeBlockPos(pos);
-        dev.kehai.digitalstorage.screen.DigitalStorageScreenState.capture(player, this, Text.empty()).write(buf);
-    }
-
-    @Override
-    public long insert(ItemVariant resource, long maxAmount, TransactionContext transaction) {
-        FabricDigitalItemStorage storage = getCanonicalStorage();
-        return storage == null ? 0 : storage.insert(resource, maxAmount, transaction);
-    }
-
-    @Override
-    public long extract(ItemVariant resource, long maxAmount, TransactionContext transaction) {
-        FabricDigitalItemStorage storage = getCanonicalStorage();
-        return storage == null ? 0 : storage.extract(resource, maxAmount, transaction);
-    }
-
-    @Override
-    public Iterator<StorageView<ItemVariant>> iterator() {
-        FabricDigitalItemStorage storage = getCanonicalStorage();
-        return storage == null ? Collections.emptyIterator() : storage.iterator();
     }
 
     @Override

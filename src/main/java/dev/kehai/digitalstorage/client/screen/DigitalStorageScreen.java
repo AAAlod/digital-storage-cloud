@@ -1,6 +1,6 @@
 package dev.kehai.digitalstorage.client.screen;
 
-import dev.kehai.digitalstorage.DigitalStorageMod;
+import dev.kehai.digitalstorage.DigitalStorageContent;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenHandler;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenState;
@@ -56,7 +56,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     private static final int SUCCESS_TEXT = 0xFF73D673;
     private static final int WARNING_TEXT = 0xFFFFC45C;
     private static final int ERROR_TEXT = 0xFFFF7777;
-    private static final ItemStack ACCESSOR_ICON = new ItemStack(DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR_ITEM);
+    private static final ItemStack ACCESSOR_ICON = new ItemStack(DigitalStorageContent.accessorItem());
 
     private ButtonWidget upgradeButton;
     private ButtonWidget clearBindingButton;

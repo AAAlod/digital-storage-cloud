@@ -17,7 +17,7 @@ public final class TomNetworkAnalysis {
     }
 
     public static NetworkAnalysis.Report analyze(DigitalStorageAccessorBlockEntity accessor) {
-        FabricDigitalItemStorage target = accessor.getCanonicalStorage();
+        FabricDigitalItemStorage target = dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.canonicalStorage(accessor);
         var discovery = TomNetworkIntrospection.discoverContext(accessor);
         if (target == null || discovery == null) {
             return NetworkAnalysis.Report.unavailable();

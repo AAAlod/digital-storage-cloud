@@ -27,7 +27,7 @@ public final class DigitalStorageAccessorBlock extends BlockWithEntity implement
 
     @Override
     public @Nullable BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
-        return new DigitalStorageAccessorBlockEntity(pos, state);
+        return dev.kehai.digitalstorage.DigitalStorageContent.createAccessor(pos, state);
     }
 
     @Override

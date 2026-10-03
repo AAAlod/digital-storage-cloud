@@ -80,8 +80,8 @@ public final class DigitalStorageMod implements ModInitializer {
             Registry.register(
                     Registries.BLOCK_ENTITY_TYPE,
                     id("digital_storage_accessor"),
-                    BlockEntityType.Builder.create(
-                            DigitalStorageAccessorBlockEntity::new,
+                    BlockEntityType.Builder.<DigitalStorageAccessorBlockEntity>create(
+                            dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity::new,
                             DIGITAL_STORAGE_ACCESSOR
                     ).build(null)
             );
@@ -95,6 +95,9 @@ public final class DigitalStorageMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        DigitalStorageContent.install(() -> DIGITAL_STORAGE_ACCESSOR_BLOCK_ENTITY,
+                () -> DIGITAL_STORAGE_SCREEN_HANDLER, () -> DIGITAL_STORAGE_ACCESSOR_ITEM,
+                dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity::new);
         DigitalStorageConfig.load(FabricLoader.getInstance().getConfigDir());
         dev.kehai.digitalstorage.optimization.NetworkServices.install(
                 new dev.kehai.digitalstorage.platform.fabric.FabricNetworkServices());
@@ -105,7 +108,7 @@ public final class DigitalStorageMod implements ModInitializer {
                 .registerReloadListener(new FabricTierReloadListener());
 
         ItemStorage.SIDED.registerForBlockEntity(
-                (blockEntity, direction) -> blockEntity.getCanonicalStorage(),
+                (blockEntity, direction) -> dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.canonicalStorage(blockEntity),
                 DIGITAL_STORAGE_ACCESSOR_BLOCK_ENTITY
         );
 

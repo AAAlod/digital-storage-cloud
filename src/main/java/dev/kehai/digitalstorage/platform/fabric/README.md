@@ -6,6 +6,11 @@ topology and manages migration world/player lifetime; `mixin/` contains its
 Fabric-specific injection targets. `hopper/` executes transactional hopper
 fast paths and filtered cursors.
 
+`FabricAccessorBlockEntity` adds inventory and extended menu-opening interfaces
+to the shared binding entity. Both block creation and registered entity loading
+use that subclass. `DigitalStorageContent` receives registration suppliers and
+the factory from the loader, including the screen type and accessor item.
+
 Shared analysis and migration policies consume `InventoryEndpoint`,
 `TopologyToken` and `InventoryTransferExecutor`. `FabricNetworkServices` is
 installed by the loader entry point for shared screen operations. Batch,

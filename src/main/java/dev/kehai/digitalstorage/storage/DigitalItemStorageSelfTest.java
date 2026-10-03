@@ -33,6 +33,7 @@ public final class DigitalItemStorageSelfTest {
         ItemKeySelfTest.run();
         VolumeLedgerSelfTest.run();
         dev.kehai.digitalstorage.platform.fabric.FabricLedgerSelfTest.run();
+        dev.kehai.digitalstorage.platform.fabric.FabricAccessorSelfTest.run();
         dev.kehai.digitalstorage.platform.fabric.FabricItemKeySelfTest.run();
         committedInsertPersistsAndMarksDirtyOnce(stone);
         abortedInsertRemovesTheProvisionalEntry(stone);

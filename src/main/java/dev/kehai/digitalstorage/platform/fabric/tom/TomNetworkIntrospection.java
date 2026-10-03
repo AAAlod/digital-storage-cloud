@@ -44,7 +44,7 @@ public final class TomNetworkIntrospection {
                 return digital;
             }
             if (current instanceof DigitalStorageAccessorBlockEntity accessor) {
-                return accessor.getCanonicalStorage();
+                return dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.canonicalStorage(accessor);
             }
             if (!current.getClass().getName().startsWith(TOM_PACKAGE)) {
                 return null;
@@ -171,7 +171,7 @@ public final class TomNetworkIntrospection {
         }
         try {
             if (storage instanceof DigitalStorageAccessorBlockEntity accessor) {
-                FabricDigitalItemStorage canonical = accessor.getCanonicalStorage();
+                FabricDigitalItemStorage canonical = dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.canonicalStorage(accessor);
                 if (canonical != null) {
                     flattenRaw(canonical, output, path);
                     return;
@@ -215,7 +215,7 @@ public final class TomNetworkIntrospection {
                 return;
             }
             if (storage instanceof DigitalStorageAccessorBlockEntity accessor) {
-                FabricDigitalItemStorage canonical = accessor.getCanonicalStorage();
+                FabricDigitalItemStorage canonical = dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.canonicalStorage(accessor);
                 if (canonical != null) {
                     output.add(canonical);
                 }

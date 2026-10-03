@@ -1,6 +1,6 @@
 package dev.kehai.digitalstorage.screen;
 
-import dev.kehai.digitalstorage.DigitalStorageMod;
+import dev.kehai.digitalstorage.DigitalStorageContent;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.optimization.NetworkServices;
@@ -70,7 +70,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
     }
 
     public DigitalStorageScreenHandler(int syncId, PlayerInventory playerInventory, PacketByteBuf openingData) {
-        super(DigitalStorageMod.DIGITAL_STORAGE_SCREEN_HANDLER, syncId);
+        super(DigitalStorageContent.screenType(), syncId);
         this.playerInventory = playerInventory;
         this.blockPos = openingData.readBlockPos();
         this.state = DigitalStorageScreenState.read(openingData);
@@ -81,7 +81,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
             PlayerInventory playerInventory,
             DigitalStorageAccessorBlockEntity blockEntity
     ) {
-        super(DigitalStorageMod.DIGITAL_STORAGE_SCREEN_HANDLER, syncId);
+        super(DigitalStorageContent.screenType(), syncId);
         this.playerInventory = playerInventory;
         this.blockPos = blockEntity.getPos().toImmutable();
         this.state = captureServerState(Text.empty());
