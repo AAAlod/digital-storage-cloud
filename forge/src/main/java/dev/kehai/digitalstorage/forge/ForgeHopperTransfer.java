@@ -24,6 +24,10 @@ public final class ForgeHopperTransfer {
     /** Original returned instance: the owning device must retain it even if encoding fails. */
     ItemStack heldStack() { return held; }
     public String detail() { return detail; }
+    public void halt(String reason) {
+        blocked = true;
+        if (detail.isBlank()) detail = java.util.Objects.requireNonNull(reason);
+    }
 
     /** Caller must persist the returned compound; a successful encoding is not a disk flush. */
     public CompoundTag saveState() {

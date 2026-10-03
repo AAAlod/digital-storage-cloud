@@ -91,7 +91,7 @@ public final class ForgeHopperCustodySelfTest {
                 for (var file : files.toList()) expect(java.util.Arrays.equals(Files.readAllBytes(file), originalBytes),
                         "Unreadable evidence untouched");
             }
-            DigitalStorage.LOGGER.info("Forge hopper custody self-test passed: independent disk snapshots, raw live identity retention, encoding/disk retries, conflict preservation, opaque tags and damaged/interrupted evidence; lifecycle hooks not enabled");
+            DigitalStorage.LOGGER.info("Forge hopper custody self-test passed: independent disk snapshots, raw live identity retention, encoding/disk retries, conflict preservation, opaque tags and damaged/interrupted evidence; chunk hooks covered by separate world fixture");
         } catch (IOException failure) {
             throw new IllegalStateException("Hopper custody fixture failed", failure);
         } finally {
@@ -116,6 +116,10 @@ public final class ForgeHopperCustodySelfTest {
             expect(!store.retain(id, "minecraft:overworld", BlockPos.ZERO, engine, engine::saveState)
                     && store.unsavedCount() == 1 && store.retainsIdentity(id, engine)
                     && engine.heldStack() == original, "Actual capability failure retains original through custody");
+            var oldChunk = new ForgeHopperTransfer();
+            var rebound = store.bind(id, "minecraft:overworld", BlockPos.ZERO, oldChunk, oldChunk::saveState);
+            expect(rebound.engine() == engine && store.pendingCount() == 1 && store.unsavedCount() == 1,
+                    "Empty old chunk cannot replace unencodable live canonical ownership");
             allow.run();
             expect(store.flush() && store.unsavedCount() == 0, "Actual capability serializer retry");
             var restored = ForgeHopperTransfer.restore((CompoundTag) new ForgeHopperCustody(directory).state(id));

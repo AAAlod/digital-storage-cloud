@@ -74,7 +74,7 @@ public final class ForgeHopperDeviceSelfTest {
         expect(source.getStackInSlot(0).getCount() == 10 && target.getStackInSlot(0).isEmpty()
                 && transfer(hopper).blocked(), "Blocked state prevents original Tom extraction");
         hopper.setRemoved();
-        DigitalStorage.LOGGER.info("Forge hopper device state self-test passed: actual normal/advanced Tom entities, legacy filters, known remainder, reload ownership guard, future/wrong typed tags and original update block; unload/break recovery not integrated");
+        DigitalStorage.LOGGER.info("Forge hopper device state self-test passed: actual normal/advanced Tom entities, legacy filters, known remainder, reload ownership guard, future/wrong typed tags and original update block; chunk hooks covered by separate world fixture");
     }
 
     private static ForgeHopperTransfer transfer(BasicInventoryHopperBlockEntity entity) {

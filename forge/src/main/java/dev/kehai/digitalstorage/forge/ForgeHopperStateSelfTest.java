@@ -95,7 +95,7 @@ public final class ForgeHopperStateSelfTest {
                 engine = roundTrip(root, "invalid-" + test, engine);
                 expect(engine.blocked() && engine.saveState().equals(expected), "Invalid data preserved across disk: " + test);
             }
-            DigitalStorage.LOGGER.info("Forge hopper state self-test passed: disk/oversized counts/uncertain outcomes/unknown extraction/future and malformed state preserved; device save hooks not integrated");
+            DigitalStorage.LOGGER.info("Forge hopper state self-test passed: disk/oversized counts/uncertain outcomes/unknown extraction/future and malformed state preserved; device and chunk hooks covered by separate fixtures");
         } finally {
             try {
                 try (var paths = Files.list(root)) {

@@ -96,6 +96,52 @@ public final class ForgeHopperCustody {
         for (var record : records.values()) if (!record.durable) successful &= persist(record);
         return successful;
     }
+    /** A matching chunk snapshot is a mirror of the record, not another item source. */
+    public Binding bind(UUID id, String dimension, BlockPos position, ForgeHopperTransfer incoming, Supplier<Tag> snapshot) {
+        Record record = records.get(id);
+        if (record == null) {
+            if (incoming.blocked()) retain(id, dimension, position, incoming, snapshot);
+            return new Binding(id, incoming, null);
+        }
+        if (record.identity == incoming && record.dimension.equals(dimension) && record.position.equals(position)) {
+            return new Binding(id, incoming, null);
+        }
+        boolean matches = record.dimension.equals(dimension) && record.position.equals(position);
+        Tag canonical = record.encoded;
+        if (matches && !incoming.blocked() && record.identity instanceof ForgeHopperTransfer existing) {
+            // The old chunk can be empty while the actual returned stack cannot
+            // be encoded. Its live canonical owner wins without serialization.
+            return new Binding(id, existing, canonical == null ? null : canonical.copy());
+        }
+        try {
+            if (record.snapshot != null) canonical = record.snapshot.get();
+            // A ready, empty chunk mirror may predate the external ownership
+            // record. The journal wins; it cannot create an additional stack.
+            matches &= !incoming.blocked() || (canonical != null && canonical.equals(snapshot.get()));
+        } catch (RuntimeException failure) { matches = false; }
+        if (matches && canonical != null) {
+            ForgeHopperTransfer engine;
+            if (record.identity instanceof ForgeHopperTransfer existing) engine = existing;
+            else {
+                engine = canonical instanceof CompoundTag compound
+                        ? ForgeHopperTransfer.restore(compound) : ForgeHopperTransfer.restore(new CompoundTag());
+                record.identity = engine;
+                Tag preserved = canonical.copy();
+                record.snapshot = canonical instanceof CompoundTag ? engine::saveState : () -> preserved.copy();
+            }
+            return new Binding(id, engine, canonical.copy());
+        }
+        incoming.halt("hopper chunk mirror conflicts with custody record");
+        retain(id, dimension, position, incoming, snapshot);
+        for (var conflict : records.values()) {
+            if (id.equals(conflict.conflictsWith) && conflict.identity == incoming
+                    && conflict.dimension.equals(dimension) && conflict.position.equals(position)) {
+                return new Binding(conflict.id, incoming, null);
+            }
+        }
+        throw new IllegalStateException("Custody conflict was not retained");
+    }
+    public record Binding(UUID id, ForgeHopperTransfer engine, Tag state) { }
     public int pendingCount() { return records.size(); }
     public int unsavedCount() { return (int) records.values().stream().filter(record -> !record.durable).count(); }
     public int unreadableFiles() { return unreadable; }
@@ -139,7 +185,7 @@ public final class ForgeHopperCustody {
         private final UUID id;
         private final String dimension;
         private final BlockPos position;
-        private final Object identity;
+        private Object identity;
         private Supplier<Tag> snapshot;
         private Tag encoded;
         private boolean durable;

@@ -20,6 +20,9 @@ minecraft {
         server {
             workingDirectory project.hasProperty('dscRunDir') ? file(project.property('dscRunDir')) : file('run')
             args '--nogui'
+            if (project.hasProperty('dscIntegration')) {
+                property 'digitalstorage.integrationTestRoot', new File(workingDirectory, 'audit-world').absolutePath
+            }
             mods { digitalstorage { source sourceSets.main } }
         }
         client {

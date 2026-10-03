@@ -146,7 +146,7 @@ public final class ForgeHopperTransferSelfTest {
         reentrantSource.setStackInSlot(0, new ItemStack(Items.STONE, 10));
         expect(reentrantEngine.move(reentrantSource, 0, reentrantTarget, 4).moved() == 4
                 && count(reentrantSource) == 6 && count(reentrantTarget) == 4, "Outer transfer survives rejected recursion");
-        DigitalStorage.LOGGER.info("Forge hopper transfer engine self-test passed: physical/digital batches, compensation, raw remainder, uncertain callbacks, malformed extraction, same-ledger leases and reentrancy; production hopper persistence not integrated");
+        DigitalStorage.LOGGER.info("Forge hopper transfer engine self-test passed: physical/digital batches, compensation, raw remainder, uncertain callbacks, malformed extraction, same-ledger leases and reentrancy; actual bulk update not enabled");
     }
 
     private static ItemStackHandler source(int count) {

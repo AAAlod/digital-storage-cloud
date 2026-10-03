@@ -31,6 +31,7 @@ public final class ForgeTransferSessions {
         if (session == null) throw new IllegalStateException("Forge transfer session is not running");
         return session;
     }
+    static synchronized Session find(MinecraftServer server) { return ACTIVE.get(server); }
     public static void stopping(MinecraftServer server) { get(server).flush(); }
     public static synchronized void stopped(MinecraftServer server) {
         Session session = ACTIVE.remove(server);
