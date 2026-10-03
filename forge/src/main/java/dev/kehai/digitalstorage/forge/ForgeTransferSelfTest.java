@@ -148,6 +148,23 @@ public final class ForgeTransferSelfTest {
             actual.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ENERGY)
                     .orElseThrow(() -> new IllegalStateException("Transfer test energy capability missing")).getEnergyStored();
             ItemKey expected = ItemKey.of(actual);
+            var preflight = ForgeTransferSessions.openForTest(root.resolve("preflight-capability"));
+            var preflightSource = new ItemStackHandler(1) {
+                @Override public ItemStack getStackInSlot(int slot) {
+                    failOn.run();
+                    return actual;
+                }
+            };
+            var preflightResult = preflight.executor(owner, volume).move(
+                    new ForgeInventoryEndpoint.View(preflightSource, 0), fixture.target, expected, stack.getCount());
+            failOff.run();
+            var preflightObservation = ForgeTransferSessions.openForTest(root.resolve("preflight-capability"))
+                    .incidents().entries().get(0).incident().observation();
+            expect(!preflightResult.stopDetail().isEmpty() && preflightObservation.observedKnown()
+                    && preflightObservation.observed() == stack.getCount()
+                    && preflightObservation.stage() == ForgeInventoryTransferExecutor.Stage.PREFLIGHT
+                    && !preflightObservation.actualStarted() && preflight.recovery().pendingCount() == 0,
+                    "Preflight identity serialization failure discarded the successfully read quantity");
             var handler = new ItemStackHandler(1) {
                 @Override public ItemStack extractItem(int slot, int count, boolean simulate) {
                     if (simulate) return super.extractItem(slot, count, true);

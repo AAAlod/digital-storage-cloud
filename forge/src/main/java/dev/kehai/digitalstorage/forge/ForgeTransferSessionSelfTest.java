@@ -58,13 +58,44 @@ public final class ForgeTransferSessionSelfTest {
             var persisted = ForgeTransferSessions.openForTest(root.resolve("bound")).incidents().entries().get(0).incident();
             var observation = persisted.observation();
             expect(persisted.origin().equals(origin) && observation.known() && observation.maximum() == 10
-                    && observation.observed() == 10 && observation.requested() == 10 && observation.reserved() == 10
+                    && observation.observedKnown() && observation.observed() == 10 && observation.requested() == 10 && observation.reserved() == 10
                     && observation.actualStarted() && observation.stage() == ForgeInventoryTransferExecutor.Stage.EXTRACTION
                     && observation.expectedVariant().getString("item").equals("minecraft:stone")
                     && bound.recovery().pendingCount() == 0,
                     "Persisted source context or request was lost or interpreted as owned items");
             observation.expectedVariant().putString("item", "minecraft:dirt");
             expect(observation.expectedVariant().getString("item").equals("minecraft:stone"), "Incident identity exposed mutable NBT");
+            var unread = ForgeTransferSessions.openForTest(root.resolve("unread"));
+            var unreadSource = new net.minecraftforge.items.ItemStackHandler(1) {
+                @Override public net.minecraft.world.item.ItemStack getStackInSlot(int slot) {
+                    throw new IllegalStateException("Source unavailable before quantity read");
+                }
+            };
+            var unreadResult = unread.executor(incident.owner(), incident.volume(), origin).move(
+                    new ForgeInventoryEndpoint.View(unreadSource, 0), target, stone, 10);
+            var unreadEntry = ForgeTransferSessions.openForTest(root.resolve("unread")).incidents().entries().get(0);
+            var unreadObservation = unreadEntry.incident().observation();
+            expect(!unreadResult.stopDetail().isEmpty() && unreadObservation.known() && !unreadObservation.observedKnown()
+                    && unreadObservation.maximum() == 10 && unreadObservation.requested() == 0 && !unreadObservation.actualStarted()
+                    && unreadObservation.stage() == ForgeInventoryTransferExecutor.Stage.PREFLIGHT
+                    && unread.recovery().pendingCount() == 0,
+                    "Failed source read invented a known zero quantity or owned recovery items");
+            var schemaTwo = ForgeTransferIncidents.encode(bound.incidents().entries().get(0));
+            schemaTwo.putInt("SchemaVersion", 2);
+            schemaTwo.getCompound("Observation").remove("ObservedKnown");
+            expect(ForgeTransferIncidents.read(schemaTwo).incident().observation().observedKnown(),
+                    "Schema 2 actual extraction lost its valid source observation");
+            schemaTwo = ForgeTransferIncidents.encode(unreadEntry);
+            schemaTwo.putInt("SchemaVersion", 2);
+            schemaTwo.getCompound("Observation").remove("ObservedKnown");
+            expect(!ForgeTransferIncidents.read(schemaTwo).incident().observation().observedKnown(),
+                    "Schema 2 preflight default was interpreted as a known empty source");
+            var malformed = ForgeTransferIncidents.encode(unreadEntry);
+            malformed.getCompound("Observation").remove("ObservedKnown");
+            boolean malformedRejected = false;
+            try { ForgeTransferIncidents.read(malformed); }
+            catch (IllegalArgumentException expected) { malformedRejected = true; }
+            expect(malformedRejected, "Schema 3 missing observation validity was silently inferred");
             var legacy = ForgeTransferIncidents.encode(reopened.incidents().entries().get(0));
             legacy.putInt("SchemaVersion", 1);
             legacy.remove("Origin");

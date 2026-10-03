@@ -14,7 +14,7 @@ import net.minecraft.nbt.CompoundTag;
 import dev.kehai.digitalstorage.storage.ItemKeyCodec;
 
 /** Forge simulation reserves capacity, but only an actual returned stack can settle into DSC.
- * Not connected to player migration until session incident persistence/lifecycle is installed.
+ * Player migration uses the server session for incident persistence and recovery ownership.
  */
 public final class ForgeInventoryTransferExecutor implements InventoryTransferExecutor {
     private final UUID owner;
@@ -73,8 +73,9 @@ public final class ForgeInventoryTransferExecutor implements InventoryTransferEx
                 return stop(view, 0, operations, "digital inventory cannot be a physical migration source", attempt);
             }
             ItemStack current = view.handler().getStackInSlot(view.slot());
-            if (current.isEmpty() || !ItemKey.of(current).equals(resource)) return new MoveResult(0, operations);
             attempt.observed = current.getCount();
+            attempt.observedKnown = true;
+            if (current.isEmpty() || !ItemKey.of(current).equals(resource)) return new MoveResult(0, operations);
             int requested = (int) Math.min(maximum, Math.min(current.getCount(), current.getMaxStackSize()));
             attempt.requested = requested;
             if (requested <= 0) return new MoveResult(0, operations);
@@ -174,12 +175,13 @@ public final class ForgeInventoryTransferExecutor implements InventoryTransferEx
         private final CompoundTag expected;
         private final long maximum;
         private long observed;
+        private boolean observedKnown;
         private long requested;
         private long reserved;
         private boolean actualStarted;
         private Stage stage = Stage.PREFLIGHT;
         private Attempt(ItemKey key, long maximum) { expected = ItemKeyCodec.write(key); this.maximum = maximum; }
-        private Observation snapshot() { return new Observation(true, expected, maximum, observed, requested, reserved, actualStarted, stage); }
+        private Observation snapshot() { return new Observation(true, expected, maximum, observed, observedKnown, requested, reserved, actualStarted, stage); }
     }
     public enum Stage { UNKNOWN, PREFLIGHT, SIMULATION, RESERVATION, EXTRACTION, SETTLEMENT, INSPECTION }
     /** World/network entry positions, not an assertion that the physical source is at either position. */
@@ -193,20 +195,21 @@ public final class ForgeInventoryTransferExecutor implements InventoryTransferEx
         public static Origin unknown() { return new Origin(false, "", 0, 0); }
     }
     /** Expected identity and requested amounts are observations, never owned recovery quantities. */
-    public record Observation(boolean known, CompoundTag expectedVariant, long maximum, long observed, long requested,
+    public record Observation(boolean known, CompoundTag expectedVariant, long maximum, long observed, boolean observedKnown, long requested,
                               long reserved, boolean actualStarted, Stage stage) {
         public Observation {
             expectedVariant = java.util.Objects.requireNonNull(expectedVariant).copy();
             java.util.Objects.requireNonNull(stage);
             if (maximum < 0 || observed < 0 || requested < 0 || reserved < 0 || reserved > requested || requested > maximum
+                    || (!observedKnown && (observed != 0 || requested != 0 || reserved != 0 || actualStarted))
                     || (known ? stage == Stage.UNKNOWN || !expectedVariant.contains("item", net.minecraft.nbt.Tag.TAG_STRING)
                     || (actualStarted && reserved == 0) : stage != Stage.UNKNOWN || !expectedVariant.isEmpty()
-                    || maximum != 0 || observed != 0 || requested != 0 || reserved != 0 || actualStarted)) {
+                    || maximum != 0 || observed != 0 || observedKnown || requested != 0 || reserved != 0 || actualStarted)) {
                 throw new IllegalArgumentException("Invalid transfer observation");
             }
         }
         @Override public CompoundTag expectedVariant() { return expectedVariant.copy(); }
-        public static Observation unknown() { return new Observation(false, new CompoundTag(), 0, 0, 0, 0, false, Stage.UNKNOWN); }
+        public static Observation unknown() { return new Observation(false, new CompoundTag(), 0, 0, false, 0, 0, false, Stage.UNKNOWN); }
     }
     public record Incident(UUID owner, UUID volume, String handlerClass, int slot,
                            long settled, long createdMillis, String reason, Origin origin, Observation observation) {

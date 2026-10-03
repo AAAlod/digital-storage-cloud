@@ -80,7 +80,7 @@ public final class ForgeTransferIncidents {
     static CompoundTag encode(Entry entry) {
         var tag = new CompoundTag();
         var incident = entry.incident();
-        tag.putInt("SchemaVersion", 2);
+        tag.putInt("SchemaVersion", 3);
         tag.putUUID("Id", entry.id());
         tag.putUUID("Owner", incident.owner());
         tag.putUUID("Volume", incident.volume());
@@ -101,6 +101,7 @@ public final class ForgeTransferIncidents {
         observation.put("ExpectedVariant", observed.expectedVariant());
         observation.putLong("Maximum", observed.maximum());
         observation.putLong("Observed", observed.observed());
+        observation.putBoolean("ObservedKnown", observed.observedKnown());
         observation.putLong("Requested", observed.requested());
         observation.putLong("Reserved", observed.reserved());
         observation.putBoolean("ActualStarted", observed.actualStarted());
@@ -112,7 +113,7 @@ public final class ForgeTransferIncidents {
     }
     static Entry read(CompoundTag tag) {
         if (tag == null || !tag.contains("SchemaVersion", Tag.TAG_INT)
-                || (tag.getInt("SchemaVersion") != 1 && tag.getInt("SchemaVersion") != 2)
+                || (tag.getInt("SchemaVersion") != 1 && tag.getInt("SchemaVersion") != 2 && tag.getInt("SchemaVersion") != 3)
                 || !tag.hasUUID("Id") || !tag.hasUUID("Owner") || !tag.hasUUID("Volume")
                 || !tag.contains("Handler", Tag.TAG_STRING) || !tag.contains("Slot", Tag.TAG_INT)
                 || !tag.contains("Settled", Tag.TAG_LONG) || !tag.contains("CreatedMillis", Tag.TAG_LONG)
@@ -144,9 +145,17 @@ public final class ForgeTransferIncidents {
                 || !tag.contains("Maximum", Tag.TAG_LONG) || !tag.contains("Observed", Tag.TAG_LONG)
                 || !tag.contains("Requested", Tag.TAG_LONG) || !tag.contains("Reserved", Tag.TAG_LONG)
                 || !tag.contains("Stage", Tag.TAG_STRING)) throw new IllegalArgumentException("Malformed incident observation");
+        var stage = ForgeInventoryTransferExecutor.Stage.valueOf(tag.getString("Stage"));
+        if (record.getInt("SchemaVersion") == 3 && !isBoolean(tag, "ObservedKnown")) {
+            throw new IllegalArgumentException("Missing or malformed observed quantity validity");
+        }
+        // Schema 2 preflight records used zero even when no source read completed.
+        // Preserve their uncertainty rather than interpreting that default as an empty source.
+        boolean observedKnown = record.getInt("SchemaVersion") == 3 ? tag.getBoolean("ObservedKnown")
+                : tag.getBoolean("Known") && stage != ForgeInventoryTransferExecutor.Stage.PREFLIGHT;
         return new ForgeInventoryTransferExecutor.Observation(tag.getBoolean("Known"), tag.getCompound("ExpectedVariant"),
-                tag.getLong("Maximum"), tag.getLong("Observed"), tag.getLong("Requested"), tag.getLong("Reserved"),
-                tag.getBoolean("ActualStarted"), ForgeInventoryTransferExecutor.Stage.valueOf(tag.getString("Stage")));
+                tag.getLong("Maximum"), record.getInt("SchemaVersion") == 2 && !observedKnown ? 0 : tag.getLong("Observed"), observedKnown,
+                tag.getLong("Requested"), tag.getLong("Reserved"), tag.getBoolean("ActualStarted"), stage);
     }
     private static boolean isBoolean(CompoundTag tag, String key) {
         return tag.contains(key, Tag.TAG_BYTE) && (tag.getByte(key) == 0 || tag.getByte(key) == 1);

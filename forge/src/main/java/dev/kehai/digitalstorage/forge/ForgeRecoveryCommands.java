@@ -70,7 +70,7 @@ public final class ForgeRecoveryCommands {
                                     + " 连接器=" + net.minecraft.core.BlockPos.of(origin.connectorPosition()) : "网络入口未知。"), false);
                     context.getSource().sendSuccess(() -> Component.literal(observation.known()
                             ? "调用观察：阶段=" + observation.stage() + " 预期物品=" + observation.expectedVariant().getString("item")
-                                    + " 源观察数量=" + observation.observed() + " 请求=" + observation.requested()
+                                    + " 源观察数量=" + (observation.observedKnown() ? Long.toString(observation.observed()) : "未知") + " 请求=" + observation.requested()
                                     + " 预留=" + observation.reserved() + " 已调用实际提取=" + observation.actualStarted()
                             : "旧记录没有调用观察。"), false);
                     if (entry.administrator() != null) context.getSource().sendSuccess(() -> Component.literal(
