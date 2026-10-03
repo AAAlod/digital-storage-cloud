@@ -57,6 +57,19 @@ public final class ForgeTomSelfTest {
         // keep-last semantics. It is intentionally outside bare-volume dedup.
         var filtered = new FilteredInventoryHandler(digital, stack -> stack.getItem() == Items.STONE, true);
         expect(ForgeTomEndpoints.digital(filtered) == null, "Filter was folded into unrestricted DSC");
+        expect(ForgeTomEndpoints.underlyingDigital(filtered) == digital
+                        && ((ForgeTomEndpoints.FilteredEndpoint) (Object) filtered).digitalstorage$keepLast(),
+                "Filtered DSC identity/keep-last risk metadata was not exposed");
+        var nestedFilter = new FilteredInventoryHandler(filtered, stack -> true, false);
+        expect(ForgeTomEndpoints.underlyingDigital(nestedFilter) == digital
+                        && ForgeTomEndpoints.digital(nestedFilter) == null,
+                "Nested filtered DSC escaped identity classification or lost its restrictions");
+        var filteredNetwork = new MultiItemHandler();
+        filteredNetwork.add(LazyOptional.of(() -> filtered));
+        filteredNetwork.add(alias);
+        filteredNetwork.refresh();
+        expect(raw(filteredNetwork).size() == 2 && filteredNetwork.getHandlers().size() == 2,
+                "Filtered/raw aliases lost duplicate-risk metadata or filter semantics");
         expect(filtered.insertItem(0, new ItemStack(Items.DIRT, 1), true).getCount() == 1,
                 "Tom filter no longer rejected a mismatched item");
         expect(filtered.extractItem(17, 64, true).getCount() == 31

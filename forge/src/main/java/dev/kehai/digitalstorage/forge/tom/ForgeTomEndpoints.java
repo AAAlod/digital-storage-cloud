@@ -11,12 +11,24 @@ public final class ForgeTomEndpoints {
     private ForgeTomEndpoints() { }
 
     public static ForgeDigitalItemStorage digital(IItemHandler handler) {
+        return digital(handler, false);
+    }
+
+    /** For classification/risk checks only, never a replacement operation handler. */
+    public static ForgeDigitalItemStorage underlyingDigital(IItemHandler handler) {
+        return digital(handler, true);
+    }
+
+    private static ForgeDigitalItemStorage digital(IItemHandler handler, boolean inspectFilters) {
         var visited = Collections.newSetFromMap(new IdentityHashMap<IItemHandler, Boolean>());
         while (handler != null && visited.add(handler)) {
             var digital = ForgeDigitalItemStorage.resolveDigital(handler);
             if (digital != null) return digital;
-            if (!(handler instanceof IProxy proxy)) return null;
-            handler = proxy.get();
+            if (inspectFilters && handler instanceof FilteredEndpoint filtered) {
+                handler = filtered.digitalstorage$parent();
+            } else if (handler instanceof IProxy proxy) {
+                handler = proxy.get();
+            } else return null;
         }
         return null;
     }
@@ -29,5 +41,10 @@ public final class ForgeTomEndpoints {
 
     public interface RawDigitalEndpoints {
         java.util.List<IItemHandler> digitalstorage$rawDigitalEndpoints();
+    }
+
+    public interface FilteredEndpoint {
+        IItemHandler digitalstorage$parent();
+        boolean digitalstorage$keepLast();
     }
 }

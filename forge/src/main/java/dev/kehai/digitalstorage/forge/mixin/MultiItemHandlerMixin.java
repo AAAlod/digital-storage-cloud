@@ -32,9 +32,11 @@ public abstract class MultiItemHandlerMixin implements ForgeTomEndpoints.RawDigi
     @Inject(method = "add", at = @At("HEAD"), cancellable = true)
     private void digitalstorage$deduplicate(LazyOptional<IItemHandler> candidate, CallbackInfo callback) {
         var current = candidate.orElse(null);
+        if (ForgeTomEndpoints.underlyingDigital(current) != null && digitalstorage$sources.add(candidate)) {
+            digitalstorage$raw.add(candidate);
+        }
         var digital = ForgeTomEndpoints.digital(current);
         if (digital == null) return;
-        if (digitalstorage$sources.add(candidate)) digitalstorage$raw.add(candidate);
         for (var existing : handlers) {
             var previous = ForgeTomEndpoints.digital(existing.orElse(null));
             if (previous != null && ForgeTomEndpoints.sameVolume(digital, previous)) {
@@ -54,7 +56,7 @@ public abstract class MultiItemHandlerMixin implements ForgeTomEndpoints.RawDigi
         var result = new ArrayList<IItemHandler>();
         for (var optional : digitalstorage$raw) {
             var handler = optional.orElse(null);
-            if (ForgeTomEndpoints.digital(handler) != null) result.add(handler);
+            if (ForgeTomEndpoints.underlyingDigital(handler) != null) result.add(handler);
         }
         return List.copyOf(result);
     }
