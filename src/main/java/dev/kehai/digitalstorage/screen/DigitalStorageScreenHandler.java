@@ -179,6 +179,8 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
                 migrationWasActive = statusSuccessful;
                 status = result == NetworkServices.StartResult.DUPLICATE_TARGET_ENDPOINTS
                         ? Component.translatable("screen.digitalstorage.migration.duplicate_target")
+                        : result == NetworkServices.StartResult.RECOVERY_REQUIRED
+                        ? Component.translatable("screen.digitalstorage.migration.recovery_required")
                         : Component.translatable(
                                 statusSuccessful
                                         ? "screen.digitalstorage.migration.started"

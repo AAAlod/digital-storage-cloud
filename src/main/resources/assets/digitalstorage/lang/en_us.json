@@ -115,6 +115,7 @@
   "screen.digitalstorage.migration.started": "Recommended migration job started.",
   "screen.digitalstorage.migration.start_failed": "Could not start migration: %s.",
   "screen.digitalstorage.migration.duplicate_target": "Migration is blocked: this Volume has multiple endpoints in the Tom network.",
+  "screen.digitalstorage.migration.recovery_required": "Migration is blocked: pending recovery records need attention.",
   "screen.digitalstorage.migration.cancelled": "Migration job cancelled.",
   "screen.digitalstorage.migration.cancel_failed": "Could not cancel the migration job.",
   "screen.digitalstorage.migration.progress": "Moved %1$s items · %2$s/%3$s types · %4$s network entries reviewed",

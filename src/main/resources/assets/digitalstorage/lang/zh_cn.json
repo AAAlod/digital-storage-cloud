@@ -115,6 +115,7 @@
   "screen.digitalstorage.migration.started": "推荐迁移任务已启动。",
   "screen.digitalstorage.migration.start_failed": "无法启动迁移：%s。",
   "screen.digitalstorage.migration.duplicate_target": "已阻止迁移：当前存储卷在 Tom 网络中存在多个入口。",
+  "screen.digitalstorage.migration.recovery_required": "已阻止迁移：请先处理未决恢复记录。",
   "screen.digitalstorage.migration.cancelled": "迁移任务已取消。",
   "screen.digitalstorage.migration.cancel_failed": "无法取消迁移任务。",
   "screen.digitalstorage.migration.progress": "已迁移 %1$s 件 · %2$s/%3$s 种 · 已检查 %4$s 个网络条目",

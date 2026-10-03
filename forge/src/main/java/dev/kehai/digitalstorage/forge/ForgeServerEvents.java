@@ -27,18 +27,27 @@ public final class ForgeServerEvents {
     @SubscribeEvent public static void starting(ServerStartingEvent event) {
         DigitalStorageState.onServerStarting(event.getServer());
         ForgeTransferSessions.starting(event.getServer());
+        ForgeMigrationManager.starting(event.getServer());
     }
     @SubscribeEvent public static void tick(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END) DigitalStorageState.onServerTick(event.getServer());
+        if (event.phase == TickEvent.Phase.END) {
+            ForgeMigrationManager.tick(event.getServer());
+            DigitalStorageState.onServerTick(event.getServer());
+        }
     }
     @SubscribeEvent public static void stopping(ServerStoppingEvent event) {
+        ForgeMigrationManager.stopping(event.getServer());
         ForgeTransferSessions.stopping(event.getServer());
         DigitalStorageState.onServerStopping(event.getServer());
     }
     @SubscribeEvent public static void stopped(ServerStoppedEvent event) {
+        ForgeMigrationManager.stopped(event.getServer());
         ForgeTransferSessions.stopped(event.getServer());
         DigitalStorageState.onServerStopped(event.getServer());
         DigitalStorageMountTracker.clear();
+    }
+    @SubscribeEvent public static void logout(net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) ForgeMigrationManager.logout(player);
     }
     @SubscribeEvent public static void reload(AddReloadListenerEvent event) {
         event.addListener((ResourceManagerReloadListener) DigitalStorageTierRegistry.INSTANCE::reload);
@@ -68,7 +77,7 @@ public final class ForgeServerEvents {
                     }
                 }))
                 .then(Commands.literal("diagnostics").requires(source -> source.hasPermission(2)).executes(context -> {
-                    context.getSource().sendSuccess(() -> Component.literal("Forge bootstrap/capability ACTIVE; Tom dedup/analysis ACTIVE; scanner telemetry/migration pending"), false);
+                    context.getSource().sendSuccess(() -> Component.literal("Forge bootstrap/capability ACTIVE; Tom dedup/analysis and migration ACTIVE; scanner telemetry pending"), false);
                     context.getSource().sendSuccess(() -> Component.literal(ForgeTransferSessions.get(context.getSource().getServer()).diagnostics()), false);
                     return 1;
                 }))
