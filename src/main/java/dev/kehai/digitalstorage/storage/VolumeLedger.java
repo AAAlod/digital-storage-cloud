@@ -253,6 +253,11 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
         return contentVersion;
     }
 
+    /** Key-set changes, including provisional mutations and rollback. */
+    public long structureVersion() {
+        return structureVersion;
+    }
+
     public long totalVariantNbtBytes() {
         return totalVariantNbtBytes;
     }

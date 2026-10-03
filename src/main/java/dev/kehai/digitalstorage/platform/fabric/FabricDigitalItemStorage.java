@@ -6,6 +6,7 @@ import dev.kehai.digitalstorage.storage.MutationParticipant;
 import dev.kehai.digitalstorage.storage.MutationScope;
 
 import java.lang.ref.WeakReference;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +28,10 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
     private static final Map<VolumeLedger, WeakReference<FabricDigitalItemStorage>> CANONICAL = new WeakHashMap<>();
     private final VolumeLedger ledger;
     private final Map<MutationParticipant<?>, WeakReference<Bridge<?>>> bridges = new WeakHashMap<>();
-    private final Map<VolumeLedger.View, WeakReference<FabricView>> views = new WeakHashMap<>();
+    // Adapter-owned live views do not root the weak canonical cache. Reuse their
+    // ItemVariants without a weak-reference lookup or repeated NBT copies.
+    private final Map<VolumeLedger.View, FabricView> views = new IdentityHashMap<>();
+    private long viewStructureVersion = Long.MIN_VALUE;
 
     public FabricDigitalItemStorage(Runnable dirtyCallback, int variantCapacity) {
         this(new VolumeLedger(dirtyCallback, variantCapacity));
@@ -90,6 +94,7 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
 
     @Override
     public Iterator<StorageView<ItemVariant>> iterator() {
+        discardDetachedViews();
         Iterator<VolumeLedger.View> iterator = ledger.iterator();
         return new Iterator<>() {
             @Override
@@ -100,16 +105,25 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
             @Override
             public StorageView<ItemVariant> next() {
                 VolumeLedger.View view = iterator.next();
-                WeakReference<FabricView> reference = views.get(view);
-                FabricView existing = reference == null ? null : reference.get();
+                FabricView existing = views.get(view);
                 if (existing != null) {
                     return existing;
                 }
                 FabricView created = new FabricView(view);
-                views.put(view, new WeakReference<>(created));
+                views.put(view, created);
                 return created;
             }
         };
+    }
+
+    private void discardDetachedViews() {
+        long current = ledger.structureVersion();
+        if (viewStructureVersion != current) {
+            // Shared ledger transactions can detach entries without Fabric callbacks.
+            views.keySet().removeIf(view -> view instanceof MutationParticipant<?> participant
+                    && !participant.isAttached());
+            viewStructureVersion = current;
+        }
     }
 
     public int variantCount() { return ledger.variantCount(); }

@@ -3,6 +3,7 @@ package dev.kehai.digitalstorage.platform.fabric;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import dev.kehai.digitalstorage.storage.ItemKey;
 import dev.kehai.digitalstorage.storage.VolumeLedger;
+import dev.kehai.digitalstorage.storage.LedgerTransaction;
 import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,6 +24,7 @@ public final class FabricLedgerSelfTest {
         vanillaAndLedgerCommitMatrix();
         exceptionRollsBackBothInventories();
         detachedEntriesReleaseAdapterCaches();
+        sharedMutationsInvalidateViewCache();
     }
 
     private static void repeatedCanonicalLookupsShareNestedSnapshots() {
@@ -128,6 +130,37 @@ public final class FabricLedgerSelfTest {
         }
         expect(storage.variantCount() == 0 && cacheSize(storage, "bridges") <= 1 && cacheSize(storage, "views") == 0,
                 "Detached ledger entries accumulated in adapter caches");
+    }
+
+    private static void sharedMutationsInvalidateViewCache() {
+        VolumeLedger ledger = new VolumeLedger(() -> { }, 1);
+        ledger.load(ItemKey.of(Items.STONE), 2);
+        FabricDigitalItemStorage storage = FabricDigitalItemStorage.of(ledger);
+        var original = storage.iterator().next();
+        expect(storage.iterator().next() == original, "Unchanged ledger did not reuse its Fabric view");
+        try (LedgerTransaction transaction = LedgerTransaction.open()) {
+            ledger.extract(ItemKey.of(Items.STONE), 2, transaction);
+            expect(!storage.iterator().hasNext() && cacheSize(storage, "views") == 1,
+                    "Shared provisional zero amount discarded its still-attached view");
+        }
+        var restored = storage.iterator().next();
+        expect(restored == original && restored.getAmount() == 2 && storage.iterator().next() == restored,
+                "Shared rollback did not restore a reusable live view");
+        try (LedgerTransaction transaction = LedgerTransaction.open()) {
+            ledger.extract(ItemKey.of(Items.STONE), 2, transaction);
+            transaction.commit();
+        }
+        expect(!storage.iterator().hasNext() && cacheSize(storage, "views") == 0,
+                "Shared committed removal retained a detached Fabric view");
+        try (LedgerTransaction transaction = LedgerTransaction.open()) {
+            ledger.insert(ItemKey.of(Items.PAPER), 1, transaction);
+            storage.iterator().next();
+        }
+        expect(!storage.iterator().hasNext() && cacheSize(storage, "views") == 0,
+                "Shared aborted insertion retained a detached Fabric view");
+        ledger.load(ItemKey.of(Items.DIRT), 1);
+        expect(storage.iterator().next().getResource().equals(ItemVariant.of(Items.DIRT)),
+                "Shared replacement reused the removed entry's view");
     }
 
     private static int cacheSize(FabricDigitalItemStorage storage, String name) {
