@@ -10,6 +10,10 @@ Forge 1.20.1 / 47.4.10 使用独立 Gradle 构建，复用上级工程的 wrappe
 
 当前处于移植阶段：接入器注册、菜单网络、服务器生命周期、可撤销 IItemHandler 库存、Tom 聚合器同卷去重和共享网络分析已接入；高级漏斗、扫描器统计及安全迁移仍待实现。`digitalstorage selftest` 验证共享回归、真实 ForgeCaps、库存模拟/余量/稳定槽位、绑定生命周期、实际 Tom 连接器/聚合器/过滤器及拓扑失效，diagnostics 明确报告未接通部分；完整运行验收完成前不使用构建产物替换玩家安装。
 
+恢复会话与物理提取结算已接入回归，玩家迁移尚未启用。`digitalstorage recovery list` 查看自己的恢复条目，`recovery deliver <id> [amount]` 显式交付到自己拥有的原目标卷。容量/策略拒绝保留待恢复数量；交付中断或刷盘失败的 `DELIVERING` 不允许重试，需要专门核对流程（尚待完成）。
+
+管理员可用 `digitalstorage transferincident list`、`inspect <id>` 查看事件，`acknowledge <id> <explanation>` 保存明确核对说明和收据。事件只记录观察，核对事件不会交付物品或解除 `DELIVERING`。selftest、diagnostics、flush 和 transferincident 均要求权限等级 2。
+
 最终 Forge 工作 JAR 为 `build/libs/digital-storage-cloud-forge-<version>.jar`。NightConfig 单独 relocation；Tom 是外部依赖，不嵌入发行 JAR。`build` 同时检查共享源码/字节码平台边界、元数据版本、重复 ZIP entry 和禁止依赖载荷。
 
 `libs/toms_storage-1.20-1.7.1.jar` 是 MIT 许可的精确 Tom 编译依赖（SHA-256 `08552be86f960111e501227707dc089c91b8a55f6c1be09baee188338576ff9b`），由 ForgeGradle 重映射用于开发，运行环境仍需单独安装 Tom；许可见上级 `licenses/Toms-Storage-LICENSE`。聚合 Mixin 只补充明确的 DSC 卷身份，过滤和未知包装器保留原接口。

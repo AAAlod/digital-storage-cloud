@@ -55,8 +55,8 @@ public final class ForgeServerEvents {
         }
     }
     @SubscribeEvent public static void commands(RegisterCommandsEvent event) {
-        event.getDispatcher().register(Commands.literal("digitalstorage").requires(source -> source.hasPermission(2))
-                .then(Commands.literal("selftest").executes(context -> {
+        event.getDispatcher().register(Commands.literal("digitalstorage")
+                .then(Commands.literal("selftest").requires(source -> source.hasPermission(2)).executes(context -> {
                     try {
                         ForgeSharedSelfTest.run(context.getSource().getServer());
                         context.getSource().sendSuccess(() -> Component.literal("Forge shared self-test passed"), false);
@@ -67,12 +67,12 @@ public final class ForgeServerEvents {
                         return 0;
                     }
                 }))
-                .then(Commands.literal("diagnostics").executes(context -> {
+                .then(Commands.literal("diagnostics").requires(source -> source.hasPermission(2)).executes(context -> {
                     context.getSource().sendSuccess(() -> Component.literal("Forge bootstrap/capability ACTIVE; Tom dedup/analysis ACTIVE; scanner telemetry/migration pending"), false);
                     context.getSource().sendSuccess(() -> Component.literal(ForgeTransferSessions.get(context.getSource().getServer()).diagnostics()), false);
                     return 1;
                 }))
-                .then(Commands.literal("flush").executes(context -> {
+                .then(Commands.literal("flush").requires(source -> source.hasPermission(2)).executes(context -> {
                     DigitalStorageState.get(context.getSource().getServer().overworld()).flushNow();
                     if (!ForgeTransferSessions.get(context.getSource().getServer()).flush()) {
                         context.getSource().sendFailure(Component.literal("Forge transfer records could not be flushed; ownership retained in memory"));
@@ -81,5 +81,6 @@ public final class ForgeServerEvents {
                     context.getSource().sendSuccess(() -> Component.literal("Digital Storage files flushed successfully"), false);
                     return 1;
                 })));
+        ForgeRecoveryCommands.register(event.getDispatcher());
     }
 }

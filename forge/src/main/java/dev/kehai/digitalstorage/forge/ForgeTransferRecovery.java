@@ -60,6 +60,10 @@ public final class ForgeTransferRecovery {
     public int unreadableFiles() { return unreadable.size(); }
     public int unsavedCount() { return unsaved.size() + uncaptured.size(); }
     public int uncapturedCount() { return uncaptured.size(); }
+    public int unsavedCount(UUID owner) {
+        return (int) unsaved.values().stream().filter(entry -> entry.owner().equals(owner)).count()
+                + (int) uncaptured.values().stream().filter(entry -> entry.owner().equals(owner)).count();
+    }
     public int inFlightCount() { return (int) entries.values().stream().filter(entry -> entry.state() == State.DELIVERING).count(); }
     public List<Entry> entries(UUID owner) {
         return entries.values().stream().filter(entry -> entry.owner().equals(owner)
@@ -67,6 +71,8 @@ public final class ForgeTransferRecovery {
     }
     public int pendingCount() { return uncaptured.size() + (int) entries.values().stream().filter(entry -> entry.state() != State.DELIVERED).count(); }
     public Entry entry(UUID id) { return entries.get(id); }
+    /** Refresh authoritative ownership/state before resolving a delivery target. */
+    public Entry ownedEntry(UUID id, UUID owner) { return requireOwned(id, owner); }
 
     /** Transfers ownership of the actual returned instance before any mod capability serializer runs. */
     public UUID holdReturnedStack(UUID owner, UUID volume, ItemStack returned, String reason) {
@@ -130,8 +136,15 @@ public final class ForgeTransferRecovery {
         }
         Entry next = new Entry(id, owner, previous.volume(), previous.key(), previous.amount(), State.DELIVERING,
                 amount, previous.createdMillis(), previous.reason());
-        write(next);
         entries.put(id, next);
+        try { write(next); }
+        catch (RuntimeException failure) {
+            // A failed intent write must block another attempt in this session,
+            // even if replacement status cannot be proved. Flush persists the
+            // conservative DELIVERING state; it never repeats target delivery.
+            unsaved.put(id, next);
+            throw failure;
+        }
         return next;
     }
 
