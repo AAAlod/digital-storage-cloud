@@ -94,6 +94,7 @@ public final class ForgeMigrationWorldSelfTest {
                     && backend.status(volume.id()).movedItems().equals("96") && chest.getItem(0).isEmpty() && chest.getItem(1).isEmpty()
                     && volume.record().storage().amountOf(ItemKey.of(Items.STONE)) == 96,
                     "Placed migration did not conserve actual chest/volume quantities");
+            dev.kehai.digitalstorage.forge.tom.ForgeScannerTelemetrySelfTest.verifyBackend(server, accessor, network);
             clear(volume.record().storage());
             chest.setItem(0, new ItemStack(Items.STONE, 16));
             report = backend.analyze(accessor);

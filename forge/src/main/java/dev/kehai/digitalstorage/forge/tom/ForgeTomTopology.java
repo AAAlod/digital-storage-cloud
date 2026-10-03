@@ -23,6 +23,10 @@ public final class ForgeTomTopology {
     private ForgeTomTopology() { }
 
     public static NetworkAnalysis.Report analyze(DigitalStorageRecord record, Supplier<IItemHandler> currentNetwork) {
+        return analyze(record, currentNetwork, new ForgeScannerTelemetry.Snapshot(0, 0, 0));
+    }
+    public static NetworkAnalysis.Report analyze(DigitalStorageRecord record, Supplier<IItemHandler> currentNetwork,
+                                                  ForgeScannerTelemetry.Snapshot scanners) {
         var root = currentNetwork.get();
         if (record == null || root == null) return NetworkAnalysis.Report.unavailable();
         var parts = inspect(root);
@@ -40,7 +44,7 @@ public final class ForgeTomTopology {
         }
         return NetworkAnalysis.analyze(record, new NetworkAnalysis.Snapshot(sources,
                 parts.digital.stream().mapToInt(handler -> handler.ledger().variantCount()).sum(),
-                duplicates, targetCount, 0, 0, 0, token, references));
+                duplicates, targetCount, scanners.active(), scanners.failing(), scanners.interval(), token, references));
     }
 
     private static Parts inspect(IItemHandler root) {

@@ -6,6 +6,7 @@ import dev.kehai.digitalstorage.screen.DigitalStorageScreenState;
 import dev.kehai.digitalstorage.security.DigitalStorageMountTracker;
 import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import dev.kehai.digitalstorage.tier.DigitalStorageTierRegistry;
+import dev.kehai.digitalstorage.forge.tom.ForgeScannerTelemetry;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -32,6 +33,9 @@ public final class ForgeServerEvents {
     @SubscribeEvent public static void tick(TickEvent.ServerTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
             ForgeMigrationManager.tick(event.getServer());
+            if (event.getServer().getTickCount() % 200 == 0) {
+                ForgeScannerTelemetry.get(event.getServer()).prune(event.getServer().getTickCount());
+            }
             DigitalStorageState.onServerTick(event.getServer());
         }
     }
@@ -42,6 +46,7 @@ public final class ForgeServerEvents {
     }
     @SubscribeEvent public static void stopped(ServerStoppedEvent event) {
         ForgeMigrationManager.stopped(event.getServer());
+        ForgeScannerTelemetry.stopped(event.getServer());
         ForgeTransferSessions.stopped(event.getServer());
         DigitalStorageState.onServerStopped(event.getServer());
         DigitalStorageMountTracker.clear();
@@ -77,7 +82,7 @@ public final class ForgeServerEvents {
                     }
                 }))
                 .then(Commands.literal("diagnostics").requires(source -> source.hasPermission(2)).executes(context -> {
-                    context.getSource().sendSuccess(() -> Component.literal("Forge bootstrap/capability ACTIVE; Tom dedup/analysis and migration ACTIVE; scanner telemetry pending"), false);
+                    context.getSource().sendSuccess(() -> Component.literal("Forge bootstrap/capability ACTIVE; Tom dedup/analysis, migration and scanner telemetry ACTIVE"), false);
                     context.getSource().sendSuccess(() -> Component.literal(ForgeTransferSessions.get(context.getSource().getServer()).diagnostics()), false);
                     return 1;
                 }))

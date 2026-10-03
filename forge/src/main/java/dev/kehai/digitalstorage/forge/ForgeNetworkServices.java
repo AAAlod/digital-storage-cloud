@@ -22,11 +22,24 @@ public final class ForgeNetworkServices implements NetworkServices.Backend {
             var world = accessor.getLevel();
             var position = connector.getBlockPos();
             try {
-                var report = dev.kehai.digitalstorage.forge.tom.ForgeTomTopology.analyze(accessor.getRecord(), () -> {
+                java.util.function.Supplier<net.minecraftforge.items.IItemHandler> inventory = () -> {
                     var current = reference.get();
                     return current == null || current.isRemoved() || !world.hasChunkAt(position)
                             || world.getBlockEntity(position) != current ? null : current.getInventory().orElse(null);
-                });
+                };
+                var telemetry = dev.kehai.digitalstorage.forge.tom.ForgeScannerTelemetry.get(((net.minecraft.server.level.ServerLevel) world).getServer());
+                var record = accessor.getRecord();
+                if (record == null) continue;
+                var root = inventory.get();
+                if (root == null) continue;
+                var rootReference = new java.lang.ref.WeakReference<>(root);
+                var accessorReference = new java.lang.ref.WeakReference<>(accessor);
+                var recordReference = new java.lang.ref.WeakReference<>(record);
+                telemetry.associate(record.storage(), root, () -> rootReference.get() != null && inventory.get() == rootReference.get()
+                        && accessorReference.get() != null && !accessorReference.get().isRemoved()
+                        && recordReference.get() != null && accessorReference.get().getRecord() == recordReference.get());
+                var report = dev.kehai.digitalstorage.forge.tom.ForgeTomTopology.analyze(record, inventory,
+                        telemetry.snapshot(record.storage(), ((net.minecraft.server.level.ServerLevel) world).getServer().getTickCount()));
                 if (report.available()) {
                     origins.put(report.topology(), new ForgeInventoryTransferExecutor.Origin(true,
                             world.dimension().location().toString(), accessor.getBlockPos().asLong(), position.asLong()));
