@@ -304,7 +304,7 @@ public record DigitalStorageScreenState(
                 true,
                 Text.literal("codec status")
         );
-        PacketByteBuf buf = net.fabricmc.fabric.api.networking.v1.PacketByteBufs.create();
+        PacketByteBuf buf = new PacketByteBuf(io.netty.buffer.Unpooled.buffer());
         try {
             expected.write(buf);
             DigitalStorageScreenState actual = read(buf);

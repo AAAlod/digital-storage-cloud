@@ -4,19 +4,16 @@ import com.tom.storagemod.Content;
 import dev.kehai.digitalstorage.block.AdvancedInventoryHopperBlock;
 import dev.kehai.digitalstorage.block.DigitalStorageAccessorBlock;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
-import dev.kehai.digitalstorage.command.DigitalStorageCommands;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenHandler;
 import dev.kehai.digitalstorage.security.ItemSecurityPolicy;
-import dev.kehai.digitalstorage.optimization.TomMigrationManager;
 import dev.kehai.digitalstorage.mixin.BlockEntityTypeAccessor;
 import dev.kehai.digitalstorage.integration.TomIntegrationStatus;
-import dev.kehai.digitalstorage.security.DigitalStorageMountTracker;
-import dev.kehai.digitalstorage.storage.DigitalStorageState;
-import dev.kehai.digitalstorage.tier.DigitalStorageTierRegistry;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
 import dev.kehai.digitalstorage.platform.fabric.FabricServerEvents;
+import dev.kehai.digitalstorage.platform.fabric.FabricScreenNetworking;
+import dev.kehai.digitalstorage.platform.fabric.FabricTierReloadListener;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.object.builder.v1.block.FabricBlockSettings;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
@@ -34,7 +31,6 @@ import net.minecraft.registry.Registry;
 import net.minecraft.resource.ResourceType;
 import net.minecraft.screen.ScreenHandlerType;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 import java.util.HashSet;
 import java.util.Set;
 import static dev.kehai.digitalstorage.DigitalStorage.id;
@@ -101,10 +97,10 @@ public final class DigitalStorageMod implements ModInitializer {
     public void onInitialize() {
         DigitalStorageConfig.load(FabricLoader.getInstance().getConfigDir());
         FabricServerEvents.register();
-        DigitalStorageScreenHandler.registerNetworking();
+        FabricScreenNetworking.register();
         ItemSecurityPolicy.reload();
         ResourceManagerHelper.get(ResourceType.SERVER_DATA)
-                .registerReloadListener(DigitalStorageTierRegistry.INSTANCE);
+                .registerReloadListener(new FabricTierReloadListener());
 
         ItemStorage.SIDED.registerForBlockEntity(
                 (blockEntity, direction) -> blockEntity.getCanonicalStorage(),

@@ -69,6 +69,7 @@ public final class DigitalItemStorageSelfTest {
         dev.kehai.digitalstorage.optimization.TomMigrationManager.runSelfTest();
         DigitalStorageUpgradeService.runSelfTest();
         DigitalStorageScreenState.runCodecSelfTest();
+        dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol.runCompatibilitySelfTest();
         exactHopperTransferMovesOneBatchWithoutIteration(stone);
         filteredHopperTransferMovesOneBatch(stone);
         fullDestinationDoesNotTouchTheSource(stone);

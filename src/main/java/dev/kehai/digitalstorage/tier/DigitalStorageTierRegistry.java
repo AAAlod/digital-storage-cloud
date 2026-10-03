@@ -14,13 +14,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
 import net.minecraft.registry.Registries;
 import net.minecraft.resource.Resource;
 import net.minecraft.resource.ResourceManager;
 import net.minecraft.util.Identifier;
 
-public final class DigitalStorageTierRegistry implements SimpleSynchronousResourceReloadListener {
+public final class DigitalStorageTierRegistry {
     public static final DigitalStorageTierRegistry INSTANCE = new DigitalStorageTierRegistry();
 
     private static final String RESOURCE_PATH = "digital_storage_tiers";
@@ -29,12 +28,6 @@ public final class DigitalStorageTierRegistry implements SimpleSynchronousResour
     private DigitalStorageTierRegistry() {
     }
 
-    @Override
-    public Identifier getFabricId() {
-        return DigitalStorage.id("tier_registry");
-    }
-
-    @Override
     public void reload(ResourceManager manager) {
         try {
             Map<Identifier, Resource> resources = manager.findResources(

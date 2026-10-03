@@ -2,10 +2,9 @@ package dev.kehai.digitalstorage.client.screen;
 
 import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenHandler;
+import dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenState;
 import dev.kehai.digitalstorage.tier.UpgradeIngredient;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
@@ -13,7 +12,6 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
-import net.minecraft.network.PacketByteBuf;
 import net.minecraft.registry.Registries;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.OrderedText;
@@ -77,13 +75,16 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     private DigitalStorageScreenState creationRequestedFromState;
     private DigitalStorageScreenState managementRequestedFromState;
     private DigitalStorageScreenState unstackableRequestedFromState;
+    private final DigitalStorageScreenProtocol.RequestSender requestSender;
 
     public DigitalStorageScreen(
             DigitalStorageScreenHandler handler,
             PlayerInventory inventory,
-            Text title
+            Text title,
+            DigitalStorageScreenProtocol.RequestSender requestSender
     ) {
         super(handler, inventory, title);
+        this.requestSender = java.util.Objects.requireNonNull(requestSender, "requestSender");
         backgroundWidth = SCREEN_WIDTH;
         backgroundHeight = SCREEN_HEIGHT;
         playerInventoryTitleY = 10000;
@@ -893,15 +894,10 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         if (!createVolumeButton.active) {
             return;
         }
-        PacketByteBuf buf = PacketByteBufs.create();
-        buf.writeVarInt(handler.syncId);
-        buf.writeString(
-                volumeNameField.getText().strip(),
-                dev.kehai.digitalstorage.storage.StorageVolume.MAX_NAME_LENGTH
-        );
         creationRequestedFromState = handler.state();
         createVolumeButton.active = false;
-        ClientPlayNetworking.send(DigitalStorageScreenHandler.CREATE_VOLUME_PACKET_ID, buf);
+        requestSender.send(new DigitalStorageScreenProtocol.CreateVolume(
+                handler.syncId, volumeNameField.getText().strip()));
     }
 
     private void requestUnstackablePolicy() {
@@ -939,13 +935,9 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         if (action == DigitalStorageScreenHandler.RENAME_VOLUME_ACTION && requestedName.isEmpty()) {
             return;
         }
-        PacketByteBuf buf = PacketByteBufs.create();
-        buf.writeVarInt(handler.syncId);
-        buf.writeVarInt(action);
-        buf.writeUuid(choices.get(volumeIndex).id());
-        buf.writeString(requestedName, dev.kehai.digitalstorage.storage.StorageVolume.MAX_NAME_LENGTH);
         managementRequestedFromState = handler.state();
-        ClientPlayNetworking.send(DigitalStorageScreenHandler.MANAGE_VOLUME_PACKET_ID, buf);
+        requestSender.send(new DigitalStorageScreenProtocol.ManageVolume(
+                handler.syncId, action, choices.get(volumeIndex).id(), requestedName));
         updateButton();
     }
 

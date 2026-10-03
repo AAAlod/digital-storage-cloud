@@ -2,6 +2,8 @@
 
 ## 1.2.0 - Unreleased
 
+- 将屏幕消息与等级资源重载的 Fabric 接线移入平台适配层，保留现有消息格式及服务端权限检查。
+
 - Separate shared mod identity, configuration paths and server lifecycle services
   from Fabric event registration, preparing the storage backend for a Forge port.
 - Preserve existing storage formats, item limits and Fabric transfer semantics.

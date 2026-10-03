@@ -1,6 +1,5 @@
 package dev.kehai.digitalstorage.screen;
 
-import dev.kehai.digitalstorage.DigitalStorage;
 import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
@@ -13,8 +12,6 @@ import dev.kehai.digitalstorage.storage.StorageVolume;
 import dev.kehai.digitalstorage.storage.VolumeManagementService;
 import dev.kehai.digitalstorage.upgrade.DigitalStorageUpgradeService;
 import java.util.Objects;
-import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
@@ -22,13 +19,10 @@ import net.minecraft.network.PacketByteBuf;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 
 public final class DigitalStorageScreenHandler extends net.minecraft.screen.ScreenHandler {
-    public static final Identifier STATE_PACKET_ID = DigitalStorage.id("screen_state");
-    public static final Identifier CREATE_VOLUME_PACKET_ID = DigitalStorage.id("create_volume");
-    public static final Identifier MANAGE_VOLUME_PACKET_ID = DigitalStorage.id("manage_volume");
+    private static DigitalStorageScreenProtocol.StateSender stateSender;
     public static final int RENAME_VOLUME_ACTION = 0;
     public static final int DELETE_VOLUME_ACTION = 1;
     private static final int NETWORK_ANALYSIS_COOLDOWN_TICKS = 40;
@@ -54,35 +48,24 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
     private long nextNetworkAnalysisTick;
     private boolean initialStateSyncPending;
 
-    public static void registerNetworking() {
-        ServerPlayNetworking.registerGlobalReceiver(
-                CREATE_VOLUME_PACKET_ID,
-                (server, player, networkHandler, buf, responseSender) -> {
-                    int requestedSyncId = buf.readVarInt();
-                    String requestedName = buf.readString(StorageVolume.MAX_NAME_LENGTH);
-                    server.execute(() -> {
-                        if (player.currentScreenHandler instanceof DigitalStorageScreenHandler screenHandler
-                                && screenHandler.syncId == requestedSyncId) {
-                            screenHandler.createVolume(player, requestedName);
-                        }
-                    });
-                }
-        );
-        ServerPlayNetworking.registerGlobalReceiver(
-                MANAGE_VOLUME_PACKET_ID,
-                (server, player, networkHandler, buf, responseSender) -> {
-                    int requestedSyncId = buf.readVarInt();
-                    int action = buf.readVarInt();
-                    java.util.UUID volumeId = buf.readUuid();
-                    String requestedName = buf.readString(StorageVolume.MAX_NAME_LENGTH);
-                    server.execute(() -> {
-                        if (player.currentScreenHandler instanceof DigitalStorageScreenHandler screenHandler
-                                && screenHandler.syncId == requestedSyncId) {
-                            screenHandler.manageVolume(player, action, volumeId, requestedName);
-                        }
-                    });
-                }
-        );
+    /** Bound once by the loader during initialization, before any server menu opens. */
+    public static void setStateSender(DigitalStorageScreenProtocol.StateSender sender) {
+        stateSender = Objects.requireNonNull(sender, "sender");
+    }
+
+    /** The adapter must invoke requests on the server thread. */
+    public static void handleRequest(ServerPlayerEntity player, DigitalStorageScreenProtocol.CreateVolume request) {
+        if (player.currentScreenHandler instanceof DigitalStorageScreenHandler screenHandler
+                && screenHandler.syncId == request.syncId()) {
+            screenHandler.createVolume(player, request.name());
+        }
+    }
+
+    public static void handleRequest(ServerPlayerEntity player, DigitalStorageScreenProtocol.ManageVolume request) {
+        if (player.currentScreenHandler instanceof DigitalStorageScreenHandler screenHandler
+                && screenHandler.syncId == request.syncId()) {
+            screenHandler.manageVolume(player, request.action(), request.volumeId(), request.name());
+        }
     }
 
     public DigitalStorageScreenHandler(int syncId, PlayerInventory playerInventory, PacketByteBuf openingData) {
@@ -495,10 +478,8 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
     }
 
     private void sendStatePacket(ServerPlayerEntity player) {
-        PacketByteBuf buf = PacketByteBufs.create();
-        buf.writeVarInt(syncId);
-        state.write(buf);
-        ServerPlayNetworking.send(player, STATE_PACKET_ID, buf);
+        Objects.requireNonNull(stateSender, "Screen state sender was not initialized")
+                .send(player, new DigitalStorageScreenProtocol.StateUpdate(syncId, state));
     }
 
     private DigitalStorageAccessorBlockEntity getServerBlockEntity() {
