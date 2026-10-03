@@ -17,6 +17,7 @@ public final class ForgeHopperTransfer {
     private boolean running;
     private String detail = "";
     private CompoundTag unreadableState;
+    private boolean exported;
 
     public boolean blocked() { return blocked; }
     public boolean uncertain() { return uncertain; }
@@ -24,10 +25,19 @@ public final class ForgeHopperTransfer {
     /** Original returned instance: the owning device must retain it even if encoding fails. */
     ItemStack heldStack() { return held; }
     public String detail() { return detail; }
+    public boolean exported() { return exported; }
+    void releaseExported() {
+        held = ItemStack.EMPTY;
+        uncertain = false;
+        blocked = true;
+        exported = true;
+        detail = "hopper custody exported; rotate device identity before resuming";
+    }
     public void halt(String reason) {
         blocked = true;
         if (detail.isBlank()) detail = java.util.Objects.requireNonNull(reason);
     }
+    public void markUncertain(String reason) { uncertain = true; halt(reason); }
 
     /** Caller must persist the returned compound; a successful encoding is not a disk flush. */
     public CompoundTag saveState() {

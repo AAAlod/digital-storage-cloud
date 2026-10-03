@@ -66,12 +66,16 @@ public abstract class BasicInventoryHopperStateMixin implements ForgeHopperState
             digitalstorage$unreadableTag = tag.get(NBT_KEY).copy();
             digitalstorage$transfer = ForgeHopperTransfer.restore(new CompoundTag());
         }
-        if (digitalstorage$unreadableIdentity != null) digitalstorage$transfer.halt("invalid hopper custody identity");
+        if (digitalstorage$unreadableIdentity != null) digitalstorage$transfer.markUncertain("invalid hopper custody identity");
+        else if (!tag.hasUUID(ID_KEY) && digitalstorage$transfer.blocked()) {
+            digitalstorage$transfer.markUncertain("stopped legacy hopper has no stable custody identity");
+        }
     }
 
     @Inject(method = "update", at = @At("HEAD"), cancellable = true, remap = false)
     private void digitalstorage$guard(CallbackInfo callback) {
-        if (!digitalstorage$resolved || (digitalstorage$transfer.blocked() && !digitalstorage$journaled)) {
+        if (!digitalstorage$resolved || digitalstorage$transfer.exported()
+                || (digitalstorage$transfer.blocked() && !digitalstorage$journaled)) {
             ForgeHopperLifecycle.checkpoint((net.minecraft.world.level.block.entity.BlockEntity) (Object) this);
         }
         if (digitalstorage$transfer.blocked()) callback.cancel();

@@ -118,6 +118,26 @@ public final class ForgeTransferRecovery {
         return entry;
     }
 
+    /** Only after a durable hopper handoff intent; stable identity makes retries idempotent. */
+    Entry adoptHopper(UUID id, UUID owner, UUID volume, ItemKey key, long amount) {
+        if (!available()) throw new IllegalStateException("Recovery store requires reconciliation");
+        String reason = "hopper custody " + id + " amount=" + amount;
+        if (entries.containsKey(id)) {
+            var existing = requireOwned(id, owner);
+            if (!existing.volume().equals(volume) || !existing.key().equals(key)
+                    || !existing.reason().equals(reason) || existing.amount() > amount) {
+                throw new IllegalStateException("Recovery identity conflicts with hopper handoff");
+            }
+            return existing;
+        }
+        if (Files.exists(path(id))) throw new IllegalStateException("Recovery file changed; reopen before handoff");
+        var entry = new Entry(id, owner, volume, key, amount, State.HELD, 0, System.currentTimeMillis(), reason);
+        entries.put(id, entry);
+        try { write(entry); }
+        catch (RuntimeException failure) { unsaved.put(id, entry); throw failure; }
+        return entry;
+    }
+
     public void flushUnsaved() {
         for (var owned : List.copyOf(uncaptured.values())) captureReturned(owned);
         for (var entry : List.copyOf(unsaved.values())) {

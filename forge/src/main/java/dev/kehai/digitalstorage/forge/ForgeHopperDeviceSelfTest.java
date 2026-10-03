@@ -43,6 +43,16 @@ public final class ForgeHopperDeviceSelfTest {
             expect(restored != null && transfer(restored).blocked() && !transfer(restored).uncertain()
                     && transfer(restored).heldCount() == 8 && restored.getFilter().is(Items.STONE),
                     "Actual entity save/load retains known remainder and filter");
+            var invalidIdentity = saved.copy();
+            invalidIdentity.put(ForgeHopperState.ID_KEY, StringTag.valueOf("future identity"));
+            var unidentified = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, invalidIdentity);
+            expect(unidentified != null && transfer(unidentified).uncertain() && transfer(unidentified).heldCount() == 8
+                    && unidentified.saveWithFullMetadata().get(ForgeHopperState.ID_KEY).equals(invalidIdentity.get(ForgeHopperState.ID_KEY)),
+                    "Invalid identity preserves items and evidence but cannot authorize handoff");
+            var missingIdentity = saved.copy(); missingIdentity.remove(ForgeHopperState.ID_KEY);
+            unidentified = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, missingIdentity);
+            expect(unidentified != null && transfer(unidentified).uncertain() && transfer(unidentified).heldCount() == 8,
+                    "Stopped legacy mirror without identity requires reconciliation");
             var original = transfer(restored);
             restored.load(legacy);
             expect(transfer(restored) == original && transfer(restored).heldCount() == 8,

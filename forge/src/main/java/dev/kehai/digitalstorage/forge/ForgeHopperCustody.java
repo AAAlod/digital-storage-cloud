@@ -11,6 +11,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.Tag;
+import dev.kehai.digitalstorage.storage.ItemKey;
+import dev.kehai.digitalstorage.storage.ItemKeyCodec;
 
 /** World-level evidence and ownership retention, independent of a hopper's chunk.
  * A live source is retained before encoding. Disk snapshots never authorize replay
@@ -31,7 +33,8 @@ public final class ForgeHopperCustody {
                     if (file.getFileName().toString().endsWith(".tmp")) { unreadable++; continue; }
                     try {
                         var saved = NbtIo.readCompressed(file.toFile());
-                        if (saved == null || !saved.contains("Version", Tag.TAG_INT) || saved.getInt("Version") != 1
+                        if (saved == null || !saved.contains("Version", Tag.TAG_INT)
+                                || (saved.getInt("Version") != 1 && saved.getInt("Version") != 2)
                                 || !saved.hasUUID("Id") || !saved.contains("Dimension", Tag.TAG_STRING)
                                 || saved.getString("Dimension").isBlank() || !saved.contains("Position", Tag.TAG_LONG)
                                 || !saved.contains("State")) throw new IllegalArgumentException("Invalid custody record");
@@ -41,6 +44,24 @@ public final class ForgeHopperCustody {
                         }
                         var record = new Record(id, saved.getString("Dimension"),
                                 BlockPos.of(saved.getLong("Position")), null, saved.get("State").copy(), true);
+                        record.diskEvidence = saved.copy();
+                        if (saved.getInt("Version") == 2) {
+                            if (!saved.contains("Phase", Tag.TAG_STRING)) throw new IllegalArgumentException("Missing custody phase");
+                            record.phase = Phase.valueOf(saved.getString("Phase"));
+                            if (record.phase != Phase.PENDING) {
+                                if (!saved.hasUUID("Owner") || !saved.hasUUID("Volume") || !saved.hasUUID("Administrator")
+                                        || !saved.contains("ExportKey", Tag.TAG_COMPOUND) || !saved.contains("ExportAmount", Tag.TAG_LONG)
+                                        || saved.getLong("ExportAmount") <= 0 || !saved.contains("Explanation", Tag.TAG_STRING)
+                                        || saved.getString("Explanation").isBlank() || saved.getString("Explanation").length() > 512) {
+                                    throw new IllegalArgumentException("Invalid hopper handoff receipt");
+                                }
+                                record.owner = saved.getUUID("Owner"); record.volume = saved.getUUID("Volume");
+                                record.administrator = saved.getUUID("Administrator");
+                                record.exportKey = ItemKeyCodec.read(saved.getCompound("ExportKey"));
+                                record.exportAmount = saved.getLong("ExportAmount");
+                                record.explanation = saved.getString("Explanation");
+                            }
+                        }
                         if (saved.contains("ConflictsWith")) {
                             if (!saved.hasUUID("ConflictsWith")) throw new IllegalArgumentException("Invalid conflict identity");
                             record.conflictsWith = saved.getUUID("ConflictsWith");
@@ -59,6 +80,11 @@ public final class ForgeHopperCustody {
         java.util.Objects.requireNonNull(snapshot);
         if (dimension == null || dimension.isBlank()) throw new IllegalArgumentException("Missing dimension");
         Record previous = records.get(id);
+        if (previous != null && previous.phase != Phase.PENDING) {
+            // HANDOFF/EXPORTED are authoritative receipts, not snapshots that a
+            // stale device is allowed to replace with its old held stack.
+            return previous.phase == Phase.EXPORTED && previous.durable;
+        }
         if (previous != null && (previous.identity != identity || !previous.dimension.equals(dimension)
                 || !previous.position.equals(position))) {
             // A loaded snapshot/other device cannot overwrite ownership merely by
@@ -103,6 +129,17 @@ public final class ForgeHopperCustody {
             if (incoming.blocked()) retain(id, dimension, position, incoming, snapshot);
             return new Binding(id, incoming, null);
         }
+        if (record.phase == Phase.EXPORTED && record.durable) {
+            var ready = new ForgeHopperTransfer();
+            return new Binding(UUID.randomUUID(), ready, ready.saveState());
+        }
+        if (record.phase != Phase.PENDING) {
+            var canonical = record.identity instanceof ForgeHopperTransfer live ? live
+                    : record.encoded instanceof CompoundTag compound ? ForgeHopperTransfer.restore(compound) : incoming;
+            canonical.halt("hopper custody handoff requires completion");
+            record.identity = canonical;
+            return new Binding(id, canonical, record.encoded == null ? null : record.encoded.copy());
+        }
         if (record.identity == incoming && record.dimension.equals(dimension) && record.position.equals(position)) {
             return new Binding(id, incoming, null);
         }
@@ -142,10 +179,77 @@ public final class ForgeHopperCustody {
         throw new IllegalStateException("Custody conflict was not retained");
     }
     public record Binding(UUID id, ForgeHopperTransfer engine, Tag state) { }
-    public int pendingCount() { return records.size(); }
+    public int pendingCount() { return (int) records.values().stream().filter(record -> record.phase != Phase.EXPORTED || !record.durable).count(); }
     public int unsavedCount() { return (int) records.values().stream().filter(record -> !record.durable).count(); }
     public int unreadableFiles() { return unreadable; }
-    public boolean available() { return records.isEmpty() && unreadable == 0; }
+    public boolean available() { return pendingCount() == 0 && unreadable == 0; }
+    public java.util.List<Summary> entries() {
+        return records.values().stream().map(record -> {
+            var engine = record.identity instanceof ForgeHopperTransfer live ? live
+                    : record.encoded instanceof CompoundTag compound ? ForgeHopperTransfer.restore(compound) : null;
+            boolean confirmed = record.phase != Phase.PENDING || (engine != null && !engine.uncertain() && engine.heldCount() > 0);
+            long amount = record.phase != Phase.PENDING ? record.exportAmount : engine == null ? 0 : engine.heldCount();
+            String item = record.exportKey != null ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(record.exportKey.item()).toString()
+                    : engine == null || engine.heldStack().isEmpty() ? "unknown"
+                    : net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(engine.heldStack().getItem()).toString();
+            return new Summary(record.id, record.dimension, record.position, record.phase.name(), record.conflictsWith,
+                    record.owner, record.volume, record.administrator, item, amount, confirmed, record.durable,
+                    record.explanation == null ? "" : record.explanation, record.failure);
+        }).toList();
+    }
+    public record Summary(UUID id, String dimension, BlockPos position, String phase, UUID conflictsWith,
+                          UUID owner, UUID volume, UUID administrator, String item, long observedAmount,
+                          boolean confirmed, boolean durable, String explanation, String failure) { }
+
+    /** Administrator-directed custody handoff; delivery still uses the owner's existing recovery flow. */
+    public UUID export(UUID id, UUID owner, UUID volume, UUID administrator, String explanation, ForgeTransferRecovery recovery) {
+        return export(id, owner, volume, administrator, explanation, recovery, () -> { });
+    }
+    UUID export(UUID id, UUID owner, UUID volume, UUID administrator, String explanation,
+                ForgeTransferRecovery recovery, Runnable afterAdoption) {
+        java.util.Objects.requireNonNull(owner); java.util.Objects.requireNonNull(volume);
+        java.util.Objects.requireNonNull(administrator);
+        if (explanation == null || explanation.isBlank() || explanation.length() > 512) {
+            throw new IllegalArgumentException("A concise handoff explanation is required");
+        }
+        var record = records.get(id);
+        if (record == null || unreadable != 0 || record.conflictsWith != null
+                || records.values().stream().anyMatch(candidate -> id.equals(candidate.conflictsWith))) {
+            throw new IllegalStateException("Hopper custody requires conflict or file reconciliation");
+        }
+        requireFresh(record);
+        if (record.phase == Phase.PENDING) {
+            if (!record.durable && !persist(record)) throw new IllegalStateException("Hopper state is not durable");
+            var engine = record.identity instanceof ForgeHopperTransfer live ? live
+                    : record.encoded instanceof CompoundTag compound ? ForgeHopperTransfer.restore(compound) : null;
+            if (engine == null || !engine.blocked() || engine.uncertain() || engine.heldCount() <= 0) {
+                throw new IllegalStateException("Only confirmed returned items can be handed off");
+            }
+            var key = ItemKey.of(engine.heldStack());
+            record.encoded = record.snapshot == null ? record.encoded.copy() : record.snapshot.get().copy();
+            record.owner = owner; record.volume = volume; record.administrator = administrator;
+            record.explanation = explanation; record.exportKey = key; record.exportAmount = engine.heldCount();
+            record.phase = Phase.HANDOFF; record.durable = false;
+        }
+        if (!record.owner.equals(owner) || !record.volume.equals(volume)) {
+            throw new IllegalArgumentException("Hopper handoff target cannot change on retry");
+        }
+        if (!record.durable && !persist(record)) throw new IllegalStateException("Hopper handoff intent could not be saved");
+        if (record.phase == Phase.EXPORTED) return id;
+        recovery.adoptHopper(id, owner, volume, record.exportKey, record.exportAmount);
+        afterAdoption.run();
+        record.phase = Phase.EXPORTED; record.durable = false;
+        if (!persist(record)) throw new IllegalStateException("Recovery owns the items; hopper completion receipt needs retry");
+        return id;
+    }
+
+    private void requireFresh(Record record) {
+        try {
+            Path file = root.resolve(record.id + ".dat");
+            if (Files.exists(file) ? record.diskEvidence == null || !record.diskEvidence.equals(NbtIo.readCompressed(file.toFile()))
+                    : record.diskEvidence != null) throw new IllegalStateException("Custody file changed; reopen before writing");
+        } catch (IOException failure) { throw new IllegalStateException("Custody evidence cannot be read", failure); }
+    }
     public String lastFailure(UUID id) {
         var record = records.get(id); return record == null ? "" : record.failure;
     }
@@ -159,18 +263,32 @@ public final class ForgeHopperCustody {
 
     private boolean persist(Record record) {
         try {
-            Tag encoded = java.util.Objects.requireNonNull(record.snapshot.get(), "Missing hopper state").copy();
+            requireFresh(record);
+            Tag encoded = (record.phase == Phase.PENDING
+                    ? java.util.Objects.requireNonNull(record.snapshot.get(), "Missing hopper state") : record.encoded).copy();
             var saved = new CompoundTag();
-            saved.putInt("Version", 1);
+            saved.putInt("Version", 2);
+            saved.putString("Phase", record.phase.name());
             saved.putUUID("Id", record.id);
             saved.putString("Dimension", record.dimension);
             saved.putLong("Position", record.position.asLong());
             saved.put("State", encoded);
             if (record.conflictsWith != null) saved.putUUID("ConflictsWith", record.conflictsWith);
+            if (record.phase != Phase.PENDING) {
+                saved.putUUID("Owner", record.owner); saved.putUUID("Volume", record.volume);
+                saved.putUUID("Administrator", record.administrator);
+                saved.put("ExportKey", ItemKeyCodec.write(record.exportKey));
+                saved.putLong("ExportAmount", record.exportAmount); saved.putString("Explanation", record.explanation);
+            }
             ForgeTransferFiles.write(root.resolve(record.id + ".dat"), saved);
             record.encoded = encoded;
             record.durable = true;
             record.failure = "";
+            record.diskEvidence = saved.copy();
+            if (record.phase == Phase.EXPORTED) {
+                if (record.identity instanceof ForgeHopperTransfer live) live.releaseExported();
+                record.identity = null; record.snapshot = null;
+            }
             return true;
         } catch (RuntimeException failure) {
             // Keep the supplier and its original live identity even when ItemStack
@@ -191,9 +309,16 @@ public final class ForgeHopperCustody {
         private boolean durable;
         private UUID conflictsWith;
         private String failure = "";
+        private CompoundTag diskEvidence;
+        private Phase phase = Phase.PENDING;
+        private UUID owner, volume, administrator;
+        private ItemKey exportKey;
+        private long exportAmount;
+        private String explanation;
         private Record(UUID id, String dimension, BlockPos position, Object identity, Tag encoded, boolean durable) {
             this.id = id; this.dimension = dimension; this.position = position;
             this.identity = identity; this.encoded = encoded; this.durable = durable;
         }
     }
+    private enum Phase { PENDING, HANDOFF, EXPORTED }
 }

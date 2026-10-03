@@ -96,6 +96,7 @@ public final class ForgeServerEvents {
                     return 1;
                 })));
         ForgeRecoveryCommands.register(event.getDispatcher());
+        ForgeHopperCommands.register(event.getDispatcher());
         event.getDispatcher().register(Commands.literal("dsc")
                 .redirect(event.getDispatcher().getRoot().getChild("digitalstorage")));
     }
