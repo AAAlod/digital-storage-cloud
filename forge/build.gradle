@@ -109,6 +109,11 @@ tasks.register('verifyForgeArtifact') {
             if (metadata == null || !archive.getInputStream(metadata).getText('UTF-8').contains('version="' + project.version + '"')) {
                 throw new GradleException('Forge metadata version mismatch')
             }
+            ['pack.mcmeta', 'data/digitalstorage/digital_storage_tiers/default.json',
+             'data/digitalstorage/recipes/digital_storage_accessor.json',
+             'assets/digitalstorage/lang/zh_cn.json'].each { required ->
+                if (archive.getEntry(required) == null) throw new GradleException("Missing Forge resource: ${required}")
+            }
             logger.lifecycle("Forge artifact passed: ${entries.size()} entries, no forbidden dependency payload")
         } finally { archive.close() }
     }
