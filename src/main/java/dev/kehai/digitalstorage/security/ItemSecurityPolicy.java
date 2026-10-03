@@ -1,6 +1,6 @@
 package dev.kehai.digitalstorage.security;
 
-import dev.kehai.digitalstorage.DigitalStorageMod;
+import dev.kehai.digitalstorage.DigitalStorage;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import java.util.HashSet;
 import java.util.Set;
@@ -187,7 +187,7 @@ public final class ItemSecurityPolicy {
         for (String value : values) {
             Identifier id = Identifier.tryParse(value);
             if (id == null) {
-                DigitalStorageMod.LOGGER.warn("Ignoring invalid item filter {} identifier {}", type, value);
+                DigitalStorage.LOGGER.warn("Ignoring invalid item filter {} identifier {}", type, value);
             } else {
                 result.add(id);
             }
@@ -202,7 +202,7 @@ public final class ItemSecurityPolicy {
         long now = System.currentTimeMillis();
         long previous = LAST_LOG_MILLIS.get();
         if (now - previous >= 1000 && LAST_LOG_MILLIS.compareAndSet(previous, now)) {
-            DigitalStorageMod.LOGGER.warn("Rejected new digital storage variant {}: {}", itemId, reason);
+            DigitalStorage.LOGGER.warn("Rejected new digital storage variant {}: {}", itemId, reason);
         }
     }
 

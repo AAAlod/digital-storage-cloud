@@ -1,11 +1,10 @@
 package dev.kehai.digitalstorage.config;
 
-import dev.kehai.digitalstorage.DigitalStorageMod;
+import dev.kehai.digitalstorage.DigitalStorage;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import net.fabricmc.loader.api.FabricLoader;
 
 public final class DigitalStorageConfig {
     private static final int[] DEFAULT_FAILURE_COOLDOWNS = {20, 40, 100, 200, 400};
@@ -13,6 +12,7 @@ public final class DigitalStorageConfig {
     public static final int HARD_MAX_VOLUME_VARIANT_NBT_BYTES = 1_073_741_824;
     public static final int HARD_MAX_VOLUME_NBT_WARNING_BYTES = 1_073_741_824;
     private static volatile DigitalStorageConfig instance = defaults();
+    private static Path configDirectory;
 
     public boolean optimizeTomsHopper = true;
     public int normalHopperBatchSize = 16;
@@ -42,7 +42,8 @@ public final class DigitalStorageConfig {
         return instance;
     }
 
-    public static LoadResult load() {
+    public static LoadResult load(Path directory) {
+        configDirectory = java.util.Objects.requireNonNull(directory, "config directory");
         return load(DigitalStorageConfigLoader.Mode.STARTUP);
     }
 
@@ -51,7 +52,7 @@ public final class DigitalStorageConfig {
     }
 
     private static LoadResult load(DigitalStorageConfigLoader.Mode mode) {
-        Path configDirectory = FabricLoader.getInstance().getConfigDir();
+        java.util.Objects.requireNonNull(configDirectory, "Configuration must be initialized by the platform");
         DigitalStorageConfigLoader.Result result = DigitalStorageConfigLoader.load(configDirectory, mode);
         if (result.config() != null) {
             instance = result.config();
@@ -61,7 +62,7 @@ public final class DigitalStorageConfig {
     }
 
     private static void logLoadedConfig(DigitalStorageConfig loaded) {
-        DigitalStorageMod.LOGGER.info(
+        DigitalStorage.LOGGER.info(
                 "Digital storage config: hopper enabled={}, normal batch={}, advanced batch={}, success cooldown={}, failure cooldowns={}, "
                         + "stagger scans={}, allow unstackables={}, filter={}, filter items={}, filter tags={}, "
                         + "max variant NBT={} bytes, volume variant NBT cap={} bytes, volumes per player={}, "

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0 - Unreleased
+
+- Separate shared mod identity, configuration paths and server lifecycle services
+  from Fabric event registration, preparing the storage backend for a Forge port.
+- Preserve existing storage formats, item limits and Fabric transfer semantics.
+
 ## 1.1.14 - 2026-09-11
 
 - Keep bulk migrations running across Tom's periodic rebuilds when Fabric sided

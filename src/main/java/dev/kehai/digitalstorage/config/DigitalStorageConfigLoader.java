@@ -10,7 +10,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import dev.kehai.digitalstorage.DigitalStorageMod;
+import dev.kehai.digitalstorage.DigitalStorage;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
@@ -38,7 +38,7 @@ final class DigitalStorageConfigLoader {
         Path legacyJsonPath = configDirectory.resolve(LEGACY_JSON_NAME);
         if (Files.isRegularFile(tomlPath)) {
             if (Files.isRegularFile(legacyJsonPath)) {
-                DigitalStorageMod.LOGGER.warn("Both {} and {} exist; the TOML configuration takes precedence",
+                DigitalStorage.LOGGER.warn("Both {} and {} exist; the TOML configuration takes precedence",
                         tomlPath, legacyJsonPath);
             }
             return loadToml(tomlPath, mode);
@@ -50,10 +50,10 @@ final class DigitalStorageConfigLoader {
         DigitalStorageConfig defaults = DigitalStorageConfig.defaults();
         try {
             writeAtomic(tomlPath, DigitalStorageConfigSchema.createDocument(defaults));
-            DigitalStorageMod.LOGGER.info("Created Digital Storage configuration at {}", tomlPath);
+            DigitalStorage.LOGGER.info("Created Digital Storage configuration at {}", tomlPath);
             return new Result(true, defaults, "Created default TOML configuration");
         } catch (IOException | RuntimeException exception) {
-            DigitalStorageMod.LOGGER.error("Could not create {}", tomlPath, exception);
+            DigitalStorage.LOGGER.error("Could not create {}", tomlPath, exception);
             return new Result(false, mode == Mode.STARTUP ? defaults : null,
                     "Could not create TOML configuration: " + conciseMessage(exception));
         }
@@ -64,7 +64,7 @@ final class DigitalStorageConfigLoader {
         try {
             document = parseToml(tomlPath);
         } catch (IOException | RuntimeException exception) {
-            DigitalStorageMod.LOGGER.error("Could not parse {}", tomlPath, exception);
+            DigitalStorage.LOGGER.error("Could not parse {}", tomlPath, exception);
             if (mode == Mode.RELOAD) {
                 return new Result(false, null,
                         "TOML parse failed; the previous configuration is still active: " + conciseMessage(exception));
@@ -76,16 +76,16 @@ final class DigitalStorageConfigLoader {
         try {
             read = DigitalStorageConfigSchema.read(document);
         } catch (RuntimeException exception) {
-            DigitalStorageMod.LOGGER.error("Could not interpret {}", tomlPath, exception);
+            DigitalStorage.LOGGER.error("Could not interpret {}", tomlPath, exception);
             if (mode == Mode.RELOAD) {
                 return new Result(false, null,
                         "TOML schema is invalid; the previous configuration is still active: " + conciseMessage(exception));
             }
             return recoverBrokenFile(tomlPath, exception);
         }
-        read.warnings().forEach(warning -> DigitalStorageMod.LOGGER.warn("{} in {}", warning, tomlPath));
+        read.warnings().forEach(warning -> DigitalStorage.LOGGER.warn("{} in {}", warning, tomlPath));
         if (read.futureVersion()) {
-            DigitalStorageMod.LOGGER.warn(
+            DigitalStorage.LOGGER.warn(
                     "{} uses configVersion newer than {}; recognized values were loaded but the file was left unchanged",
                     tomlPath, DigitalStorageConfigSchema.CURRENT_VERSION);
             return new Result(true, read.config(), "Loaded newer TOML schema in read-only compatibility mode");
@@ -93,9 +93,9 @@ final class DigitalStorageConfigLoader {
         if (read.changed()) {
             try {
                 writeAtomic(tomlPath, document);
-                DigitalStorageMod.LOGGER.info("Updated missing or invalid values in {}", tomlPath);
+                DigitalStorage.LOGGER.info("Updated missing or invalid values in {}", tomlPath);
             } catch (IOException | RuntimeException exception) {
-                DigitalStorageMod.LOGGER.error("Could not safely update {}", tomlPath, exception);
+                DigitalStorage.LOGGER.error("Could not safely update {}", tomlPath, exception);
                 return new Result(false, mode == Mode.STARTUP ? read.config() : null,
                         "Could not safely update TOML configuration: " + conciseMessage(exception));
             }
@@ -110,7 +110,7 @@ final class DigitalStorageConfigLoader {
         try {
             migrated = parseLegacyJson(jsonPath);
         } catch (IOException | RuntimeException exception) {
-            DigitalStorageMod.LOGGER.error("Could not parse legacy configuration {}", jsonPath, exception);
+            DigitalStorage.LOGGER.error("Could not parse legacy configuration {}", jsonPath, exception);
             if (mode == Mode.RELOAD) {
                 return new Result(false, null,
                         "Legacy JSON parse failed; the previous configuration is still active: " + conciseMessage(exception));
@@ -125,7 +125,7 @@ final class DigitalStorageConfigLoader {
                 writeAtomic(tomlPath, DigitalStorageConfigSchema.createDocument(defaults));
                 return new Result(true, defaults, "Recovered from invalid legacy JSON with default TOML configuration");
             } catch (IOException | RuntimeException writeFailure) {
-                DigitalStorageMod.LOGGER.error("Could not create {} after backing up invalid JSON", tomlPath, writeFailure);
+                DigitalStorage.LOGGER.error("Could not create {} after backing up invalid JSON", tomlPath, writeFailure);
                 return new Result(false, defaults,
                         "Invalid legacy JSON was backed up, but default TOML creation failed: " + conciseMessage(writeFailure));
             }
@@ -134,19 +134,19 @@ final class DigitalStorageConfigLoader {
         try {
             writeAtomic(tomlPath, DigitalStorageConfigSchema.createDocument(migrated));
         } catch (IOException | RuntimeException exception) {
-            DigitalStorageMod.LOGGER.error("Could not migrate {} to {}", jsonPath, tomlPath, exception);
+            DigitalStorage.LOGGER.error("Could not migrate {} to {}", jsonPath, tomlPath, exception);
             return new Result(false, mode == Mode.STARTUP ? migrated : null,
                     "Could not safely write migrated TOML configuration: " + conciseMessage(exception));
         }
 
         Path archive = backupPath(jsonPath, "migrated");
         if (!moveWithoutReplacement(jsonPath, archive)) {
-            DigitalStorageMod.LOGGER.warn(
+            DigitalStorage.LOGGER.warn(
                     "Migrated {} to {}, but could not archive the legacy JSON; TOML will take precedence",
                     jsonPath, tomlPath);
             return new Result(true, migrated, "Migrated JSON to TOML; legacy JSON archive failed");
         }
-        DigitalStorageMod.LOGGER.info("Migrated {} to {}; archived the original as {}", jsonPath, tomlPath, archive);
+        DigitalStorage.LOGGER.info("Migrated {} to {}; archived the original as {}", jsonPath, tomlPath, archive);
         return new Result(true, migrated, "Migrated legacy JSON configuration to TOML");
     }
 
@@ -159,10 +159,10 @@ final class DigitalStorageConfigLoader {
         DigitalStorageConfig defaults = DigitalStorageConfig.defaults();
         try {
             writeAtomic(tomlPath, DigitalStorageConfigSchema.createDocument(defaults));
-            DigitalStorageMod.LOGGER.warn("Backed up invalid Digital Storage configuration to {} and restored defaults", backup);
+            DigitalStorage.LOGGER.warn("Backed up invalid Digital Storage configuration to {} and restored defaults", backup);
             return new Result(true, defaults, "Backed up invalid TOML and restored defaults");
         } catch (IOException | RuntimeException exception) {
-            DigitalStorageMod.LOGGER.error("Could not create default {} after backing up the invalid file", tomlPath, exception);
+            DigitalStorage.LOGGER.error("Could not create default {} after backing up the invalid file", tomlPath, exception);
             return new Result(false, defaults,
                     "Invalid TOML was backed up, but default creation failed: " + conciseMessage(exception));
         }
@@ -241,7 +241,7 @@ final class DigitalStorageConfigLoader {
                 return true;
             } catch (IOException moveFailed) {
                 moveFailed.addSuppressed(atomicMoveFailed);
-                DigitalStorageMod.LOGGER.error("Could not move {} to {}", source, target, moveFailed);
+                DigitalStorage.LOGGER.error("Could not move {} to {}", source, target, moveFailed);
                 return false;
             }
         }

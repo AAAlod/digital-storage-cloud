@@ -8,8 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerBlockEntityEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
@@ -20,22 +19,20 @@ public final class DigitalStorageMountTracker {
     private DigitalStorageMountTracker() {
     }
 
-    public static void register() {
-        ServerBlockEntityEvents.BLOCK_ENTITY_LOAD.register((blockEntity, world) -> {
-            if (blockEntity instanceof DigitalStorageAccessorBlockEntity digitalStorage) {
-                world.getServer().execute(() -> {
-                    if (!digitalStorage.isRemoved() && digitalStorage.getWorld() == world) {
-                        update(digitalStorage, world);
-                    }
-                });
-            }
-        });
-        ServerBlockEntityEvents.BLOCK_ENTITY_UNLOAD.register((blockEntity, world) -> {
-            if (blockEntity instanceof DigitalStorageAccessorBlockEntity digitalStorage) {
-                untrack(world, digitalStorage.getPos());
-            }
-        });
-        ServerLifecycleEvents.SERVER_STOPPED.register(server -> clear());
+    public static void onBlockEntityLoad(BlockEntity blockEntity, ServerWorld world) {
+        if (blockEntity instanceof DigitalStorageAccessorBlockEntity digitalStorage) {
+            world.getServer().execute(() -> {
+                if (!digitalStorage.isRemoved() && digitalStorage.getWorld() == world) {
+                    update(digitalStorage, world);
+                }
+            });
+        }
+    }
+
+    public static void onBlockEntityUnload(BlockEntity blockEntity, ServerWorld world) {
+        if (blockEntity instanceof DigitalStorageAccessorBlockEntity digitalStorage) {
+            untrack(world, digitalStorage.getPos());
+        }
     }
 
     public static synchronized void update(DigitalStorageAccessorBlockEntity blockEntity, ServerWorld world) {

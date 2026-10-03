@@ -1,8 +1,9 @@
 package dev.kehai.digitalstorage.command;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import dev.kehai.digitalstorage.DigitalStorageMod;
+import dev.kehai.digitalstorage.DigitalStorage;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.integration.TomIntegrationStatus;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
@@ -16,7 +17,6 @@ import dev.kehai.digitalstorage.storage.VolumeManagementService;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemStorage;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
@@ -34,11 +34,9 @@ public final class DigitalStorageCommands {
     private DigitalStorageCommands() {
     }
 
-    public static void register() {
-        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-            dispatcher.register(root("digitalstorage"));
-            dispatcher.register(root("dsc"));
-        });
+    public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
+        dispatcher.register(root("digitalstorage"));
+        dispatcher.register(root("dsc"));
     }
 
     private static LiteralArgumentBuilder<ServerCommandSource> root(String rootName) {
@@ -253,7 +251,7 @@ public final class DigitalStorageCommands {
             source.sendFeedback(() -> Text.literal(result), false);
             return 1;
         } catch (RuntimeException exception) {
-            DigitalStorageMod.LOGGER.error("Digital Storage self-test failed", exception);
+            DigitalStorage.LOGGER.error("Digital Storage self-test failed", exception);
             source.sendError(Text.literal("Digital Storage self-test failed: " + exception));
             return 0;
         }
@@ -263,10 +261,10 @@ public final class DigitalStorageCommands {
         try {
             TomPerformanceBenchmark.Result result = TomPerformanceBenchmark.run();
             source.sendFeedback(() -> Text.literal(result.summary()), false);
-            DigitalStorageMod.LOGGER.info(result.summary());
+            DigitalStorage.LOGGER.info(result.summary());
             return 1;
         } catch (RuntimeException exception) {
-            DigitalStorageMod.LOGGER.error("Digital Storage benchmark failed", exception);
+            DigitalStorage.LOGGER.error("Digital Storage benchmark failed", exception);
             source.sendError(Text.literal("Digital Storage benchmark failed: " + exception));
             return 0;
         }

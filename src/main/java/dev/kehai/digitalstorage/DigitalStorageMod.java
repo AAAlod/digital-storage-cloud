@@ -16,7 +16,8 @@ import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import dev.kehai.digitalstorage.tier.DigitalStorageTierRegistry;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import dev.kehai.digitalstorage.platform.fabric.FabricServerEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.object.builder.v1.block.FabricBlockSettings;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerType;
@@ -36,13 +37,9 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import java.util.HashSet;
 import java.util.Set;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static dev.kehai.digitalstorage.DigitalStorage.id;
 
 public final class DigitalStorageMod implements ModInitializer {
-    public static final String MOD_ID = "digitalstorage";
-    public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
-
     public static final Block DIGITAL_STORAGE_ACCESSOR = Registry.register(
             Registries.BLOCK,
             id("digital_storage_accessor"),
@@ -102,13 +99,10 @@ public final class DigitalStorageMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        DigitalStorageConfig.load();
-        ServerLifecycleEvents.SERVER_STARTING.register(server -> registerAdvancedHopperBlockEntitySupport());
-        DigitalStorageState.registerLifecycle();
+        DigitalStorageConfig.load(FabricLoader.getInstance().getConfigDir());
+        FabricServerEvents.register();
         DigitalStorageScreenHandler.registerNetworking();
         ItemSecurityPolicy.reload();
-        DigitalStorageMountTracker.register();
-        TomMigrationManager.register();
         ResourceManagerHelper.get(ResourceType.SERVER_DATA)
                 .registerReloadListener(DigitalStorageTierRegistry.INSTANCE);
 
@@ -117,12 +111,7 @@ public final class DigitalStorageMod implements ModInitializer {
                 DIGITAL_STORAGE_ACCESSOR_BLOCK_ENTITY
         );
 
-        DigitalStorageCommands.register();
-        LOGGER.info("Digital Storage Cloud initialized with Account -> Volume -> Accessor architecture");
-    }
-
-    public static Identifier id(String path) {
-        return new Identifier(MOD_ID, path);
+        DigitalStorage.LOGGER.info("Digital Storage Cloud initialized with Account -> Volume -> Accessor architecture");
     }
 
     public static void registerAdvancedHopperBlockEntitySupport() {

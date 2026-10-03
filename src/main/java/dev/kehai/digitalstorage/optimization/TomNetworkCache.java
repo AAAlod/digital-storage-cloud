@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerBlockEntityEvents;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
@@ -31,10 +30,6 @@ public final class TomNetworkCache {
     private static int tomInventoryRange = -1;
 
     private TomNetworkCache() {
-    }
-
-    public static void register() {
-        ServerBlockEntityEvents.BLOCK_ENTITY_UNLOAD.register(TomNetworkCache::onBlockEntityUnload);
     }
 
     static Topology topology(BlockEntity connector, Storage<ItemVariant> network) {
@@ -242,7 +237,7 @@ public final class TomNetworkCache {
     }
 
     @SuppressWarnings("unchecked")
-    private static void onBlockEntityUnload(BlockEntity blockEntity, ServerWorld world) {
+    public static void onBlockEntityUnload(BlockEntity blockEntity, ServerWorld world) {
         boolean matched = invalidateConnectorOnUnload(blockEntity);
         Set<Storage<ItemVariant>> exposed = Collections.newSetFromMap(new IdentityHashMap<>());
         if (blockEntity instanceof Storage<?> storage) {

@@ -12,8 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
 import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
@@ -34,15 +32,11 @@ public final class TomMigrationManager {
     private TomMigrationManager() {
     }
 
-    public static void register() {
-        TomNetworkCache.register();
-        ServerTickEvents.END_SERVER_TICK.register(TomMigrationManager::tick);
-        ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
-            JOBS.clear();
-            STATUSES.clear();
-            TomScannerTelemetry.clear();
-            TomNetworkCache.clear();
-        });
+    public static void clear() {
+        JOBS.clear();
+        STATUSES.clear();
+        TomScannerTelemetry.clear();
+        TomNetworkCache.clear();
     }
 
     public static StartResult start(
@@ -106,7 +100,7 @@ public final class TomMigrationManager {
         return STATUSES.getOrDefault(volumeId, Status.idle());
     }
 
-    private static void tick(MinecraftServer server) {
+    public static void tick(MinecraftServer server) {
         TomScannerTelemetry.tick(server.getTicks());
         Iterator<Job> iterator = JOBS.values().iterator();
         while (iterator.hasNext()) {
@@ -225,7 +219,7 @@ public final class TomMigrationManager {
                     || record.storage().amountOf(ItemVariant.of(net.minecraft.item.Items.STONE)) != 96) {
                 throw new IllegalStateException("Bulk migration rebuild regression failed: " + slots + "/" + result);
             }
-            dev.kehai.digitalstorage.DigitalStorageMod.LOGGER.info(
+            dev.kehai.digitalstorage.DigitalStorage.LOGGER.info(
                     "Bulk migration regression passed: views={}, ticks={}, rebuilds={}, moved={}, budget=128, state={}",
                     slots, ticks, ticks / 20, job.movedItems, result);
             // Same endpoint count but changed side or exposed slot set must invalidate.

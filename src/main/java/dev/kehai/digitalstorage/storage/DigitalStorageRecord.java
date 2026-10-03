@@ -1,6 +1,6 @@
 package dev.kehai.digitalstorage.storage;
 
-import dev.kehai.digitalstorage.DigitalStorageMod;
+import dev.kehai.digitalstorage.DigitalStorage;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.security.ItemSecurityPolicy;
 import dev.kehai.digitalstorage.tier.DigitalStorageTier;
@@ -99,7 +99,7 @@ public final class DigitalStorageRecord {
         if (migrated) {
             if (hasStoredTier) {
                 DigitalStorageTier fallback = tiers.tierAtLeastCapacity(preservedCapacity);
-                DigitalStorageMod.LOGGER.warn(
+                DigitalStorage.LOGGER.warn(
                         "Stored tier {} is unavailable; migrating to {} to preserve at least {} variants",
                         nbt.getString(TIER_KEY),
                         fallback.id(),
@@ -168,7 +168,7 @@ public final class DigitalStorageRecord {
         DigitalStorageTier fallback = tiers.tierAtLeastCapacity(
                 Math.max(lastKnownVariantCapacity, storage.variantCount())
         );
-        DigitalStorageMod.LOGGER.warn(
+        DigitalStorage.LOGGER.warn(
                 "Storage tier {} no longer exists; falling back to {} to preserve at least {} variants",
                 tierId,
                 fallback.id(),

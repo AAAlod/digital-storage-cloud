@@ -1,6 +1,6 @@
 package dev.kehai.digitalstorage.storage;
 
-import dev.kehai.digitalstorage.DigitalStorageMod;
+import dev.kehai.digitalstorage.DigitalStorage;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import java.io.IOException;
 import java.math.BigInteger;
@@ -28,8 +28,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtIo;
@@ -48,7 +46,6 @@ public final class DigitalStorageState {
     static final long MAX_DIRTY_VOLUME_AGE_TICKS = 600;
     private static final String SCHEMA_VERSION_KEY = "SchemaVersion";
     private static final Map<MinecraftServer, DigitalStorageState> INSTANCES = new WeakHashMap<>();
-    private static boolean lifecycleRegistered;
 
     private final Path accountsDirectory;
     private final Path volumesDirectory;
@@ -103,35 +100,32 @@ public final class DigitalStorageState {
         loadAllFiles();
     }
 
-    public static synchronized void registerLifecycle() {
-        if (lifecycleRegistered) {
-            return;
+    public static void onServerStarting(MinecraftServer server) {
+        getOrCreate(server);
+    }
+
+    public static void onServerTick(MinecraftServer server) {
+        DigitalStorageState state;
+        synchronized (DigitalStorageState.class) {
+            state = INSTANCES.get(server);
         }
-        lifecycleRegistered = true;
-        ServerLifecycleEvents.SERVER_STARTING.register(DigitalStorageState::getOrCreate);
-        ServerTickEvents.END_SERVER_TICK.register(server -> {
-            DigitalStorageState state;
-            synchronized (DigitalStorageState.class) {
-                state = INSTANCES.get(server);
-            }
-            if (state != null) {
-                state.tick();
-            }
-        });
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
-            DigitalStorageState state;
-            synchronized (DigitalStorageState.class) {
-                state = INSTANCES.get(server);
-            }
-            if (state != null) {
-                state.close();
-            }
-        });
-        ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
-            synchronized (DigitalStorageState.class) {
-                INSTANCES.remove(server);
-            }
-        });
+        if (state != null) {
+            state.tick();
+        }
+    }
+
+    public static void onServerStopping(MinecraftServer server) {
+        DigitalStorageState state;
+        synchronized (DigitalStorageState.class) {
+            state = INSTANCES.get(server);
+        }
+        if (state != null) {
+            state.close();
+        }
+    }
+
+    public static synchronized void onServerStopped(MinecraftServer server) {
+        INSTANCES.remove(server);
     }
 
     public static DigitalStorageState get(ServerWorld world) {
@@ -406,7 +400,7 @@ public final class DigitalStorageState {
         indexVolumeFiles();
         loadAccountFiles();
         repairAccountIndex();
-        DigitalStorageMod.LOGGER.info(
+        DigitalStorage.LOGGER.info(
                 "Indexed Digital Storage files: accounts={}, volumes={}, loaded volumes={}, quarantined accounts={}, quarantined volumes={}",
                 accounts.size(),
                 knownVolumeIds.size(),
@@ -428,7 +422,7 @@ public final class DigitalStorageState {
             } catch (IOException | RuntimeException exception) {
                 quarantinedVolumeFiles++;
                 Path quarantined = quarantineFile(path, quarantinedVolumesDirectory);
-                DigitalStorageMod.LOGGER.error(
+                DigitalStorage.LOGGER.error(
                         "Quarantined unreadable Digital Storage volume file {} to {}",
                         path,
                         quarantined,
@@ -457,7 +451,7 @@ public final class DigitalStorageState {
             } catch (IOException | RuntimeException exception) {
                 quarantinedAccountFiles++;
                 Path quarantined = quarantineFile(path, quarantinedAccountsDirectory);
-                DigitalStorageMod.LOGGER.error(
+                DigitalStorage.LOGGER.error(
                         "Quarantined unreadable Digital Storage account file {} to {}",
                         path,
                         quarantined,
@@ -539,7 +533,7 @@ public final class DigitalStorageState {
             removeVolumeFromAccounts(id);
             quarantinedVolumeFiles++;
             Path quarantined = quarantineFile(path, quarantinedVolumesDirectory);
-            DigitalStorageMod.LOGGER.error(
+            DigitalStorage.LOGGER.error(
                     "Quarantined unreadable Digital Storage volume file {} to {}",
                     path,
                     quarantined,
@@ -791,7 +785,7 @@ public final class DigitalStorageState {
             long diskBytes = writeAtomic(target, nbt);
             onSuccess.accept(new FileMeasurement(nbt.getSizeInBytes(), diskBytes));
         } catch (IOException | RuntimeException exception) {
-            DigitalStorageMod.LOGGER.error("Could not write Digital Storage file {}; will retry", target, exception);
+            DigitalStorage.LOGGER.error("Could not write Digital Storage file {}; will retry", target, exception);
             retry.run();
         }
     }
@@ -801,7 +795,7 @@ public final class DigitalStorageState {
             Files.deleteIfExists(target);
             onSuccess.run();
         } catch (IOException exception) {
-            DigitalStorageMod.LOGGER.error("Could not delete Digital Storage file {}; will retry", target, exception);
+            DigitalStorage.LOGGER.error("Could not delete Digital Storage file {}; will retry", target, exception);
             retry.run();
         }
     }
@@ -831,7 +825,7 @@ public final class DigitalStorageState {
         int warningThreshold = DigitalStorageConfig.get().volumeNbtWarningBytes;
         if (warningThreshold > 0 && estimatedNbtBytes > warningThreshold) {
             if (warnedOversizedVolumes.add(id)) {
-                DigitalStorageMod.LOGGER.warn(
+                DigitalStorage.LOGGER.warn(
                         "Storage volume {} estimated NBT size is {} bytes, above the soft warning threshold of {} bytes",
                         id,
                         estimatedNbtBytes,

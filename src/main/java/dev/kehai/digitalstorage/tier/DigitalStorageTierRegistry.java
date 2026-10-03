@@ -4,7 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import dev.kehai.digitalstorage.DigitalStorageMod;
+import dev.kehai.digitalstorage.DigitalStorage;
 import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
 import java.io.IOException;
 import java.io.Reader;
@@ -31,7 +31,7 @@ public final class DigitalStorageTierRegistry implements SimpleSynchronousResour
 
     @Override
     public Identifier getFabricId() {
-        return DigitalStorageMod.id("tier_registry");
+        return DigitalStorage.id("tier_registry");
     }
 
     @Override
@@ -51,9 +51,9 @@ public final class DigitalStorageTierRegistry implements SimpleSynchronousResour
                     .forEach(entry -> readResource(entry.getKey(), entry.getValue(), definitions));
             Snapshot loaded = buildSnapshot(definitions);
             snapshot = loaded;
-            DigitalStorageMod.LOGGER.info("Loaded {} digital storage tiers", loaded.tiers().size());
+            DigitalStorage.LOGGER.info("Loaded {} digital storage tiers", loaded.tiers().size());
         } catch (RuntimeException exception) {
-            DigitalStorageMod.LOGGER.error("Tier reload failed; keeping the previous valid tier registry", exception);
+            DigitalStorage.LOGGER.error("Tier reload failed; keeping the previous valid tier registry", exception);
         }
     }
 
@@ -175,18 +175,18 @@ public final class DigitalStorageTierRegistry implements SimpleSynchronousResour
     private static Snapshot createBuiltInSnapshot() {
         List<OrderedTier> defaults = List.of(
                 new OrderedTier(0, new DigitalStorageTier(
-                        DigitalStorageMod.id("basic"), 64, List.of(), 0)),
+                        DigitalStorage.id("basic"), 64, List.of(), 0)),
                 new OrderedTier(10, new DigitalStorageTier(
-                        DigitalStorageMod.id("advanced"), 128,
+                        DigitalStorage.id("advanced"), 128,
                         List.of(UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 16)), 0)),
                 new OrderedTier(20, new DigitalStorageTier(
-                        DigitalStorageMod.id("elite"), 256,
+                        DigitalStorage.id("elite"), 256,
                         List.of(UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 32)), 0)),
                 new OrderedTier(30, new DigitalStorageTier(
-                        DigitalStorageMod.id("ultimate"), 512,
+                        DigitalStorage.id("ultimate"), 512,
                         List.of(UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 64)), 0)),
                 new OrderedTier(40, new DigitalStorageTier(
-                        DigitalStorageMod.id("maximum"), 1024,
+                        DigitalStorage.id("maximum"), 1024,
                         List.of(UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 128)), 0))
         );
         return buildSnapshot(new ArrayList<>(defaults));

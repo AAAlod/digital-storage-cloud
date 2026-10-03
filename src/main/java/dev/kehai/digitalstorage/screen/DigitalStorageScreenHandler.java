@@ -1,5 +1,6 @@
 package dev.kehai.digitalstorage.screen;
 
+import dev.kehai.digitalstorage.DigitalStorage;
 import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
@@ -25,9 +26,9 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 
 public final class DigitalStorageScreenHandler extends net.minecraft.screen.ScreenHandler {
-    public static final Identifier STATE_PACKET_ID = DigitalStorageMod.id("screen_state");
-    public static final Identifier CREATE_VOLUME_PACKET_ID = DigitalStorageMod.id("create_volume");
-    public static final Identifier MANAGE_VOLUME_PACKET_ID = DigitalStorageMod.id("manage_volume");
+    public static final Identifier STATE_PACKET_ID = DigitalStorage.id("screen_state");
+    public static final Identifier CREATE_VOLUME_PACKET_ID = DigitalStorage.id("create_volume");
+    public static final Identifier MANAGE_VOLUME_PACKET_ID = DigitalStorage.id("manage_volume");
     public static final int RENAME_VOLUME_ACTION = 0;
     public static final int DELETE_VOLUME_ACTION = 1;
     private static final int NETWORK_ANALYSIS_COOLDOWN_TICKS = 40;
