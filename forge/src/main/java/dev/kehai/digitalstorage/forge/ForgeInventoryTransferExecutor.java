@@ -18,20 +18,35 @@ public final class ForgeInventoryTransferExecutor implements InventoryTransferEx
     private final UUID owner;
     private final UUID volume;
     private final ForgeTransferRecovery recovery;
+    private final java.util.function.Consumer<Incident> incidentSink;
+    private final java.util.function.BooleanSupplier sessionAvailable;
     private final List<Incident> incidents = new ArrayList<>();
     private boolean halted;
 
     public ForgeInventoryTransferExecutor(UUID owner, UUID volume, ForgeTransferRecovery recovery) {
+        this(owner, volume, recovery, incident -> { });
+    }
+    public ForgeInventoryTransferExecutor(UUID owner, UUID volume, ForgeTransferRecovery recovery,
+                                         java.util.function.Consumer<Incident> incidentSink) {
+        this(owner, volume, recovery, incidentSink, () -> true);
+    }
+    public ForgeInventoryTransferExecutor(UUID owner, UUID volume, ForgeTransferRecovery recovery,
+                                         java.util.function.Consumer<Incident> incidentSink,
+                                         java.util.function.BooleanSupplier sessionAvailable) {
         this.owner = java.util.Objects.requireNonNull(owner);
         this.volume = java.util.Objects.requireNonNull(volume);
         this.recovery = java.util.Objects.requireNonNull(recovery);
+        this.incidentSink = java.util.Objects.requireNonNull(incidentSink);
+        this.sessionAvailable = java.util.Objects.requireNonNull(sessionAvailable);
     }
 
     public List<Incident> incidents() { return List.copyOf(incidents); }
     public boolean halted() { return halted; }
 
     @Override public MoveResult move(InventoryEndpoint.View source, VolumeLedger target, ItemKey resource, long maximum) {
-        if (halted || !recovery.available()) return new MoveResult(0, 0, "transfer recovery requires attention");
+        if (halted || !recovery.available() || !sessionAvailable.getAsBoolean()) {
+            return new MoveResult(0, 0, "transfer recovery requires attention");
+        }
         if (!(source instanceof ForgeInventoryEndpoint.View view)
                 || target.volumeId().filter(volume::equals).isEmpty()) {
             throw new IllegalArgumentException("Forge transfer needs its own source view and target volume");
@@ -128,8 +143,11 @@ public final class ForgeInventoryTransferExecutor implements InventoryTransferEx
         halted = true;
         // Observations are not held items. In particular, a throwing handler may
         // have sent items elsewhere; no stack is fabricated from a source delta.
-        incidents.add(new Incident(owner, volume, source.handler().getClass().getName(), source.slot(),
-                settled, System.currentTimeMillis(), reason));
+        var incident = new Incident(owner, volume, source.handler().getClass().getName(), source.slot(),
+                settled, System.currentTimeMillis(), reason);
+        incidents.add(incident);
+        try { incidentSink.accept(incident); }
+        catch (RuntimeException failure) { reason += "; incident retained unsaved"; }
         return new MoveResult(settled, operations, reason);
     }
 

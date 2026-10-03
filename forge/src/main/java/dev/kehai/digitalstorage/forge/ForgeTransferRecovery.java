@@ -2,15 +2,9 @@ package dev.kehai.digitalstorage.forge;
 
 import dev.kehai.digitalstorage.storage.ItemKey;
 import dev.kehai.digitalstorage.storage.ItemKeyCodec;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,8 +34,12 @@ public final class ForgeTransferRecovery {
         try {
             Files.createDirectories(this.directory);
             try (var files = Files.list(this.directory)) {
-                for (var file : files.filter(path -> path.getFileName().toString().endsWith(".dat")).sorted().toList()) {
+                for (var file : files.filter(path -> path.getFileName().toString().endsWith(".dat")
+                        || path.getFileName().toString().endsWith(".tmp")).sorted().toList()) {
                     try {
+                        if (file.getFileName().toString().endsWith(".tmp")) {
+                            throw new IllegalArgumentException("Interrupted recovery write requires reconciliation");
+                        }
                         var entry = read(NbtIo.readCompressed(file.toFile()));
                         if (!file.equals(path(entry.id())) || entries.putIfAbsent(entry.id(), entry) != null) {
                             throw new IllegalArgumentException("Recovery filename or identity mismatch");
@@ -62,6 +60,7 @@ public final class ForgeTransferRecovery {
     public int unreadableFiles() { return unreadable.size(); }
     public int unsavedCount() { return unsaved.size() + uncaptured.size(); }
     public int uncapturedCount() { return uncaptured.size(); }
+    public int inFlightCount() { return (int) entries.values().stream().filter(entry -> entry.state() == State.DELIVERING).count(); }
     public List<Entry> entries(UUID owner) {
         return entries.values().stream().filter(entry -> entry.owner().equals(owner)
                 && entry.state() != State.DELIVERED).toList();
@@ -172,24 +171,7 @@ public final class ForgeTransferRecovery {
 
     private Path path(UUID id) { return directory.resolve(id + ".dat"); }
     private void write(Entry entry) {
-        Path temporary = directory.resolve(entry.id() + ".tmp");
-        try {
-            var bytes = new ByteArrayOutputStream();
-            NbtIo.writeCompressed(encode(entry), bytes);
-            try (var channel = FileChannel.open(temporary, StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
-                var data = ByteBuffer.wrap(bytes.toByteArray());
-                while (data.hasRemaining()) channel.write(data);
-                channel.force(true);
-            }
-            try {
-                Files.move(temporary, path(entry.id()), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException unsupported) {
-                Files.move(temporary, path(entry.id()), StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException failure) {
-            throw new IllegalStateException("Could not persist Forge transfer recovery ownership", failure);
-        }
+        ForgeTransferFiles.write(path(entry.id()), encode(entry));
     }
 
     static CompoundTag encode(Entry entry) {

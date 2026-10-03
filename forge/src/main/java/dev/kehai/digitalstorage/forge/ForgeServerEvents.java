@@ -24,12 +24,19 @@ import net.minecraftforge.network.NetworkHooks;
 public final class ForgeServerEvents {
     private ForgeServerEvents() { }
 
-    @SubscribeEvent public static void starting(ServerStartingEvent event) { DigitalStorageState.onServerStarting(event.getServer()); }
+    @SubscribeEvent public static void starting(ServerStartingEvent event) {
+        DigitalStorageState.onServerStarting(event.getServer());
+        ForgeTransferSessions.starting(event.getServer());
+    }
     @SubscribeEvent public static void tick(TickEvent.ServerTickEvent event) {
         if (event.phase == TickEvent.Phase.END) DigitalStorageState.onServerTick(event.getServer());
     }
-    @SubscribeEvent public static void stopping(ServerStoppingEvent event) { DigitalStorageState.onServerStopping(event.getServer()); }
+    @SubscribeEvent public static void stopping(ServerStoppingEvent event) {
+        ForgeTransferSessions.stopping(event.getServer());
+        DigitalStorageState.onServerStopping(event.getServer());
+    }
     @SubscribeEvent public static void stopped(ServerStoppedEvent event) {
+        ForgeTransferSessions.stopped(event.getServer());
         DigitalStorageState.onServerStopped(event.getServer());
         DigitalStorageMountTracker.clear();
     }
@@ -62,10 +69,15 @@ public final class ForgeServerEvents {
                 }))
                 .then(Commands.literal("diagnostics").executes(context -> {
                     context.getSource().sendSuccess(() -> Component.literal("Forge bootstrap/capability ACTIVE; Tom dedup/analysis ACTIVE; scanner telemetry/migration pending"), false);
+                    context.getSource().sendSuccess(() -> Component.literal(ForgeTransferSessions.get(context.getSource().getServer()).diagnostics()), false);
                     return 1;
                 }))
                 .then(Commands.literal("flush").executes(context -> {
                     DigitalStorageState.get(context.getSource().getServer().overworld()).flushNow();
+                    if (!ForgeTransferSessions.get(context.getSource().getServer()).flush()) {
+                        context.getSource().sendFailure(Component.literal("Forge transfer records could not be flushed; ownership retained in memory"));
+                        return 0;
+                    }
                     context.getSource().sendSuccess(() -> Component.literal("Digital Storage files flushed successfully"), false);
                     return 1;
                 })));

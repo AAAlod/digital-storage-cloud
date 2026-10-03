@@ -137,7 +137,11 @@ public final class ForgeTransferSelfTest {
         try { root = Files.createTempDirectory("digitalstorage-forge-transfer-"); }
         catch (IOException failure) { throw new IllegalStateException(failure); }
         try {
-            var fixture = fixture(root, "capability", 32, () -> { });
+            var session = ForgeTransferSessions.openForTest(root.resolve("capability"));
+            UUID owner = UUID.randomUUID();
+            UUID volume = UUID.randomUUID();
+            var fixture = new Fixture(owner, new VolumeLedger(volume, () -> { }, 32),
+                    session.recovery(), session.executor(owner, volume));
             ItemStack actual = stack.copy();
             // Forge copies may keep lazy capability NBT. Initialize this real
             // provider so the injected serializer failure actually executes.
@@ -155,13 +159,13 @@ public final class ForgeTransferSelfTest {
             handler.setStackInSlot(0, stack.copy());
             var result = fixture.executor.move(new ForgeInventoryEndpoint.View(handler, 0), fixture.target, expected, stack.getCount());
             expect(result.moved() == 0 && !result.stopDetail().isEmpty() && fixture.target.variantCount() == 0
-                    && fixture.recovery.uncapturedCount() == 1 && !fixture.recovery.available()
+                    && fixture.recovery.uncapturedCount() == 1 && !fixture.recovery.available() && session.hasUnflushed()
                     && handler.getStackInSlot(0).isEmpty(), "Actual returned capability failure lost raw ownership: result="
                     + result + ", target=" + fixture.target.variantCount() + ", pending=" + fixture.recovery.pendingCount()
                     + ", uncaptured=" + fixture.recovery.uncapturedCount() + ", source=" + handler.getStackInSlot(0).getCount());
             failOff.run();
-            fixture.recovery.flushUnsaved();
-            var reopened = new ForgeTransferRecovery(root.resolve("capability"));
+            expect(session.flush() && !session.hasUnflushed(), "Session flush did not settle retained capability ownership");
+            var reopened = new ForgeTransferRecovery(root.resolve("capability/recovery"));
             expect(reopened.available() && reopened.entries(fixture.owner).get(0).key().equals(expected)
                     && reopened.entries(fixture.owner).get(0).amount() == stack.getCount(),
                     "Actual transfer capability ownership did not recover after serializer repair");
