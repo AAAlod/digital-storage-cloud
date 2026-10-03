@@ -71,11 +71,14 @@ public final class ItemKey {
     public interface StackDataAdapter {
         CompoundTag capture(ItemStack stack);
         ItemStack create(ItemKey key, int count);
+        default int maximumStackSize(ItemKey key) { return key.item.getMaxStackSize(); }
     }
 
     public Item item() {
         return item;
     }
+
+    public int maximumStackSize() { return stackDataAdapter.maximumStackSize(this); }
 
     public boolean isBlank() {
         return item == Items.AIR;

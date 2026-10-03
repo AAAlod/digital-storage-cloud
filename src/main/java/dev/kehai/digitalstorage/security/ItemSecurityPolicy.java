@@ -94,7 +94,7 @@ public final class ItemSecurityPolicy {
             Snapshot current,
             boolean volumeAcceptsUnstackables
     ) {
-        return variant.item().getMaxStackSize() > 1
+        return variant.maximumStackSize() > 1
                 || (current.allowUnstackables() && volumeAcceptsUnstackables);
     }
 

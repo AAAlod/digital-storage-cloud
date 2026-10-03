@@ -17,6 +17,7 @@ public final class ForgeSharedSelfTest {
         dev.kehai.digitalstorage.hopper.HopperPolicy.runSelfTest();
         dev.kehai.digitalstorage.config.DigitalStorageConfig.runSelfTest();
         dev.kehai.digitalstorage.security.ItemSecurityPolicy.runSelfTest();
+        ForgeStackPolicySelfTest.run();
         dev.kehai.digitalstorage.security.DigitalStorageMountTracker.runSelfTest();
         dev.kehai.digitalstorage.upgrade.DigitalStorageUpgradeService.runSelfTest();
         dev.kehai.digitalstorage.screen.DigitalStorageScreenState.runCodecSelfTest();
