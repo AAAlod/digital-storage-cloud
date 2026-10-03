@@ -15,6 +15,7 @@ java {
 }
 minecraft {
     mappings channel: 'official', version: product.minecraft_version
+    accessTransformer = file('src/main/resources/META-INF/accesstransformer.cfg')
     runs {
         server {
             workingDirectory project.hasProperty('dscRunDir') ? file(project.property('dscRunDir')) : file('run')
@@ -47,11 +48,6 @@ sourceSets.main.java {
 sourceSets.main.resources {
     srcDir '../src/main/resources'
     exclude 'fabric.mod.json', 'digitalstorage.mixins.json', '**/*.md'
-    // Advanced Tom hopper registration is a later integration stage.
-    exclude 'data/digitalstorage/recipes/advanced_inventory_hopper.json'
-    exclude 'data/digitalstorage/loot_tables/blocks/advanced_inventory_hopper.json'
-    exclude 'data/minecraft/tags/blocks/mineable/pickaxe.json'
-    exclude 'data/minecraft/tags/blocks/needs_iron_tool.json'
 }
 tasks.named('processResources') {
     inputs.property 'version', project.version
@@ -115,6 +111,11 @@ tasks.register('verifyForgeArtifact') {
             }
             ['pack.mcmeta', 'data/digitalstorage/digital_storage_tiers/default.json',
              'data/digitalstorage/recipes/digital_storage_accessor.json',
+             'data/digitalstorage/recipes/advanced_inventory_hopper.json',
+             'data/digitalstorage/loot_tables/blocks/advanced_inventory_hopper.json',
+             'data/minecraft/tags/blocks/mineable/pickaxe.json',
+             'data/minecraft/tags/blocks/needs_iron_tool.json',
+             'META-INF/accesstransformer.cfg',
              'digitalstorage.forge.mixins.json',
              'assets/digitalstorage/lang/zh_cn.json'].each { required ->
                 if (archive.getEntry(required) == null) throw new GradleException("Missing Forge resource: ${required}")

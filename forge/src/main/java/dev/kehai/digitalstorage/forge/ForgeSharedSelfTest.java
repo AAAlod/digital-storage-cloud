@@ -17,6 +17,7 @@ public final class ForgeSharedSelfTest {
         ForgeMigrationSelfTest.run(server);
         ForgeMigrationWorldSelfTest.run(server);
         dev.kehai.digitalstorage.forge.tom.ForgeScannerTelemetrySelfTest.run(server);
+        ForgeAdvancedHopperSelfTest.run(server);
         ForgeLedgerSelfTest.run();
         ForgeAccessorSelfTest.run(server);
         dev.kehai.digitalstorage.storage.VolumeLedgerSelfTest.run();

@@ -21,6 +21,7 @@ import net.minecraft.world.level.material.MapColor;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.extensions.IForgeMenuType;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.fml.loading.FMLPaths;
 import net.minecraftforge.registries.DeferredRegister;
@@ -38,6 +39,10 @@ public final class ForgeDigitalStorage {
                     .strength(3.5F, 6.0F).requiresCorrectToolForDrops()));
     public static final RegistryObject<Item> ACCESSOR_ITEM = ITEMS.register("digital_storage_accessor", () ->
             new BlockItem(ACCESSOR.get(), new Item.Properties()));
+    public static final RegistryObject<Block> ADVANCED_HOPPER = BLOCKS.register("advanced_inventory_hopper",
+            ForgeAdvancedInventoryHopperBlock::new);
+    public static final RegistryObject<Item> ADVANCED_HOPPER_ITEM = ITEMS.register("advanced_inventory_hopper", () ->
+            new BlockItem(ADVANCED_HOPPER.get(), new Item.Properties()));
     public static final RegistryObject<BlockEntityType<DigitalStorageAccessorBlockEntity>> ACCESSOR_TYPE =
             ENTITIES.register("digital_storage_accessor", () -> BlockEntityType.Builder
                     .<DigitalStorageAccessorBlockEntity>of(ForgeAccessorBlockEntity::new, ACCESSOR.get()).build(null));
@@ -46,7 +51,10 @@ public final class ForgeDigitalStorage {
     private static final RegistryObject<CreativeModeTab> TAB = TABS.register("digital_storage_cloud", () ->
             CreativeModeTab.builder().title(Component.translatable("itemGroup.digitalstorage.digital_storage_cloud"))
                     .icon(() -> new ItemStack(ACCESSOR_ITEM.get()))
-                    .displayItems((parameters, output) -> output.accept(ACCESSOR_ITEM.get())).build());
+                    .displayItems((parameters, output) -> {
+                        output.accept(ACCESSOR_ITEM.get());
+                        output.accept(ADVANCED_HOPPER_ITEM.get());
+                    }).build());
 
     public ForgeDigitalStorage() {
         var bus = FMLJavaModLoadingContext.get().getModEventBus();
@@ -55,6 +63,7 @@ public final class ForgeDigitalStorage {
         ENTITIES.register(bus);
         MENUS.register(bus);
         TABS.register(bus);
+        bus.addListener(ForgeDigitalStorage::commonSetup);
         DigitalStorageContent.install(ACCESSOR_TYPE, MENU, ACCESSOR_ITEM, ForgeAccessorBlockEntity::new);
         dev.kehai.digitalstorage.storage.ItemKey.installStackDataAdapter(new ForgeItemKeys());
         DigitalStorageConfig.load(FMLPaths.CONFIGDIR.get());
@@ -64,5 +73,14 @@ public final class ForgeDigitalStorage {
         MinecraftForge.EVENT_BUS.register(ForgeServerEvents.class);
         MinecraftForge.EVENT_BUS.register(ForgeItemKeySelfTest.class);
         DigitalStorage.LOGGER.info("Forge platform bootstrap initialized; Tom capability integration is under development");
+    }
+
+    private static void commonSetup(FMLCommonSetupEvent event) {
+        event.enqueueWork(() -> {
+            var type = com.tom.storagemod.Content.invHopperBasicTile.get();
+            var blocks = new java.util.HashSet<>(type.validBlocks);
+            blocks.add(ADVANCED_HOPPER.get());
+            type.validBlocks = java.util.Set.copyOf(blocks);
+        });
     }
 }
