@@ -18,6 +18,7 @@ public final class ForgeSharedSelfTest {
         dev.kehai.digitalstorage.config.DigitalStorageConfig.runSelfTest();
         dev.kehai.digitalstorage.security.ItemSecurityPolicy.runSelfTest();
         ForgeStackPolicySelfTest.run();
+        dev.kehai.digitalstorage.forge.tom.ForgeTomSelfTest.run();
         dev.kehai.digitalstorage.security.DigitalStorageMountTracker.runSelfTest();
         dev.kehai.digitalstorage.upgrade.DigitalStorageUpgradeService.runSelfTest();
         dev.kehai.digitalstorage.screen.DigitalStorageScreenState.runCodecSelfTest();
@@ -28,6 +29,6 @@ public final class ForgeSharedSelfTest {
         if (!(entity instanceof ForgeAccessorBlockEntity) || entity.getType() != ForgeDigitalStorage.ACCESSOR_TYPE.get()) {
             throw new IllegalStateException("Forge accessor registration created an incorrect entity");
         }
-        DigitalStorage.LOGGER.info("Forge shared self-test passed: keys/ForgeCaps, stable IItemHandler slots/simulation/remainders/leases, ledger/nested transactions, analysis, migration scheduling, policy, configuration, mounts, upgrades, screen codec and registration; Tom topology/transfer integration not covered");
+        DigitalStorage.LOGGER.info("Forge shared self-test passed: keys/ForgeCaps, stable IItemHandler slots/simulation/remainders/leases, ledger/nested transactions, analysis, migration scheduling, policy, configuration, mounts, upgrades, screen codec, registration and actual Tom aggregate dedup/filter/keep-last; world topology/transfer integration not covered");
     }
 }

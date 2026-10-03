@@ -27,10 +27,11 @@ minecraft {
         }
     }
 }
-repositories { mavenCentral() }
+repositories { mavenCentral(); flatDir { dirs 'libs' } }
 configurations { shade; implementation.extendsFrom shade }
 dependencies {
     minecraft "net.minecraftforge:forge:${product.minecraft_version}-47.4.10"
+    implementation fg.deobf('local.tom:toms_storage:1.20-1.7.1')
     shade "com.electronwill.night-config:core:${product.night_config_version}"
     shade "com.electronwill.night-config:toml:${product.night_config_version}"
     compileOnly 'org.jetbrains:annotations:23.0.0'
@@ -85,7 +86,9 @@ tasks.register('verifySharedSources') {
 }
 tasks.named('check') { dependsOn tasks.named('verifySharedSources') }
 tasks.named('jar') { archiveClassifier = 'dev' }
+tasks.named('jar') { manifest.attributes('MixinConfigs': 'digitalstorage.forge.mixins.json') }
 tasks.named('shadowJar') {
+    manifest.attributes('MixinConfigs': 'digitalstorage.forge.mixins.json')
     archiveClassifier = ''
     configurations = [project.configurations.shade]
     relocate 'com.electronwill.nightconfig', 'dev.kehai.digitalstorage.internal.nightconfig'
@@ -112,8 +115,13 @@ tasks.register('verifyForgeArtifact') {
             }
             ['pack.mcmeta', 'data/digitalstorage/digital_storage_tiers/default.json',
              'data/digitalstorage/recipes/digital_storage_accessor.json',
+             'digitalstorage.forge.mixins.json',
              'assets/digitalstorage/lang/zh_cn.json'].each { required ->
                 if (archive.getEntry(required) == null) throw new GradleException("Missing Forge resource: ${required}")
+            }
+            def manifest = new java.util.jar.Manifest(archive.getInputStream(archive.getEntry('META-INF/MANIFEST.MF')))
+            if (manifest.mainAttributes.getValue('MixinConfigs') != 'digitalstorage.forge.mixins.json') {
+                throw new GradleException('Forge Tom Mixin configuration missing from manifest')
             }
             logger.lifecycle("Forge artifact passed: ${entries.size()} entries, no forbidden dependency payload")
         } finally { archive.close() }
