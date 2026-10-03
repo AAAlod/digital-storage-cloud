@@ -1,0 +1,13 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+[[mods]]
+modId="dsc_restart_fixture"
+version="1"
+displayName="DSC private restart audit"
+[[dependencies.dsc_restart_fixture]]
+modId="digitalstorage"
+mandatory=true
+versionRange="[1.2.0,)"
+ordering="AFTER"
+side="SERVER"

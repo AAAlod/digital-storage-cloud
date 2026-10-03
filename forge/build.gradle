@@ -120,6 +120,21 @@ tasks.named('shadowJar') {
     relocate 'com.electronwill.nightconfig', 'dev.kehai.digitalstorage.internal.nightconfig'
 }
 reobf { shadowJar {} }
+
+// Explicit audit fixture only; never included in the player binary or sources JAR.
+sourceSets {
+    restartFixture {
+        compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
+        runtimeClasspath += compileClasspath
+    }
+}
+tasks.register('restartFixtureJar', Jar) {
+    from sourceSets.restartFixture.output
+    archiveBaseName = 'dsc-restart-fixture'
+    archiveVersion = '1'
+    manifest.attributes('MixinConfigs': 'dsc.restart.mixins.json')
+}
+reobf { restartFixtureJar {} }
 tasks.named('build') { dependsOn 'reobfShadowJar' }
 tasks.register('verifyForgeArtifact') {
     dependsOn 'reobfShadowJar'
@@ -128,7 +143,8 @@ tasks.register('verifyForgeArtifact') {
         try {
             def entries = archive.entries().toList()
             def forbidden = entries.findAll {
-                it.name == 'fabric.mod.json' || it.name.endsWith('.md') ||
+                it.name == 'fabric.mod.json' || it.name == 'dsc.restart.mixins.json' || it.name.endsWith('.md') ||
+                        it.name.startsWith('dev/kehai/digitalstorage/audit/') ||
                         it.name.startsWith('com/tom/') || it.name.startsWith('me/shedaniel/') ||
                         it.name.startsWith('net/fabricmc/') || it.name.startsWith('META-INF/jars/') ||
                         it.name.startsWith('dev/kehai/digitalstorage/platform/fabric/')
