@@ -47,6 +47,7 @@ public final class ForgeItemKeySelfTest {
                     "Forge capability NBT did not survive key/codec/stack round-trip");
             energy.extractEnergy(10, false);
             ForgeLedgerSelfTest.capabilityRoundTrip(stack);
+            ForgeRecoverySelfTest.capabilityRoundTrip(stack);
             expect(!key.equals(ItemKey.of(stack)) && key.equals(ItemKey.of(key.toStack(1))),
                     "Mutable capability data changed an existing key or stack count entered identity");
             restored.getCapability(ForgeCapabilities.ENERGY).orElseThrow(() ->
