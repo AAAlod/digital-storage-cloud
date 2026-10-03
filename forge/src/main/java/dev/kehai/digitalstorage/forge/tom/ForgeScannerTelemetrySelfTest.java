@@ -19,6 +19,8 @@ public final class ForgeScannerTelemetrySelfTest {
         var target = accessor.getRecord().storage();
         var key = dev.kehai.digitalstorage.storage.ItemKey.of(Items.STONE);
         long before = target.amountOf(key);
+        var config = dev.kehai.digitalstorage.config.DigitalStorageConfig.get();
+        long expected = config.optimizeTomsHopper ? Math.min(before, Math.min(64, config.normalHopperBatchSize)) : 1;
         var destination = new ItemStackHandler(1);
         var hopper = new Hopper(server, network, destination, true);
         var telemetry = ForgeScannerTelemetry.get(server);
@@ -26,12 +28,12 @@ public final class ForgeScannerTelemetrySelfTest {
             hopper.attempt();
             var report = dev.kehai.digitalstorage.optimization.NetworkServices.get().analyze(accessor);
             expect(report.activeScanners() == 1 && report.failingScanners() == 0
-                    && target.amountOf(key) == before - 1 && destination.getStackInSlot(0).getCount() == 1,
+                    && target.amountOf(key) == before - expected && destination.getStackInSlot(0).getCount() == expected,
                     "Production backend did not expose actual successful network scanner data");
             destination.setStackInSlot(0, new ItemStack(Items.STONE, 64));
-            for (int tick = 0; tick < 35; tick++) hopper.attempt();
+            for (int tick = 0; tick < failureTicks(); tick++) hopper.attempt();
             report = dev.kehai.digitalstorage.optimization.NetworkServices.get().analyze(accessor);
-            expect(report.activeScanners() == 1 && report.failingScanners() == 1 && target.amountOf(key) == before - 1,
+            expect(report.activeScanners() == 1 && report.failingScanners() == 1 && target.amountOf(key) == before - expected,
                     "Production backend did not expose failure scans without additional target extraction");
         } finally { hopper.setRemoved(); telemetry.forget(target); }
     }
@@ -51,7 +53,7 @@ public final class ForgeScannerTelemetrySelfTest {
                     && live.snapshot(target, server.getTickCount()).active() == 1
                     && live.snapshot(target, server.getTickCount()).failing() == 0,
                     "Actual Tom successful update was not observed or transfer was changed");
-            for (int tick = 0; tick < 35; tick++) hopper.attempt();
+            for (int tick = 0; tick < failureTicks(); tick++) hopper.attempt();
             expect(live.snapshot(target, server.getTickCount()).failing() == 1 && destination.getStackInSlot(0).getCount() == 1,
                     "Actual empty-source attempts did not accumulate failures without transferring more items");
             var disabled = new Hopper(server, network, destination, false);
@@ -88,6 +90,11 @@ public final class ForgeScannerTelemetrySelfTest {
         var report = ForgeTomTopology.analyze(record, () -> network, new ForgeScannerTelemetry.Snapshot(4, 2, 11));
         expect(report.activeScanners() == 4 && report.failingScanners() == 2 && report.averageScanIntervalTicks() == 11,
                 "Shared network report discarded scanner metrics");
+    }
+    private static int failureTicks() {
+        var config = dev.kehai.digitalstorage.config.DigitalStorageConfig.get();
+        return config.optimizeTomsHopper
+                ? config.hopperSuccessCooldown + config.failureCooldown(1) + config.failureCooldown(2) + 3 : 35;
     }
     /** Executes the real mixed-in Tom update with isolated in-memory handlers, without placing blocks in the user world. */
     private static final class Hopper extends com.tom.storagemod.tile.BasicInventoryHopperBlockEntity {

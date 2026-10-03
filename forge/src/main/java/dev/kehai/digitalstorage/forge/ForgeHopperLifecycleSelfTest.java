@@ -37,6 +37,7 @@ public final class ForgeHopperLifecycleSelfTest {
             var chunk = world.getChunkAt(pos);
             expect(world.getBlockState(pos).isAir() && chunk.getBlockEntities().isEmpty(), "Untouched private chunk");
             for (var block : new net.minecraft.world.level.block.Block[]{Content.invHopperBasic.get(), ForgeDigitalStorage.ADVANCED_HOPPER.get()}) {
+                batchFailure(server, pos, block, fixtureRoot.resolve(UUID.randomUUID().toString()));
                 Path records = fixtureRoot.resolve(UUID.randomUUID().toString());
                 Files.writeString(records, "unavailable custody at startup");
                 var custody = new ForgeHopperCustody(records);
@@ -106,6 +107,58 @@ public final class ForgeHopperLifecycleSelfTest {
     }
     private static ForgeHopperTransfer transfer(BasicInventoryHopperBlockEntity entity) {
         return ((ForgeHopperState) entity).digitalstorage$transferState();
+    }
+    private static void batchFailure(MinecraftServer server, BlockPos pos,
+            net.minecraft.world.level.block.Block block, Path records) {
+        var config = dev.kehai.digitalstorage.config.DigitalStorageConfig.get();
+        boolean enabled = config.optimizeTomsHopper;
+        int normal = config.normalHopperBatchSize, advanced = config.advancedHopperBatchSize;
+        config.optimizeTomsHopper = true;
+        config.normalHopperBatchSize = 16; config.advancedHopperBatchSize = 64;
+        var custody = new ForgeHopperCustody(records);
+        try {
+            ForgeHopperLifecycle.withStoreForTest(custody, () -> {
+                var world = server.overworld();
+                var chunk = world.getChunkAt(pos);
+                world.setBlockAndUpdate(pos, block.defaultBlockState());
+                try {
+                    var hopper = new BatchHopper(pos, block.defaultBlockState());
+                    chunk.setBlockEntity(hopper);
+                    hopper.attempt();
+                    var engine = transfer(hopper);
+                    int expected = block instanceof ForgeAdvancedInventoryHopperBlock ? 64 : 16;
+                    var saved = hopper.saveWithFullMetadata();
+                    UUID id = saved.getUUID(ForgeHopperState.CUSTODY_ID_KEY);
+                    expect(engine.blocked() && engine.uncertain() && engine.heldCount() == expected
+                            && custody.pendingCount() == 1 && custody.retainsIdentity(id, engine)
+                            && custody.unsavedCount() == 0, "Actual placed batch failure checkpoints original owner immediately");
+                    chunk.removeBlockEntity(pos);
+                    var restored = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(pos, block.defaultBlockState(), saved);
+                    chunk.setBlockEntity(restored);
+                    expect(transfer(restored) == engine && custody.pendingCount() == 1,
+                            "Actual batch failure survives remove/reload without duplicate owner");
+                } finally { world.setBlockAndUpdate(pos, Blocks.AIR.defaultBlockState()); }
+            });
+        } finally {
+            config.optimizeTomsHopper = enabled;
+            config.normalHopperBatchSize = normal; config.advancedHopperBatchSize = advanced;
+        }
+    }
+    private static final class BatchHopper extends BasicInventoryHopperBlockEntity {
+        BatchHopper(BlockPos position, net.minecraft.world.level.block.state.BlockState state) {
+            super(position, state);
+            var source = new ItemStackHandler(1);
+            source.setStackInSlot(0, new ItemStack(Items.STONE, 64));
+            var destination = new ItemStackHandler(1) {
+                @Override public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
+                    if (simulate) return ItemStack.EMPTY;
+                    throw new IllegalStateException("Injected placed hopper insertion failure");
+                }
+            };
+            top = net.minecraftforge.common.util.LazyOptional.of(() -> source);
+            bottom = net.minecraftforge.common.util.LazyOptional.of(() -> destination);
+        }
+        void attempt() { super.update(); }
     }
     private static void expect(boolean condition, String detail) {
         if (!condition) throw new IllegalStateException("Hopper lifecycle: " + detail);

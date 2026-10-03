@@ -17,6 +17,7 @@ import net.minecraftforge.items.ItemStackHandler;
 public final class ForgeHopperDeviceSelfTest {
     private ForgeHopperDeviceSelfTest() { }
     public static void run(MinecraftServer server) {
+        batchUpdates(server);
         for (var block : new net.minecraft.world.level.block.Block[]{Content.invHopperBasic.get(), ForgeDigitalStorage.ADVANCED_HOPPER.get()}) {
             var state = block.defaultBlockState();
             var hopper = new BasicInventoryHopperBlockEntity(BlockPos.ZERO, state);
@@ -92,6 +93,92 @@ public final class ForgeHopperDeviceSelfTest {
         DigitalStorage.LOGGER.info("Forge hopper device state self-test passed: actual normal/advanced Tom entities, legacy filters, known remainder, reload ownership guard, future/wrong typed tags and original update block; chunk hooks covered by separate world fixture");
     }
 
+    private static void batchUpdates(MinecraftServer server) {
+        var config = dev.kehai.digitalstorage.config.DigitalStorageConfig.get();
+        boolean enabled = config.optimizeTomsHopper;
+        int normal = config.normalHopperBatchSize, advanced = config.advancedHopperBatchSize;
+        int success = config.hopperSuccessCooldown;
+        try {
+            config.optimizeTomsHopper = true;
+            config.normalHopperBatchSize = 16; config.advancedHopperBatchSize = 64;
+            config.hopperSuccessCooldown = 20;
+            for (boolean upgraded : new boolean[]{false, true}) {
+                var source = new ItemStackHandler(2);
+                source.setStackInSlot(0, new ItemStack(Items.DIRT, 64));
+                source.setStackInSlot(1, new ItemStack(Items.STONE, 64));
+                var target = new ItemStackHandler(2);
+                var block = upgraded ? ForgeDigitalStorage.ADVANCED_HOPPER.get() : Content.invHopperBasic.get();
+                var hopper = new Hopper(server, source, target, block.defaultBlockState(), true);
+                hopper.attempt();
+                expect(target.getStackInSlot(0).isEmpty(), "Network extraction requires a filter");
+                hopper.setFilter(new ItemStack(Items.STONE));
+                hopper.attempt();
+                int batch = upgraded ? 64 : 16;
+                expect(source.getStackInSlot(0).getCount() == 64
+                        && source.getStackInSlot(1).getCount() == 64 - batch
+                        && target.getStackInSlot(0).is(Items.STONE)
+                        && target.getStackInSlot(0).getCount() == batch, "Actual normal/advanced filtered batch");
+                source.setStackInSlot(1, new ItemStack(Items.STONE, 64));
+                for (int tick = 0; tick < 20; tick++) hopper.attempt();
+                expect(source.getStackInSlot(1).getCount() == 64, "Success cooldown prevents early transfer");
+                hopper.attempt();
+                expect(source.getStackInSlot(1).getCount() == 64 - batch, "Success cooldown resumes transfer");
+                hopper.setRemoved();
+            }
+            var source = new ItemStackHandler(1); source.setStackInSlot(0, new ItemStack(Items.STONE, 64));
+            final int[] probes = {0};
+            var reject = new ItemStackHandler(1) {
+                @Override public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
+                    probes[0]++; return stack;
+                }
+            };
+            var hopper = new Hopper(server, source, reject);
+            hopper.attempt(); int initial = probes[0];
+            expect(initial > 0 && source.getStackInSlot(0).getCount() == 64, "Rejection preserves source");
+            for (int tick = 0; tick < config.failureCooldown(1); tick++) hopper.attempt();
+            expect(probes[0] == initial, "Rejected destination backs off");
+            hopper.attempt(); int second = probes[0];
+            for (int tick = 0; tick < config.failureCooldown(2); tick++) hopper.attempt();
+            expect(second > initial && probes[0] == second, "Consecutive rejection increases backoff");
+            hopper.setFilter(new ItemStack(Items.STONE)); hopper.attempt();
+            expect(probes[0] > second, "Filter change wakes blocked scheduling");
+            hopper.setRemoved();
+            var throwing = new ItemStackHandler(1) {
+                @Override public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
+                    if (simulate) return ItemStack.EMPTY;
+                    throw new IllegalStateException("Injected actual hopper destination failure");
+                }
+            };
+            hopper = new Hopper(server, source, throwing); hopper.attempt();
+            var original = transfer(hopper);
+            expect(original.blocked() && original.uncertain() && original.heldCount() == 16
+                    && source.getStackInSlot(0).getCount() == 48, "Actual batch exception retains original returned stack");
+            hopper.setFilter(new ItemStack(Items.STONE)); hopper.attempt();
+            expect(transfer(hopper) == original && original.heldCount() == 16
+                    && source.getStackInSlot(0).getCount() == 48, "Filter wake cannot replay uncertain transfer");
+            var persisted = hopper.saveWithFullMetadata();
+            expect(persisted.getCompound(ForgeHopperState.NBT_KEY).getInt("Amount") == 16,
+                    "Actual batch exception enters persistent device state");
+            hopper.setRemoved();
+            config.optimizeTomsHopper = false;
+            var target = new ItemStackHandler(1);
+            hopper = new Hopper(server, source, target); hopper.attempt();
+            expect(target.getStackInSlot(0).getCount() == 1, "Disabled optimization retains original single-item behavior");
+            hopper.setRemoved();
+            config.optimizeTomsHopper = true;
+            target = new ItemStackHandler(1);
+            hopper = new Hopper(server, source, target, Content.invHopperBasic.get().defaultBlockState()
+                    .setValue(com.tom.storagemod.block.BasicInventoryHopperBlock.ENABLED, false), false);
+            hopper.attempt();
+            expect(target.getStackInSlot(0).isEmpty(), "Redstone disabled hopper does not extract");
+            hopper.setRemoved();
+            DigitalStorage.LOGGER.info("Forge actual hopper batch update self-test passed: normal16/advanced64, filtering, required network filter, cooldown/backoff/wake, redstone and original disabled path");
+        } finally {
+            config.optimizeTomsHopper = enabled; config.normalHopperBatchSize = normal;
+            config.advancedHopperBatchSize = advanced; config.hopperSuccessCooldown = success;
+        }
+    }
+
     private static ForgeHopperTransfer transfer(BasicInventoryHopperBlockEntity entity) {
         return ((ForgeHopperState) entity).digitalstorage$transferState();
     }
@@ -159,11 +246,15 @@ public final class ForgeHopperDeviceSelfTest {
     }
     private static final class Hopper extends BasicInventoryHopperBlockEntity {
         Hopper(MinecraftServer server, ItemStackHandler source, ItemStackHandler destination) {
-            super(BlockPos.ZERO, Content.invHopperBasic.get().defaultBlockState());
+            this(server, source, destination, Content.invHopperBasic.get().defaultBlockState(), false);
+        }
+        Hopper(MinecraftServer server, ItemStackHandler source, ItemStackHandler destination,
+                net.minecraft.world.level.block.state.BlockState state, boolean network) {
+            super(BlockPos.ZERO, state);
             setLevel(server.overworld());
             top = LazyOptional.of(() -> source);
             bottom = LazyOptional.of(() -> destination);
-            topNet = false;
+            topNet = network;
         }
         void attempt() { super.update(); }
     }
