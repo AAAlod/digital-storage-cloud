@@ -3,10 +3,8 @@ package dev.kehai.digitalstorage.screen;
 import com.mojang.authlib.GameProfile;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import dev.kehai.digitalstorage.optimization.TomMigrationManager;
-import dev.kehai.digitalstorage.optimization.TomNetworkAnalysis;
+import dev.kehai.digitalstorage.optimization.MigrationTask;
 import dev.kehai.digitalstorage.optimization.NetworkAnalysis;
-import dev.kehai.digitalstorage.optimization.TopologyToken;
 import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
 import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import dev.kehai.digitalstorage.storage.StorageVolume;
@@ -356,7 +354,7 @@ public record DigitalStorageScreenState(
 
         public static NetworkDiagnostic from(
                 NetworkAnalysis.Report report,
-                TomMigrationManager.Status migration
+                MigrationTask.Status migration
         ) {
             if (!report.available()) {
                 NetworkDiagnostic unavailable = unavailable();

@@ -4,18 +4,20 @@ import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import dev.kehai.digitalstorage.storage.StorageVolume;
-import java.util.Collections;
+import dev.kehai.digitalstorage.storage.ItemKey;
+import dev.kehai.digitalstorage.optimization.MigrationTask.State;
+import dev.kehai.digitalstorage.optimization.MigrationTask.Status;
+import dev.kehai.digitalstorage.optimization.InventoryTransferExecutor.MoveResult;
+import dev.kehai.digitalstorage.platform.fabric.FabricTransferExecutor;
+
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
 import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
-import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.server.MinecraftServer;
@@ -67,8 +69,8 @@ public final class TomMigrationManager {
             return StartResult.NO_NETWORK;
         }
 
-        List<ItemVariant> variants = report.candidates().stream()
-                .map(candidate -> dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.toVariant(candidate.variant()))
+        List<ItemKey> variants = report.candidates().stream()
+                .map(NetworkAnalysis.Candidate::variant)
                 .toList();
         Job job = new Job(
                 volume.id(),
@@ -124,7 +126,7 @@ public final class TomMigrationManager {
             if (result != State.RUNNING) {
                 iterator.remove();
             }
-            STATUSES.put(job.volumeId, job.status(server.getTicks(), result, job.stopDetail));
+            STATUSES.put(job.volumeId, job.status(server.getTicks(), result, job.task.stopDetail()));
         }
 
         long now = server.getTicks();
@@ -133,13 +135,14 @@ public final class TomMigrationManager {
     }
 
     public static void runSelfTest() {
+        MigrationTaskSelfTest.run();
         ItemVariant stone = ItemVariant.of(net.minecraft.item.Items.STONE);
         FabricDigitalItemStorage source = new FabricDigitalItemStorage(() -> { }, 64);
         FabricDigitalItemStorage target = new FabricDigitalItemStorage(() -> { }, 64);
         source.load(stone, 64);
         StorageView<ItemVariant> sourceView = source.iterator().next();
-        MoveResult moved = Job.moveView(sourceView, target, stone, 64);
-        if (moved.moved != 64 || moved.operations != 2
+        MoveResult moved = FabricTransferExecutor.moveView(sourceView, target, stone, 64);
+        if (moved.moved() != 64 || moved.operations() != 2
                 || source.amountOf(stone) != 0 || target.amountOf(stone) != 64) {
             throw new IllegalStateException("Tom migration atomic move self-test failed");
         }
@@ -163,14 +166,14 @@ public final class TomMigrationManager {
             }
         };
         StorageView<ItemVariant> rollbackView = rollbackSource.iterator().next();
-        MoveResult rejected = Job.moveView(rollbackView, rejectingTarget, stone, 32);
-        if (rejected.moved != 0 || rejected.operations != 2 || rollbackSource.amountOf(stone) != 32) {
+        MoveResult rejected = FabricTransferExecutor.moveView(rollbackView, rejectingTarget, stone, 32);
+        if (rejected.moved() != 0 || rejected.operations() != 2 || rollbackSource.amountOf(stone) != 32) {
             throw new IllegalStateException("Tom migration rollback self-test failed");
         }
         FabricDigitalItemStorage partialTarget = new FabricDigitalItemStorage(() -> { }, 64);
         partialTarget.load(stone, FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 10);
-        MoveResult partial = Job.moveView(rollbackView, partialTarget, stone, 32);
-        if (partial.moved != 0 || rollbackSource.amountOf(stone) != 32
+        MoveResult partial = FabricTransferExecutor.moveView(rollbackView, partialTarget, stone, 32);
+        if (partial.moved() != 0 || rollbackSource.amountOf(stone) != 32
                 || partialTarget.amountOf(stone) != FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 10) {
             throw new IllegalStateException("Tom migration partial insertion did not roll back both sides");
         }
@@ -193,7 +196,7 @@ public final class TomMigrationManager {
         var topology = TomNetworkCache.topology(connector, network);
         var record = dev.kehai.digitalstorage.storage.DigitalStorageRecord.createNew(() -> { });
         var job = new Job(UUID.randomUUID(), UUID.randomUUID(), World.OVERWORLD, BlockPos.ORIGIN,
-                List.of(ItemVariant.of(net.minecraft.item.Items.STONE)), 2, topology.token(), topology.physicalEndpoints());
+                List.of(ItemKey.of(net.minecraft.item.Items.STONE)), 2, topology.token(), topology.physicalEndpoints());
         State result = State.RUNNING;
         int ticks = 0;
         try {
@@ -208,20 +211,20 @@ public final class TomMigrationManager {
                     network.add(replacement);
                     TomNetworkCache.rebuilt(connector, network);
                 }
-                long previous = job.scannedViews;
+                long previous = job.task.scannedViews();
                 result = job.tick(record, 128);
-                if (job.scannedViews - previous > 128) {
+                if (job.task.scannedViews() - previous > 128) {
                     throw new IllegalStateException("Migration exceeded its empty-slot scan budget");
                 }
             }
-            if (result != State.COMPLETE || ticks <= 20 || job.scannedViews != slots
-                    || job.movedItems != 96 || !inventory.isEmpty()
+            if (result != State.COMPLETE || ticks <= 20 || job.task.scannedViews() != slots
+                    || job.task.movedItems() != 96 || !inventory.isEmpty()
                     || record.storage().amountOf(dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.item.Items.STONE)) != 96) {
                 throw new IllegalStateException("Bulk migration rebuild regression failed: " + slots + "/" + result);
             }
             dev.kehai.digitalstorage.DigitalStorage.LOGGER.info(
                     "Bulk migration regression passed: views={}, ticks={}, rebuilds={}, moved={}, budget=128, state={}",
-                    slots, ticks, ticks / 20, job.movedItems, result);
+                    slots, ticks, ticks / 20, job.task.movedItems(), result);
             // Same endpoint count but changed side or exposed slot set must invalidate.
             network.clear();
             network.add(net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(inventory, net.minecraft.util.math.Direction.DOWN));
@@ -270,7 +273,7 @@ public final class TomMigrationManager {
             Storage<ItemVariant> target,
             ItemVariant variant
     ) {
-        return Job.moveView(view, target, variant, FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT).moved;
+        return FabricTransferExecutor.moveView(view, target, variant, FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT).moved();
     }
 
     public enum StartResult {
@@ -283,76 +286,21 @@ public final class TomMigrationManager {
         ALREADY_RUNNING
     }
 
-    public enum State {
-        IDLE,
-        RUNNING,
-        COMPLETE,
-        CANCELLED,
-        STOPPED
-    }
-
-    public record Status(
-            State state,
-            String movedItems,
-            int completedCandidates,
-            int totalCandidates,
-            int estimatedFreedViews,
-            long scannedViews,
-            long inventoryOperations,
-            long updatedTick,
-            String detail
-    ) {
-        private static Status idle() {
-            return new Status(State.IDLE, "0", 0, 0, 0, 0, 0, 0, "");
-        }
-
-        public boolean active() {
-            return state == State.RUNNING;
-        }
-    }
-
     private static final class Job {
         private final UUID volumeId;
         private final UUID ownerId;
         private final RegistryKey<World> worldKey;
         private final BlockPos accessorPos;
-        private final List<ItemVariant> candidates;
-        private final Set<ItemVariant> selectedVariants;
-        private final int estimatedFreedViews;
-        private final TopologyToken topology;
-        private final List<? extends InventoryEndpoint.Reference> sources;
-        // Equivalent wrappers can disappear from Tom's handlers during a rebuild.
-        // Keep their canonical transactional views alive until this job finishes.
-        private final List<Storage<ItemVariant>> sourceHandles;
-        private final Set<ItemVariant> migratedVariants = new HashSet<>();
-        private long movedItems;
-        private int sourceIndex;
-        private Iterator<StorageView<ItemVariant>> currentViews = Collections.emptyIterator();
-        private long scannedViews;
-        private long inventoryOperations;
-        private boolean blocked;
-        private String stopDetail = "";
+        private final MigrationTask task;
 
-        private Job(
-                UUID volumeId,
-                UUID ownerId,
-                RegistryKey<World> worldKey,
-                BlockPos accessorPos,
-                List<ItemVariant> candidates,
-                int estimatedFreedViews,
-                TopologyToken topology,
-                List<? extends InventoryEndpoint.Reference> sources
-        ) {
+        private Job(UUID volumeId, UUID ownerId, RegistryKey<World> worldKey, BlockPos accessorPos,
+                    List<ItemKey> candidates, int estimatedFreedViews, TopologyToken topology,
+                    List<? extends InventoryEndpoint.Reference> sources) {
             this.volumeId = volumeId;
             this.ownerId = ownerId;
             this.worldKey = worldKey;
             this.accessorPos = accessorPos;
-            this.candidates = candidates;
-            this.selectedVariants = Set.copyOf(candidates);
-            this.estimatedFreedViews = estimatedFreedViews;
-            this.topology = topology;
-            this.sources = List.copyOf(sources);
-            this.sourceHandles = sources.stream().map(endpoint -> endpoint.resolve()).map(endpoint -> endpoint == null ? null : ((dev.kehai.digitalstorage.platform.fabric.FabricInventoryEndpoint) endpoint).storage()).toList();
+            this.task = new MigrationTask(candidates, estimatedFreedViews, topology, sources, FabricTransferExecutor.INSTANCE);
         }
 
         private State tick(DigitalStorageAccessorBlockEntity accessor, int viewBudget) {
@@ -360,105 +308,11 @@ public final class TomMigrationManager {
         }
 
         private State tick(dev.kehai.digitalstorage.storage.DigitalStorageRecord record, int viewBudget) {
-            FabricDigitalItemStorage target = record == null ? null : FabricDigitalItemStorage.of(record.storage());
-            if (target == null) {
-                stopDetail = "target unavailable";
-                return State.STOPPED;
-            }
-            if (!TopologyToken.isCurrent(topology)) {
-                stopDetail = topology == null ? "network changed" : topology.staleDetail();
-                return State.STOPPED;
-            }
-            int scannedThisTick = 0;
-            while (scannedThisTick < viewBudget) {
-                while (!currentViews.hasNext()) {
-                    if (sourceIndex >= sources.size()) {
-                        if (blocked) {
-                            stopDetail = "target full or inventory changed";
-                        }
-                        return blocked ? State.STOPPED : State.COMPLETE;
-                    }
-                    Storage<ItemVariant> source = sourceHandles.get(sourceIndex++);
-                    if (source == null) {
-                        stopDetail = "inventory unloaded";
-                        return State.STOPPED;
-                    }
-                    currentViews = source.supportsExtraction()
-                            ? source.iterator()
-                            : Collections.emptyIterator();
-                }
-
-                StorageView<ItemVariant> view = currentViews.next();
-                scannedThisTick++;
-                scannedViews++;
-                if (view.isResourceBlank() || view.getAmount() <= 0
-                        || !selectedVariants.contains(view.getResource())) {
-                    continue;
-                }
-                ItemVariant variant = view.getResource();
-                boolean exists = target.amountOf(variant) > 0;
-                if (!record.canInsert(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(variant))
-                        || (!exists && target.variantCount() >= record.variantCapacity())) {
-                    blocked = true;
-                    continue;
-                }
-                long available = FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT - target.amountOf(variant);
-                if (available <= 0) {
-                    blocked = true;
-                    continue;
-                }
-
-                MoveResult move = moveView(view, target, variant, available);
-                inventoryOperations += move.operations;
-                if (move.moved > 0) {
-                    movedItems = Math.addExact(movedItems, move.moved);
-                    migratedVariants.add(variant);
-                } else if (move.operations > 0) {
-                    blocked = true;
-                }
-            }
-            return State.RUNNING;
-        }
-
-        private static MoveResult moveView(
-                StorageView<ItemVariant> view,
-                Storage<ItemVariant> target,
-                ItemVariant variant,
-                long maximum
-        ) {
-            if (view.isResourceBlank() || !variant.equals(view.getResource()) || view.getAmount() <= 0) {
-                return new MoveResult(0, 0);
-            }
-            long requested = Math.min(maximum, view.getAmount());
-            try (Transaction transaction = Transaction.openOuter()) {
-                long extracted = view.extract(variant, requested, transaction);
-                if (extracted <= 0) {
-                    return new MoveResult(0, 1);
-                }
-                long inserted = target.insert(variant, extracted, transaction);
-                if (inserted != extracted) {
-                    return new MoveResult(0, 2);
-                }
-                transaction.commit();
-                return new MoveResult(inserted, 2);
-            }
+            return task.tick(record, viewBudget);
         }
 
         private Status status(long tick, State state, String detail) {
-            return new Status(
-                    state,
-                    Long.toString(movedItems),
-                    state == State.COMPLETE ? candidates.size() : migratedVariants.size(),
-                    candidates.size(),
-                    estimatedFreedViews,
-                    scannedViews,
-                    inventoryOperations,
-                    tick,
-                    detail
-            );
+            return task.status(tick, state, detail);
         }
-    }
-
-    private record MoveResult(long moved, int operations) {
     }
 }

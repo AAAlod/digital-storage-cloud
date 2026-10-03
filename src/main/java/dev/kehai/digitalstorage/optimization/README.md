@@ -1,9 +1,14 @@
 # Tom's Storage integration and migration
 
-`TomNetworkIntrospection` reads the Tom network; `TomNetworkAnalysis` summarizes
-its health and selects migration candidates. `TomMigrationManager` performs
-bounded per-tick work. The integration mixins live in the sibling `mixin/`
-package; Tom's Storage 1.7.1 is the compile and verification baseline.
+`NetworkAnalysis` scores network snapshots and recommends candidates using
+`ItemKey` and `InventoryEndpoint`. `MigrationTask` owns scan budgets, progress
+and topology checks; it delegates settled transfers to `InventoryTransferExecutor`.
+These policies do not import loader inventory or Tom types.
+
+`TomNetworkIntrospection` reads the Fabric Tom network; `TomNetworkAnalysis`
+builds the shared snapshot. `TomMigrationManager` owns player/world lifetime
+and injects `platform/fabric/FabricTransferExecutor`. The integration mixins live
+in the sibling `mixin/` package; Tom's Storage 1.7.1 is the verification baseline.
 
 Network aggregation deduplicates canonical digital storage, while endpoint
 diagnostics still count accessor aliases. Migration excludes digital storage

@@ -4,7 +4,7 @@ import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.optimization.TomMigrationManager;
-import dev.kehai.digitalstorage.optimization.TomNetworkCache;
+import dev.kehai.digitalstorage.optimization.MigrationTask;
 import dev.kehai.digitalstorage.optimization.TomNetworkAnalysis;
 import dev.kehai.digitalstorage.optimization.NetworkAnalysis;
 import dev.kehai.digitalstorage.optimization.TopologyToken;
@@ -165,7 +165,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
                 sendServerState();
                 return true;
             }
-            TomMigrationManager.Status migration = TomMigrationManager.status(volume.id());
+            MigrationTask.Status migration = TomMigrationManager.status(volume.id());
             if (migration.active()) {
                 statusSuccessful = TomMigrationManager.cancel(serverPlayer, volume.id());
                 status = Text.translatable(statusSuccessful
@@ -359,7 +359,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
         if (volume == null) {
             return DigitalStorageScreenState.NetworkDiagnostic.unavailable();
         }
-        TomMigrationManager.Status migration = TomMigrationManager.status(volume.id());
+        MigrationTask.Status migration = TomMigrationManager.status(volume.id());
         boolean migrationActive = migration.active();
         if (networkReport != null && networkReport.available()
                 && !TopologyToken.isCurrent(networkReport.topology())) {
