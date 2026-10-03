@@ -1,202 +1,41 @@
 package dev.kehai.digitalstorage.optimization;
 
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
-import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
+import dev.kehai.digitalstorage.platform.fabric.FabricInventoryEndpoint;
 import java.util.List;
-import java.util.Map;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
 import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
-import net.minecraft.registry.Registries;
 
+/** Fabric/Tom discovery facade; policy and report types belong to NetworkAnalysis. */
 public final class TomNetworkAnalysis {
-    private static final int MAX_INVENTORY_PENALTY = 20;
-    private static final int MAX_VIEW_PENALTY = 15;
-    private static final int MAX_DIGITAL_VIEW_PENALTY = 5;
-    private static final int MAX_NON_EMPTY_PENALTY = 40;
-    private static final int MAX_SCANNER_PENALTY = 15;
-    private static final int MAX_FAILURE_PENALTY = 10;
-    private static final int MAX_FREQUENCY_PENALTY = 5;
-    private static final int MAX_DUPLICATE_ENDPOINT_PENALTY = 40;
-
     private TomNetworkAnalysis() {
     }
 
-    public static Report analyze(DigitalStorageAccessorBlockEntity accessor) {
+    public static NetworkAnalysis.Report analyze(DigitalStorageAccessorBlockEntity accessor) {
         FabricDigitalItemStorage target = accessor.getCanonicalStorage();
-        TomNetworkIntrospection.Discovery discovery = TomNetworkIntrospection.discoverContext(accessor);
+        var discovery = TomNetworkIntrospection.discoverContext(accessor);
         if (target == null || discovery == null) {
-            return Report.unavailable();
+            return NetworkAnalysis.Report.unavailable();
         }
-        Storage<ItemVariant> network = discovery.storage();
-        TomNetworkCache.Topology topology = TomNetworkCache.topology(discovery.connector(), network);
-        List<Storage<ItemVariant>> sources = topology.physical();
-        int digitalViews = topology.digital().stream().mapToInt(FabricDigitalItemStorage::variantCount).sum();
-        int duplicateDigitalEndpoints = topology.duplicateDigitalEndpointCount();
-        int targetEndpointCount = topology.digitalEndpointCount(target);
+        var topology = TomNetworkCache.topology(discovery.connector(), discovery.storage());
         TomScannerTelemetry.associate(target, topology.identity());
-        Map<ItemVariant, MutableCandidate> grouped = new HashMap<>();
-        int totalViews = 0;
-        int nonEmptyViews = 0;
-        for (Storage<ItemVariant> source : sources) {
-            boolean extractable = source.supportsExtraction();
-            for (StorageView<ItemVariant> view : source) {
-                totalViews++;
-                if (view.isResourceBlank() || view.getAmount() <= 0) {
-                    continue;
-                }
-                nonEmptyViews++;
-                if (extractable) {
-                    grouped.computeIfAbsent(view.getResource(), MutableCandidate::new)
-                            .add(view.getAmount());
-                }
-            }
-        }
-
-        int remainingVariants = Math.max(0, accessor.getRecord().variantCapacity() - target.variantCount());
-        List<Candidate> candidates = new ArrayList<>();
-        for (MutableCandidate candidate : grouped.values()) {
-            boolean existing = target.amountOf(candidate.variant) > 0;
-            if (!accessor.getRecord().canInsert(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(candidate.variant))) {
-                continue;
-            }
-            long available = FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT - target.amountOf(candidate.variant);
-            if (candidate.amount > available) {
-                continue;
-            }
-            candidates.add(new Candidate(candidate.variant, candidate.amount, candidate.views, existing));
-        }
-        candidates.sort(Comparator
-                .comparing(Candidate::existingInTarget).reversed()
-                .thenComparing(Candidate::physicalViews, Comparator.reverseOrder())
-                .thenComparing(Candidate::amount, Comparator.reverseOrder())
-                .thenComparing(candidate -> Registries.ITEM.getId(candidate.variant().getItem()).toString())
-                .thenComparing(candidate -> candidate.variant().toNbt().asString()));
-
-        long remainingVariantNbtBytes = Math.max(
-                0,
-                (long) DigitalStorageConfig.get().maxVolumeVariantNbtBytes - target.totalVariantNbtBytes()
-        );
-        List<Candidate> selected = targetEndpointCount > 1
-                ? List.of()
-                : selectWithinVariantBudget(candidates, remainingVariants, remainingVariantNbtBytes);
-        int estimatedFreedViews = selected.stream().mapToInt(Candidate::physicalViews).sum();
-
         long tick = accessor.getWorld() == null ? 0 : accessor.getWorld().getTime();
-        TomScannerTelemetry.Snapshot scanners = TomScannerTelemetry.snapshot(target, tick);
-        int score = score(
-                sources.size(), totalViews, nonEmptyViews, digitalViews,
+        var scanners = TomScannerTelemetry.snapshot(target, tick);
+        List<InventoryEndpoint> physical = topology.physical().stream()
+                .map(storage -> (InventoryEndpoint) new FabricInventoryEndpoint(storage)).toList();
+        List<InventoryEndpoint.Reference> sources = topology.physicalEndpoints().stream()
+                .map(endpoint -> (InventoryEndpoint.Reference) endpoint).toList();
+        return NetworkAnalysis.analyze(accessor.getRecord(), new NetworkAnalysis.Snapshot(
+                physical, topology.digital().stream().mapToInt(FabricDigitalItemStorage::variantCount).sum(),
+                topology.duplicateDigitalEndpointCount(), topology.digitalEndpointCount(target),
                 scanners.activeScanners(), scanners.failingScanners(), scanners.averageIntervalTicks(),
-                duplicateDigitalEndpoints
-        );
-        return new Report(
-                true,
-                score,
-                grade(score),
-                sources.size(),
-                totalViews,
-                nonEmptyViews,
-                digitalViews,
-                duplicateDigitalEndpoints,
-                targetEndpointCount,
-                scanners.activeScanners(),
-                scanners.failingScanners(),
-                scanners.averageIntervalTicks(),
-                estimatedFreedViews,
-                List.copyOf(selected),
-                topology.token(),
-                topology.physicalEndpoints()
-        );
-    }
-
-    private static List<Candidate> selectWithinVariantBudget(
-            List<Candidate> candidates,
-            int remainingVariants,
-            long remainingVariantNbtBytes
-    ) {
-        List<Candidate> selected = new ArrayList<>();
-        int newVariants = 0;
-        long selectedVariantNbtBytes = 0;
-        for (Candidate candidate : candidates) {
-            if (!candidate.existingInTarget()) {
-                int variantNbtBytes = candidate.variant().toNbt().getSizeInBytes();
-                if (newVariants >= remainingVariants
-                        || variantNbtBytes > remainingVariantNbtBytes - selectedVariantNbtBytes) {
-                    continue;
-                }
-                newVariants++;
-                selectedVariantNbtBytes += variantNbtBytes;
-            }
-            selected.add(candidate);
-        }
-        return selected;
-    }
-
-    private static int score(
-            int inventories,
-            int views,
-            int nonEmptyViews,
-            int digitalViews,
-            int scanners,
-            int failures,
-            int averageIntervalTicks,
-            int duplicateDigitalEndpoints
-    ) {
-        int inventoryPenalty = Math.min(MAX_INVENTORY_PENALTY, inventories / 4);
-        int viewPenalty = Math.min(MAX_VIEW_PENALTY, views / 256);
-        int nonEmptyPenalty = Math.min(MAX_NON_EMPTY_PENALTY, nonEmptyViews / 128);
-        int digitalViewPenalty = Math.min(
-                MAX_DIGITAL_VIEW_PENALTY,
-                digitalViews / DigitalStorageConfig.get().digitalViewScoreDivisor
-        );
-        int scannerPenalty = Math.min(MAX_SCANNER_PENALTY, scanners * 3);
-        int failurePenalty = Math.min(MAX_FAILURE_PENALTY, failures * 5);
-        int frequencyPenalty = averageIntervalTicks <= 0 ? 0
-                : Math.min(MAX_FREQUENCY_PENALTY, Math.max(1, 6 - averageIntervalTicks / 5));
-        int duplicateEndpointPenalty = Math.min(
-                MAX_DUPLICATE_ENDPOINT_PENALTY,
-                duplicateDigitalEndpoints * 20
-        );
-        return Math.max(0, 100 - inventoryPenalty - viewPenalty - nonEmptyPenalty - digitalViewPenalty
-                - scannerPenalty - failurePenalty - frequencyPenalty - duplicateEndpointPenalty);
-    }
-
-    private static String grade(int score) {
-        if (score >= 90) return "A";
-        if (score >= 75) return "B";
-        if (score >= 60) return "C";
-        if (score >= 40) return "D";
-        return "E";
+                topology.token(), sources));
     }
 
     public static void runSelfTest() {
-        Candidate existing = new Candidate(
-                ItemVariant.of(net.minecraft.item.Items.STONE), 64, 2, true
-        );
-        Candidate firstNew = new Candidate(
-                ItemVariant.of(net.minecraft.item.Items.DIRT), 640, 10, false
-        );
-        Candidate secondNew = new Candidate(
-                ItemVariant.of(net.minecraft.item.Items.COBBLESTONE), 576, 9, false
-        );
-        List<Candidate> selected = selectWithinVariantBudget(
-                List.of(existing, firstNew, secondNew), 1, Long.MAX_VALUE
-        );
-        if (!selected.equals(List.of(existing, firstNew))) {
-            throw new IllegalStateException("Tom recommendation variant budget self-test failed");
-        }
-        if (!"A".equals(grade(90)) || !"D".equals(grade(43)) || !"E".equals(grade(39))) {
-            throw new IllegalStateException("Tom network health grade self-test failed");
-        }
-        if (score(0, 0, 0, 0, 0, 0, 0, 0) != 100
-                || score(0, 0, 0, DigitalStorageConfig.get().digitalViewScoreDivisor, 0, 0, 0, 0) != 99
-                || score(0, 0, 0, 0, 0, 0, 0, 1) != 80) {
-            throw new IllegalStateException("Tom digital-view health weight self-test failed");
-        }
+        NetworkAnalysis.runSelfTest();
         runTomIntrospectionSelfTest();
     }
 
@@ -322,59 +161,4 @@ public final class TomNetworkAnalysis {
         }
     }
 
-    public record Candidate(
-            ItemVariant variant,
-            long amount,
-            int physicalViews,
-            boolean existingInTarget
-    ) {
-        public String itemId() {
-            return Registries.ITEM.getId(variant.getItem()).toString();
-        }
-    }
-
-    public record Report(
-            boolean available,
-            int healthScore,
-            String grade,
-            int physicalInventories,
-            int totalViews,
-            int nonEmptyViews,
-            int digitalViews,
-            int duplicateDigitalEndpoints,
-            int targetEndpointCount,
-            int activeScanners,
-            int failingScanners,
-            int averageScanIntervalTicks,
-            int estimatedFreedViews,
-            List<Candidate> candidates,
-            TomNetworkCache.Token topology,
-            List<TomNetworkCache.Endpoint> sourceEndpoints
-    ) {
-        private static Report unavailable() {
-            return new Report(false, 0, "-", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, List.of(), null, List.of());
-        }
-
-        public String topCandidateId() {
-            return candidates.isEmpty() ? "" : candidates.get(0).itemId();
-        }
-    }
-
-    private static final class MutableCandidate {
-        private final ItemVariant variant;
-        private long amount;
-        private int views;
-
-        private MutableCandidate(ItemVariant variant) {
-            this.variant = variant;
-        }
-
-        private void add(long addedAmount) {
-            long rejectionThreshold = FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT + 1;
-            amount = addedAmount >= rejectionThreshold - amount
-                    ? rejectionThreshold
-                    : amount + addedAmount;
-            views++;
-        }
-    }
 }

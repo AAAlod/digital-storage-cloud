@@ -406,7 +406,12 @@ public final class TomNetworkCache {
         }
     }
 
-    record Token(NetworkIdentity identity, long version) {
+    record Token(NetworkIdentity identity, long version) implements TopologyToken {
+        @Override
+        public boolean isCurrent() { return TomNetworkCache.isCurrent(this); }
+
+        @Override
+        public String staleDetail() { return TomNetworkCache.staleDetail(this); }
     }
 
     record Endpoint(
@@ -414,7 +419,13 @@ public final class TomNetworkCache {
             long version,
             int ordinal,
             WeakReference<Storage<ItemVariant>> storage
-    ) {
+    ) implements InventoryEndpoint.Reference {
+        @Override
+        public InventoryEndpoint resolve() {
+            Storage<ItemVariant> resolved = resolve(new Token(identity, version));
+            return resolved == null ? null : new dev.kehai.digitalstorage.platform.fabric.FabricInventoryEndpoint(resolved);
+        }
+
         Storage<ItemVariant> resolve(Token token) {
             if (token == null || token.identity() != identity || token.version() != version || !isCurrent(token)) {
                 return null;

@@ -42,7 +42,7 @@ public final class TomMigrationManager {
     public static StartResult start(
             ServerPlayerEntity player,
             DigitalStorageAccessorBlockEntity accessor,
-            TomNetworkAnalysis.Report report
+            NetworkAnalysis.Report report
     ) {
         StorageVolume volume = accessor.getVolume();
         if (volume == null || !volume.ownerId().equals(player.getUuid())) {
@@ -57,7 +57,7 @@ public final class TomMigrationManager {
         if (report.candidates().isEmpty()) {
             return StartResult.NOTHING_TO_MOVE;
         }
-        if (!TomNetworkCache.isCurrent(report.topology())) {
+        if (!TopologyToken.isCurrent(report.topology())) {
             return StartResult.NETWORK_CHANGED;
         }
         if (JOBS.containsKey(volume.id())) {
@@ -68,7 +68,7 @@ public final class TomMigrationManager {
         }
 
         List<ItemVariant> variants = report.candidates().stream()
-                .map(TomNetworkAnalysis.Candidate::variant)
+                .map(candidate -> dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.toVariant(candidate.variant()))
                 .toList();
         Job job = new Job(
                 volume.id(),
@@ -319,8 +319,8 @@ public final class TomMigrationManager {
         private final List<ItemVariant> candidates;
         private final Set<ItemVariant> selectedVariants;
         private final int estimatedFreedViews;
-        private final TomNetworkCache.Token topology;
-        private final List<TomNetworkCache.Endpoint> sources;
+        private final TopologyToken topology;
+        private final List<? extends InventoryEndpoint.Reference> sources;
         // Equivalent wrappers can disappear from Tom's handlers during a rebuild.
         // Keep their canonical transactional views alive until this job finishes.
         private final List<Storage<ItemVariant>> sourceHandles;
@@ -340,8 +340,8 @@ public final class TomMigrationManager {
                 BlockPos accessorPos,
                 List<ItemVariant> candidates,
                 int estimatedFreedViews,
-                TomNetworkCache.Token topology,
-                List<TomNetworkCache.Endpoint> sources
+                TopologyToken topology,
+                List<? extends InventoryEndpoint.Reference> sources
         ) {
             this.volumeId = volumeId;
             this.ownerId = ownerId;
@@ -352,7 +352,7 @@ public final class TomMigrationManager {
             this.estimatedFreedViews = estimatedFreedViews;
             this.topology = topology;
             this.sources = List.copyOf(sources);
-            this.sourceHandles = sources.stream().map(endpoint -> endpoint.resolve(topology)).toList();
+            this.sourceHandles = sources.stream().map(endpoint -> endpoint.resolve()).map(endpoint -> endpoint == null ? null : ((dev.kehai.digitalstorage.platform.fabric.FabricInventoryEndpoint) endpoint).storage()).toList();
         }
 
         private State tick(DigitalStorageAccessorBlockEntity accessor, int viewBudget) {
@@ -365,8 +365,8 @@ public final class TomMigrationManager {
                 stopDetail = "target unavailable";
                 return State.STOPPED;
             }
-            if (!TomNetworkCache.isCurrent(topology)) {
-                stopDetail = TomNetworkCache.staleDetail(topology);
+            if (!TopologyToken.isCurrent(topology)) {
+                stopDetail = topology == null ? "network changed" : topology.staleDetail();
                 return State.STOPPED;
             }
             int scannedThisTick = 0;

@@ -6,6 +6,8 @@ import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.optimization.TomMigrationManager;
 import dev.kehai.digitalstorage.optimization.TomNetworkCache;
 import dev.kehai.digitalstorage.optimization.TomNetworkAnalysis;
+import dev.kehai.digitalstorage.optimization.NetworkAnalysis;
+import dev.kehai.digitalstorage.optimization.TopologyToken;
 import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
 import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import dev.kehai.digitalstorage.storage.StorageVolume;
@@ -39,7 +41,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
     private DigitalStorageScreenState state;
     private Text status = Text.empty();
     private boolean statusSuccessful;
-    private TomNetworkAnalysis.Report networkReport;
+    private NetworkAnalysis.Report networkReport;
     private boolean migrationWasActive;
     private long lastContentVersion = Long.MIN_VALUE;
     private long lastPolicyVersion = Long.MIN_VALUE;
@@ -287,7 +289,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
         boolean serverAllowsUnstackableItems = DigitalStorageConfig.get().allowUnstackableItems;
         boolean migrationActive = volume != null && TomMigrationManager.status(volume.id()).active();
         boolean topologyInvalid = networkReport != null && networkReport.available()
-                && !TomNetworkCache.isCurrent(networkReport.topology());
+                && !TopologyToken.isCurrent(networkReport.topology());
         boolean migrationFinished = migrationWasActive && !migrationActive;
         boolean contentChanged = contentVersion != lastContentVersion;
         boolean policyChanged = policyVersion != lastPolicyVersion;
@@ -360,7 +362,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.screen.Scre
         TomMigrationManager.Status migration = TomMigrationManager.status(volume.id());
         boolean migrationActive = migration.active();
         if (networkReport != null && networkReport.available()
-                && !TomNetworkCache.isCurrent(networkReport.topology())) {
+                && !TopologyToken.isCurrent(networkReport.topology())) {
             networkReport = null;
         }
         if (networkReport == null || (migrationWasActive && !migrationActive)) {
