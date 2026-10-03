@@ -29,12 +29,14 @@ public final class ForgeRecoveryDelivery {
         long accepted = 0;
         boolean intentAttempted = false;
         boolean commitRequested = false;
+        UUID deliveryId = null;
         try {
             try (var transaction = LedgerTransaction.open()) {
                 accepted = target.insert(entry.key(), Math.min(maximum, entry.amount()), transaction);
                 if (accepted == 0) return new Result(State.BLOCKED, 0, entry.amount(), "target capacity or item policy rejected delivery");
                 intentAttempted = true;
                 var persisted = recovery.beginDelivery(entry.id(), owner, accepted);
+                deliveryId = persisted.deliveryId();
                 if (!persisted.volume().equals(entry.volume()) || !persisted.key().equals(entry.key())
                         || persisted.amount() != entry.amount()) {
                     throw new IllegalStateException("Recovery identity changed before delivery intent");
@@ -43,7 +45,7 @@ public final class ForgeRecoveryDelivery {
                 commitRequested = true;
             }
             flushTarget.run();
-            var finished = recovery.finishDelivery(entry.id(), owner);
+            var finished = recovery.finishDelivery(entry.id(), owner, deliveryId);
             return new Result(finished.state() == ForgeTransferRecovery.State.DELIVERED ? State.DELIVERED : State.PARTIAL,
                     accepted, finished.state() == ForgeTransferRecovery.State.DELIVERED ? 0 : finished.amount(), "");
         } catch (RuntimeException failure) {

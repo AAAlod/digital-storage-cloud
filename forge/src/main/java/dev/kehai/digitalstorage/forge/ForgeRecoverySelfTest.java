@@ -26,7 +26,7 @@ public final class ForgeRecoverySelfTest {
             try { reopened.beginDelivery(entry.id(), UUID.randomUUID(), 1); }
             catch (IllegalArgumentException expected) { denied = true; }
             expect(denied && reopened.entry(entry.id()).equals(entry), "Foreign player altered recovery ownership");
-            reopened.beginDelivery(entry.id(), owner, 16);
+            var firstDelivery = reopened.beginDelivery(entry.id(), owner, 16);
             var interrupted = new ForgeTransferRecovery(root);
             expect(interrupted.entry(entry.id()).state() == ForgeTransferRecovery.State.DELIVERING,
                     "Interrupted delivery became automatically eligible");
@@ -34,11 +34,11 @@ public final class ForgeRecoverySelfTest {
             try { interrupted.beginDelivery(entry.id(), owner, 16); }
             catch (IllegalStateException expected) { replayRejected = true; }
             expect(replayRejected, "Uncertain delivery was replayed");
-            var remaining = reopened.finishDelivery(entry.id(), owner);
+            var remaining = reopened.finishDelivery(entry.id(), owner, firstDelivery.deliveryId());
             expect(remaining.amount() == 48 && remaining.state() == ForgeTransferRecovery.State.HELD,
                     "Partial recovery delivery lost the remainder");
-            reopened.beginDelivery(entry.id(), owner, 48);
-            reopened.finishDelivery(entry.id(), owner);
+            var finalDelivery = reopened.beginDelivery(entry.id(), owner, 48);
+            reopened.finishDelivery(entry.id(), owner, finalDelivery.deliveryId());
             var complete = new ForgeTransferRecovery(root);
             expect(complete.pendingCount() == 0 && complete.entries(owner).isEmpty()
                             && complete.entry(entry.id()).state() == ForgeTransferRecovery.State.DELIVERED,

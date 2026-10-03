@@ -13,6 +13,7 @@ import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.Tag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.world.item.ItemStack;
 
 /**
@@ -22,7 +23,7 @@ import net.minecraft.world.item.ItemStack;
  * is never replayed automatically against an independently persisted volume.
  */
 public final class ForgeTransferRecovery {
-    private static final int SCHEMA = 1;
+    private static final int SCHEMA = 2;
     private final Path directory;
     private final Map<UUID, Entry> entries = new LinkedHashMap<>();
     private final List<Path> unreadable = new ArrayList<>();
@@ -135,7 +136,7 @@ public final class ForgeTransferRecovery {
             throw new IllegalStateException("Recovery delivery is not eligible");
         }
         Entry next = new Entry(id, owner, previous.volume(), previous.key(), previous.amount(), State.DELIVERING,
-                amount, previous.createdMillis(), previous.reason());
+                amount, previous.createdMillis(), previous.reason(), UUID.randomUUID(), previous.reconciliations());
         entries.put(id, next);
         try { write(next); }
         catch (RuntimeException failure) {
@@ -149,17 +150,47 @@ public final class ForgeTransferRecovery {
     }
 
     /** Call only after the target volume has committed and its explicit flush has completed. */
-    public Entry finishDelivery(UUID id, UUID owner) {
+    public Entry finishDelivery(UUID id, UUID owner, UUID expectedDelivery) {
         Entry previous = requireOwned(id, owner);
-        if (previous.state() != State.DELIVERING) throw new IllegalStateException("No recovery delivery in progress");
+        if (previous.state() != State.DELIVERING || !java.util.Objects.equals(expectedDelivery, previous.deliveryId())) {
+            throw new IllegalStateException("No matching recovery delivery in progress");
+        }
         long remaining = previous.amount() - previous.delivering();
         Entry next = new Entry(id, owner, previous.volume(), previous.key(),
                 remaining == 0 ? previous.amount() : remaining,
-                remaining == 0 ? State.DELIVERED : State.HELD, 0, previous.createdMillis(), previous.reason());
+                remaining == 0 ? State.DELIVERED : State.HELD, 0, previous.createdMillis(), previous.reason(),
+                null, previous.reconciliations());
         // Keep completed receipts. Removing a file is not needed for correctness
         // and cannot turn an interrupted cleanup into another pending delivery.
         write(next);
         entries.put(id, next);
+        return next;
+    }
+
+    /** Administrator must explicitly verify external persistence; this method never moves target items. */
+    public Entry reconcile(UUID id, UUID expectedDelivery, UUID administrator, Outcome outcome, String explanation) {
+        java.util.Objects.requireNonNull(expectedDelivery);
+        java.util.Objects.requireNonNull(administrator);
+        java.util.Objects.requireNonNull(outcome);
+        Entry known = entries.get(id);
+        if (known == null) throw new IllegalArgumentException("Unknown recovery entry");
+        Entry previous = requireOwned(id, known.owner());
+        if (previous.state() != State.DELIVERING || !expectedDelivery.equals(previous.deliveryId())) {
+            throw new IllegalStateException("Recovery delivery attempt changed or is no longer uncertain");
+        }
+        var receipt = new Reconciliation(expectedDelivery, administrator, outcome, previous.delivering(),
+                System.currentTimeMillis(), explanation);
+        var receipts = new ArrayList<>(previous.reconciliations());
+        receipts.add(receipt);
+        long remaining = outcome == Outcome.CONFIRMED_DELIVERED ? previous.amount() - previous.delivering() : previous.amount();
+        Entry next = new Entry(id, previous.owner(), previous.volume(), previous.key(),
+                remaining == 0 ? previous.amount() : remaining, remaining == 0 ? State.DELIVERED : State.HELD,
+                0, previous.createdMillis(), previous.reason(), null, receipts);
+        // Receipt and state share one forced/replace file. A failing write keeps
+        // the explicit decision unsaved and blocks another transfer until flush.
+        entries.put(id, next);
+        try { write(next); }
+        catch (RuntimeException failure) { unsaved.put(id, next); throw failure; }
         return next;
     }
 
@@ -199,11 +230,25 @@ public final class ForgeTransferRecovery {
         tag.putLong("Delivering", entry.delivering());
         tag.putLong("CreatedMillis", entry.createdMillis());
         tag.putString("Reason", entry.reason());
+        if (entry.deliveryId() != null) tag.putUUID("DeliveryId", entry.deliveryId());
+        var receipts = new ListTag();
+        for (var receipt : entry.reconciliations()) {
+            var saved = new CompoundTag();
+            saved.putUUID("DeliveryId", receipt.deliveryId());
+            saved.putUUID("Administrator", receipt.administrator());
+            saved.putString("Outcome", receipt.outcome().name());
+            saved.putLong("Amount", receipt.amount());
+            saved.putLong("CreatedMillis", receipt.createdMillis());
+            saved.putString("Explanation", receipt.explanation());
+            receipts.add(saved);
+        }
+        tag.put("Reconciliations", receipts);
         return tag;
     }
 
     static Entry read(CompoundTag tag) {
-        if (tag == null || !tag.contains("SchemaVersion", Tag.TAG_INT) || tag.getInt("SchemaVersion") != SCHEMA
+        if (tag == null || !tag.contains("SchemaVersion", Tag.TAG_INT)
+                || (tag.getInt("SchemaVersion") != 1 && tag.getInt("SchemaVersion") != SCHEMA)
                 || !tag.hasUUID("Id") || !tag.hasUUID("Owner") || !tag.hasUUID("Volume")
                 || !tag.contains("Variant", Tag.TAG_COMPOUND) || !tag.contains("Amount", Tag.TAG_LONG)
                 || !tag.contains("State", Tag.TAG_STRING) || !tag.contains("Delivering", Tag.TAG_LONG)
@@ -216,14 +261,43 @@ public final class ForgeTransferRecovery {
                 || (variant.contains("attachments") && !variant.contains("attachments", Tag.TAG_COMPOUND))) {
             throw new IllegalArgumentException("Malformed Forge recovery item identity");
         }
-        return new Entry(tag.getUUID("Id"), tag.getUUID("Owner"), tag.getUUID("Volume"),
+        if (tag.getInt("SchemaVersion") == 1) return new Entry(tag.getUUID("Id"), tag.getUUID("Owner"), tag.getUUID("Volume"),
                 ItemKeyCodec.read(variant), tag.getLong("Amount"), State.valueOf(tag.getString("State")),
                 tag.getLong("Delivering"), tag.getLong("CreatedMillis"), tag.getString("Reason"));
+        if (!tag.contains("Reconciliations", Tag.TAG_LIST) || (tag.contains("DeliveryId") && !tag.hasUUID("DeliveryId"))) {
+            throw new IllegalArgumentException("Malformed recovery delivery history");
+        }
+        var savedReceipts = (ListTag) tag.get("Reconciliations");
+        if (!savedReceipts.isEmpty() && savedReceipts.getElementType() != Tag.TAG_COMPOUND) {
+            throw new IllegalArgumentException("Malformed reconciliation list");
+        }
+        var receipts = new ArrayList<Reconciliation>();
+        for (var saved : savedReceipts) {
+            var receipt = (CompoundTag) saved;
+            if (!receipt.hasUUID("DeliveryId") || !receipt.hasUUID("Administrator") || !receipt.contains("Outcome", Tag.TAG_STRING)
+                    || !receipt.contains("Amount", Tag.TAG_LONG) || !receipt.contains("CreatedMillis", Tag.TAG_LONG)
+                    || !receipt.contains("Explanation", Tag.TAG_STRING)) throw new IllegalArgumentException("Incomplete reconciliation receipt");
+            receipts.add(new Reconciliation(receipt.getUUID("DeliveryId"), receipt.getUUID("Administrator"),
+                    Outcome.valueOf(receipt.getString("Outcome")), receipt.getLong("Amount"),
+                    receipt.getLong("CreatedMillis"), receipt.getString("Explanation")));
+        }
+        return new Entry(tag.getUUID("Id"), tag.getUUID("Owner"), tag.getUUID("Volume"), ItemKeyCodec.read(variant),
+                tag.getLong("Amount"), State.valueOf(tag.getString("State")), tag.getLong("Delivering"),
+                tag.getLong("CreatedMillis"), tag.getString("Reason"), tag.hasUUID("DeliveryId") ? tag.getUUID("DeliveryId") : null, receipts);
     }
 
     public enum State { HELD, DELIVERING, DELIVERED }
     public record Entry(UUID id, UUID owner, UUID volume, ItemKey key, long amount,
-                        State state, long delivering, long createdMillis, String reason) {
+                        State state, long delivering, long createdMillis, String reason,
+                        UUID deliveryId, List<Reconciliation> reconciliations) {
+        public Entry(UUID id, UUID owner, UUID volume, ItemKey key, long amount, State state, long delivering,
+                     long createdMillis, String reason) {
+            // Legacy DELIVERING has no original attempt token. A stable derived
+            // marker permits explicit reconciliation; new attempts use random IDs.
+            this(id, owner, volume, key, amount, state, delivering, createdMillis, reason,
+                    state == State.DELIVERING ? UUID.nameUUIDFromBytes(("legacy:" + id + ":" + amount + ":" + delivering + ":" + createdMillis)
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)) : null, List.of());
+        }
         public Entry {
             java.util.Objects.requireNonNull(id);
             java.util.Objects.requireNonNull(owner);
@@ -231,9 +305,26 @@ public final class ForgeTransferRecovery {
             java.util.Objects.requireNonNull(key);
             java.util.Objects.requireNonNull(state);
             java.util.Objects.requireNonNull(reason);
+            reconciliations = List.copyOf(reconciliations);
             if (key.isBlank() || amount <= 0 || delivering < 0 || delivering > amount
-                    || (state == State.DELIVERING) != (delivering > 0) || createdMillis < 0 || reason.length() > 512) {
+                    || (state == State.DELIVERING) != (delivering > 0) || (state == State.DELIVERING) != (deliveryId != null)
+                    || createdMillis < 0 || reason.length() > 512
+                    || reconciliations.stream().map(Reconciliation::deliveryId).distinct().count() != reconciliations.size()
+                    || reconciliations.stream().anyMatch(receipt -> receipt.deliveryId().equals(deliveryId))) {
                 throw new IllegalArgumentException("Invalid Forge recovery ownership record");
+            }
+        }
+    }
+    public enum Outcome { CONFIRMED_DELIVERED, CONFIRMED_NOT_DELIVERED }
+    public record Reconciliation(UUID deliveryId, UUID administrator, Outcome outcome, long amount,
+                                 long createdMillis, String explanation) {
+        public Reconciliation {
+            java.util.Objects.requireNonNull(deliveryId);
+            java.util.Objects.requireNonNull(administrator);
+            java.util.Objects.requireNonNull(outcome);
+            java.util.Objects.requireNonNull(explanation);
+            if (amount <= 0 || createdMillis < 0 || explanation.isBlank() || explanation.length() > 1024) {
+                throw new IllegalArgumentException("Reconciliation needs an explicit verified explanation");
             }
         }
     }

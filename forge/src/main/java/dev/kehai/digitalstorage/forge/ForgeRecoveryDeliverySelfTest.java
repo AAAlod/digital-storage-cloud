@@ -20,7 +20,8 @@ public final class ForgeRecoveryDeliverySelfTest {
         var rootCommand = server.getCommands().getDispatcher().getRoot().getChild("digitalstorage");
         expect(rootCommand.canUse(source) && rootCommand.getChild("recovery").canUse(source)
                 && !rootCommand.getChild("selftest").canUse(source) && !rootCommand.getChild("diagnostics").canUse(source)
-                && !rootCommand.getChild("flush").canUse(source) && !rootCommand.getChild("transferincident").canUse(source),
+                && !rootCommand.getChild("flush").canUse(source) && !rootCommand.getChild("transferincident").canUse(source)
+                && !rootCommand.getChild("recoveryadmin").canUse(source),
                 "Recovery command tree leaked administrator permissions or blocked ordinary players");
         Path root;
         try { root = Files.createTempDirectory("digitalstorage-forge-delivery-").toAbsolutePath().normalize(); }

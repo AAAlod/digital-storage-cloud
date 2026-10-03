@@ -29,6 +29,23 @@ public final class ForgeRecoveryCommands {
                         .then(Commands.argument("amount", LongArgumentType.longArg(1))
                                 .executes(context -> deliver(context.getSource(), UuidArgument.getUuid(context, "id"),
                                         LongArgumentType.getLong(context, "amount"))))))));
+        dispatcher.register(Commands.literal("digitalstorage").then(Commands.literal("recoveryadmin").requires(source -> source.hasPermission(2))
+                .then(Commands.literal("inspect").then(Commands.argument("id", UuidArgument.uuid()).executes(context -> {
+                    var store = ForgeTransferSessions.get(context.getSource().getServer()).recovery();
+                    var entry = store.entry(UuidArgument.getUuid(context, "id"));
+                    if (entry == null) { context.getSource().sendFailure(Component.literal("恢复条目不存在。")); return 0; }
+                    context.getSource().sendSuccess(() -> Component.literal("玩家=" + entry.owner() + " 卷=" + entry.volume()
+                            + " 状态=" + entry.state() + " 条目数量=" + entry.amount() + " 本次交付=" + entry.delivering()
+                            + " 尝试标识=" + entry.deliveryId()), false);
+                    for (var receipt : entry.reconciliations()) context.getSource().sendSuccess(() -> Component.literal(
+                            receipt.deliveryId() + " " + receipt.outcome() + " 数量=" + receipt.amount()
+                                    + " 管理员=" + receipt.administrator() + " " + receipt.explanation()), false);
+                    return 1;
+                })))
+                .then(Commands.literal("reconcile").then(Commands.argument("id", UuidArgument.uuid())
+                        .then(Commands.argument("attempt", UuidArgument.uuid())
+                                .then(reconciliationBranch("delivered", ForgeTransferRecovery.Outcome.CONFIRMED_DELIVERED))
+                                .then(reconciliationBranch("not_delivered", ForgeTransferRecovery.Outcome.CONFIRMED_NOT_DELIVERED)))))));
         dispatcher.register(Commands.literal("digitalstorage").then(Commands.literal("transferincident").requires(source -> source.hasPermission(2))
                 .then(Commands.literal("list").executes(context -> {
                     var entries = ForgeTransferSessions.get(context.getSource().getServer()).incidents().entries();
@@ -74,6 +91,22 @@ public final class ForgeRecoveryCommands {
                                 return 0;
                             }
                         }))))));
+    }
+    private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> reconciliationBranch(
+            String label, ForgeTransferRecovery.Outcome outcome) {
+        return Commands.literal(label).then(Commands.argument("explanation", StringArgumentType.greedyString()).executes(context -> {
+            var administrator = context.getSource().getPlayerOrException();
+            try {
+                var entry = ForgeTransferSessions.get(administrator.getServer()).recovery().reconcile(
+                        UuidArgument.getUuid(context, "id"), UuidArgument.getUuid(context, "attempt"), administrator.getUUID(),
+                        outcome, StringArgumentType.getString(context, "explanation"));
+                context.getSource().sendSuccess(() -> Component.literal("交付核对及收据已保存，条目状态=" + entry.state() + "。"), false);
+                return 1;
+            } catch (RuntimeException failure) {
+                context.getSource().sendFailure(Component.literal("交付核对失败：" + failure.getMessage()));
+                return 0;
+            }
+        }));
     }
     private static int deliver(CommandSourceStack source, java.util.UUID id, long maximum) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         var player = source.getPlayerOrException();

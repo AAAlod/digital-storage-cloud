@@ -13,6 +13,7 @@ public final class ForgeSharedSelfTest {
         ForgeTransferSelfTest.run();
         ForgeTransferSessionSelfTest.run(server);
         ForgeRecoveryDeliverySelfTest.run(server);
+        ForgeRecoveryReconciliationSelfTest.run();
         ForgeLedgerSelfTest.run();
         ForgeAccessorSelfTest.run(server);
         dev.kehai.digitalstorage.storage.VolumeLedgerSelfTest.run();
