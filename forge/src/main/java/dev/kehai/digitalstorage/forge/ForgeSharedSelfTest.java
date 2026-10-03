@@ -37,6 +37,6 @@ public final class ForgeSharedSelfTest {
         if (!(entity instanceof ForgeAccessorBlockEntity) || entity.getType() != ForgeDigitalStorage.ACCESSOR_TYPE.get()) {
             throw new IllegalStateException("Forge accessor registration created an incorrect entity");
         }
-        DigitalStorage.LOGGER.info("Forge shared self-test passed: keys/ForgeCaps, stable IItemHandler slots/simulation/remainders/leases, ledger/nested transactions, analysis, migration jobs/budget/cancel/lifetime, policy, configuration, mounts, upgrades, screen codec, registration and actual Tom aggregate dedup/filter/keep-last; placed world fixture runs only when configured; scanner/proxy direction not covered");
+        DigitalStorage.LOGGER.info("Forge shared self-test passed: keys/ForgeCaps, stable IItemHandler slots/simulation/remainders/leases, ledger/nested transactions, analysis, migration jobs/budget/cancel/lifetime, policy, configuration, mounts, upgrades, screen codec, registration and actual Tom aggregate dedup/filter/keep-last; placed scanner/chest/cable/proxy fixture runs only when configured; continuous ticks/rotation not covered");
     }
 }
