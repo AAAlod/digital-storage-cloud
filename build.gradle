@@ -127,7 +127,7 @@ sourceSets.main.java {
     include 'dev/kehai/digitalstorage/platform/fabric/**/*.java'
     include 'dev/kehai/digitalstorage/DigitalStorageMod.java'
     include 'dev/kehai/digitalstorage/DigitalStorageClient.java'
-    include 'dev/kehai/digitalstorage/command/**/*.java'
+    include 'dev/kehai/digitalstorage/command/DigitalStorageCommands.java'
     include 'dev/kehai/digitalstorage/block/AdvancedInventoryHopperBlock.java'
     include 'dev/kehai/digitalstorage/integration/TomIntegrationStatus.java'
     include 'dev/kehai/digitalstorage/storage/DigitalItemStorageSelfTest.java'

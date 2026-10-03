@@ -69,7 +69,7 @@ public final class ForgeServerEvents {
         }
     }
     @SubscribeEvent public static void commands(RegisterCommandsEvent event) {
-        event.getDispatcher().register(Commands.literal("digitalstorage")
+        event.getDispatcher().register(dev.kehai.digitalstorage.command.ManagementCommands.root("digitalstorage")
                 .then(Commands.literal("selftest").requires(source -> source.hasPermission(2)).executes(context -> {
                     try {
                         ForgeSharedSelfTest.run(context.getSource().getServer());
@@ -96,5 +96,7 @@ public final class ForgeServerEvents {
                     return 1;
                 })));
         ForgeRecoveryCommands.register(event.getDispatcher());
+        event.getDispatcher().register(Commands.literal("dsc")
+                .redirect(event.getDispatcher().getRoot().getChild("digitalstorage")));
     }
 }

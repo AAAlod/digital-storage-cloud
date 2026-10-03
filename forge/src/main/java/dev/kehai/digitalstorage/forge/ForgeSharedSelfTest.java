@@ -21,6 +21,7 @@ public final class ForgeSharedSelfTest {
         ForgeHopperTransferSelfTest.run();
         ForgeHopperStateSelfTest.run();
         ForgeHopperDeviceSelfTest.run(server);
+        dev.kehai.digitalstorage.command.ManagementCommandsSelfTest.run(server);
         ForgeLedgerSelfTest.run();
         ForgeAccessorSelfTest.run(server);
         dev.kehai.digitalstorage.storage.VolumeLedgerSelfTest.run();
