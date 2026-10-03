@@ -51,6 +51,8 @@ public final class ForgeItemKeySelfTest {
             ForgeRecoverySelfTest.capabilityRoundTrip(stack);
             ForgeRecoverySelfTest.capabilityCaptureFailure(stack,
                     () -> FAIL_SERIALIZATION.set(true), () -> FAIL_SERIALIZATION.remove());
+            ForgeTransferSelfTest.capabilityCaptureFailure(stack,
+                    () -> FAIL_SERIALIZATION.set(true), () -> FAIL_SERIALIZATION.remove());
             expect(!key.equals(ItemKey.of(stack)) && key.equals(ItemKey.of(key.toStack(1))),
                     "Mutable capability data changed an existing key or stack count entered identity");
             restored.getCapability(ForgeCapabilities.ENERGY).orElseThrow(() ->

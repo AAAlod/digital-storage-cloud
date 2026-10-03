@@ -10,6 +10,7 @@ public final class ForgeSharedSelfTest {
         dev.kehai.digitalstorage.storage.ItemKeySelfTest.run();
         ForgeItemKeySelfTest.run();
         ForgeRecoverySelfTest.run();
+        ForgeTransferSelfTest.run();
         ForgeLedgerSelfTest.run();
         ForgeAccessorSelfTest.run(server);
         dev.kehai.digitalstorage.storage.VolumeLedgerSelfTest.run();
