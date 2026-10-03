@@ -80,7 +80,7 @@ public final class ForgeTransferIncidents {
     static CompoundTag encode(Entry entry) {
         var tag = new CompoundTag();
         var incident = entry.incident();
-        tag.putInt("SchemaVersion", 1);
+        tag.putInt("SchemaVersion", 2);
         tag.putUUID("Id", entry.id());
         tag.putUUID("Owner", incident.owner());
         tag.putUUID("Volume", incident.volume());
@@ -89,12 +89,30 @@ public final class ForgeTransferIncidents {
         tag.putLong("Settled", incident.settled());
         tag.putLong("CreatedMillis", incident.createdMillis());
         tag.putString("Reason", incident.reason());
+        var origin = new CompoundTag();
+        origin.putBoolean("Known", incident.origin().known());
+        origin.putString("Dimension", incident.origin().dimension());
+        origin.putLong("Accessor", incident.origin().accessorPosition());
+        origin.putLong("Connector", incident.origin().connectorPosition());
+        tag.put("Origin", origin);
+        var observation = new CompoundTag();
+        var observed = incident.observation();
+        observation.putBoolean("Known", observed.known());
+        observation.put("ExpectedVariant", observed.expectedVariant());
+        observation.putLong("Maximum", observed.maximum());
+        observation.putLong("Observed", observed.observed());
+        observation.putLong("Requested", observed.requested());
+        observation.putLong("Reserved", observed.reserved());
+        observation.putBoolean("ActualStarted", observed.actualStarted());
+        observation.putString("Stage", observed.stage().name());
+        tag.put("Observation", observation);
         if (entry.administrator() != null) tag.putUUID("Administrator", entry.administrator());
         tag.putString("Explanation", entry.explanation());
         return tag;
     }
     static Entry read(CompoundTag tag) {
-        if (tag == null || !tag.contains("SchemaVersion", Tag.TAG_INT) || tag.getInt("SchemaVersion") != 1
+        if (tag == null || !tag.contains("SchemaVersion", Tag.TAG_INT)
+                || (tag.getInt("SchemaVersion") != 1 && tag.getInt("SchemaVersion") != 2)
                 || !tag.hasUUID("Id") || !tag.hasUUID("Owner") || !tag.hasUUID("Volume")
                 || !tag.contains("Handler", Tag.TAG_STRING) || !tag.contains("Slot", Tag.TAG_INT)
                 || !tag.contains("Settled", Tag.TAG_LONG) || !tag.contains("CreatedMillis", Tag.TAG_LONG)
@@ -104,8 +122,34 @@ public final class ForgeTransferIncidents {
         }
         return new Entry(tag.getUUID("Id"), new ForgeInventoryTransferExecutor.Incident(tag.getUUID("Owner"),
                 tag.getUUID("Volume"), tag.getString("Handler"), tag.getInt("Slot"), tag.getLong("Settled"),
-                tag.getLong("CreatedMillis"), tag.getString("Reason")),
+                tag.getLong("CreatedMillis"), tag.getString("Reason"), readOrigin(tag), readObservation(tag)),
                 tag.hasUUID("Administrator") ? tag.getUUID("Administrator") : null, tag.getString("Explanation"));
+    }
+    private static ForgeInventoryTransferExecutor.Origin readOrigin(CompoundTag record) {
+        if (record.getInt("SchemaVersion") == 1) return ForgeInventoryTransferExecutor.Origin.unknown();
+        if (!record.contains("Origin", Tag.TAG_COMPOUND)) throw new IllegalArgumentException("Missing incident origin");
+        var tag = record.getCompound("Origin");
+        if (!isBoolean(tag, "Known") || !tag.contains("Dimension", Tag.TAG_STRING)
+                || !tag.contains("Accessor", Tag.TAG_LONG) || !tag.contains("Connector", Tag.TAG_LONG)) {
+            throw new IllegalArgumentException("Malformed incident origin");
+        }
+        return new ForgeInventoryTransferExecutor.Origin(tag.getBoolean("Known"), tag.getString("Dimension"),
+                tag.getLong("Accessor"), tag.getLong("Connector"));
+    }
+    private static ForgeInventoryTransferExecutor.Observation readObservation(CompoundTag record) {
+        if (record.getInt("SchemaVersion") == 1) return ForgeInventoryTransferExecutor.Observation.unknown();
+        if (!record.contains("Observation", Tag.TAG_COMPOUND)) throw new IllegalArgumentException("Missing incident observation");
+        var tag = record.getCompound("Observation");
+        if (!isBoolean(tag, "Known") || !isBoolean(tag, "ActualStarted") || !tag.contains("ExpectedVariant", Tag.TAG_COMPOUND)
+                || !tag.contains("Maximum", Tag.TAG_LONG) || !tag.contains("Observed", Tag.TAG_LONG)
+                || !tag.contains("Requested", Tag.TAG_LONG) || !tag.contains("Reserved", Tag.TAG_LONG)
+                || !tag.contains("Stage", Tag.TAG_STRING)) throw new IllegalArgumentException("Malformed incident observation");
+        return new ForgeInventoryTransferExecutor.Observation(tag.getBoolean("Known"), tag.getCompound("ExpectedVariant"),
+                tag.getLong("Maximum"), tag.getLong("Observed"), tag.getLong("Requested"), tag.getLong("Reserved"),
+                tag.getBoolean("ActualStarted"), ForgeInventoryTransferExecutor.Stage.valueOf(tag.getString("Stage")));
+    }
+    private static boolean isBoolean(CompoundTag tag, String key) {
+        return tag.contains(key, Tag.TAG_BYTE) && (tag.getByte(key) == 0 || tag.getByte(key) == 1);
     }
     public record Entry(UUID id, ForgeInventoryTransferExecutor.Incident incident, UUID administrator, String explanation) {
         public Entry {

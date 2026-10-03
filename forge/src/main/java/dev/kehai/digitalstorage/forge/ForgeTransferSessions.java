@@ -60,8 +60,11 @@ public final class ForgeTransferSessions {
         }
         public boolean available() { return initialized && recovery.available() && recovery.inFlightCount() == 0 && incidents.available(); }
         public ForgeInventoryTransferExecutor executor(UUID owner, UUID volume) {
+            return executor(owner, volume, ForgeInventoryTransferExecutor.Origin.unknown());
+        }
+        public ForgeInventoryTransferExecutor executor(UUID owner, UUID volume, ForgeInventoryTransferExecutor.Origin origin) {
             if (!available()) throw new IllegalStateException("Forge transfer recovery requires reconciliation");
-            return new ForgeInventoryTransferExecutor(owner, volume, recovery, incidents::record, this::available);
+            return new ForgeInventoryTransferExecutor(owner, volume, recovery, incidents::record, this::available, origin);
         }
         public boolean flush() {
             boolean successful = true;

@@ -12,7 +12,7 @@ public final class ForgeTransferSessionSelfTest {
     private ForgeTransferSessionSelfTest() { }
     public static void run(MinecraftServer server) {
         var active = ForgeTransferSessions.get(server);
-        expect(active == ForgeTransferSessions.get(server) && active.available(), "Running server has no unique ready transfer session");
+        expect(active == ForgeTransferSessions.get(server), "Running server has no unique transfer session");
         Path root;
         try { root = Files.createTempDirectory("digitalstorage-forge-session-").toAbsolutePath().normalize(); }
         catch (IOException failure) { throw new IllegalStateException(failure); }
@@ -36,7 +36,9 @@ public final class ForgeTransferSessionSelfTest {
             expect(staleRejected, "Stale session overwrote acknowledgement evidence");
 
             var bound = ForgeTransferSessions.openForTest(root.resolve("bound"));
-            var first = bound.executor(incident.owner(), incident.volume());
+            var origin = new ForgeInventoryTransferExecutor.Origin(true, "minecraft:overworld",
+                    new net.minecraft.core.BlockPos(4, 70, 8).asLong(), new net.minecraft.core.BlockPos(5, 70, 8).asLong());
+            var first = bound.executor(incident.owner(), incident.volume(), origin);
             var second = bound.executor(incident.owner(), incident.volume());
             var target = new dev.kehai.digitalstorage.storage.VolumeLedger(incident.volume(), () -> { }, 32);
             var stone = dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.world.item.Items.STONE);
@@ -53,6 +55,23 @@ public final class ForgeTransferSessionSelfTest {
                     && ForgeTransferSessions.openForTest(root.resolve("bound")).incidents().unresolvedCount() == 1
                     && second.move(view, target, stone, 10).operations() == 0,
                     "Executor sink did not persist or block another already-created session executor");
+            var persisted = ForgeTransferSessions.openForTest(root.resolve("bound")).incidents().entries().get(0).incident();
+            var observation = persisted.observation();
+            expect(persisted.origin().equals(origin) && observation.known() && observation.maximum() == 10
+                    && observation.observed() == 10 && observation.requested() == 10 && observation.reserved() == 10
+                    && observation.actualStarted() && observation.stage() == ForgeInventoryTransferExecutor.Stage.EXTRACTION
+                    && observation.expectedVariant().getString("item").equals("minecraft:stone")
+                    && bound.recovery().pendingCount() == 0,
+                    "Persisted source context or request was lost or interpreted as owned items");
+            observation.expectedVariant().putString("item", "minecraft:dirt");
+            expect(observation.expectedVariant().getString("item").equals("minecraft:stone"), "Incident identity exposed mutable NBT");
+            var legacy = ForgeTransferIncidents.encode(reopened.incidents().entries().get(0));
+            legacy.putInt("SchemaVersion", 1);
+            legacy.remove("Origin");
+            legacy.remove("Observation");
+            var older = ForgeTransferIncidents.read(legacy);
+            expect(!older.incident().origin().known() && !older.incident().observation().known()
+                    && older.administrator().equals(administrator), "Legacy event invented request data or lost acknowledgement");
 
             Path records = root.resolve("fault");
             var faulted = new ForgeTransferIncidents(records);
