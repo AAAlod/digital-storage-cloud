@@ -20,15 +20,10 @@ dependencies {
 }
 
 // Keep one authoritative source tree while compiling the shared subset independently.
+apply from: 'source-layout.gradle'
 sourceSets.main.java {
     setSrcDirs(['../src/main/java'])
-    exclude 'dev/kehai/digitalstorage/platform/**'
-    exclude 'dev/kehai/digitalstorage/DigitalStorageMod.java'
-    exclude 'dev/kehai/digitalstorage/DigitalStorageClient.java'
-    exclude 'dev/kehai/digitalstorage/command/**'
-    exclude 'dev/kehai/digitalstorage/block/AdvancedInventoryHopperBlock.java'
-    exclude 'dev/kehai/digitalstorage/integration/TomIntegrationStatus.java'
-    exclude 'dev/kehai/digitalstorage/storage/DigitalItemStorageSelfTest.java'
+    exclude dscCommonExcludes
 }
 
 java {

@@ -1,0 +1,49 @@
+plugins {
+    id 'net.minecraftforge.gradle' version '6.0.54'
+}
+
+def product = new Properties()
+file('../gradle.properties').withInputStream { product.load(it) }
+version = product.mod_version
+group = product.maven_group
+base { archivesName = 'digital-storage-cloud-forge' }
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+    withSourcesJar()
+}
+minecraft { mappings channel: 'official', version: product.minecraft_version }
+repositories { mavenCentral() }
+dependencies {
+    minecraft "net.minecraftforge:forge:${product.minecraft_version}-47.4.10"
+    compileOnly "com.electronwill.night-config:core:${product.night_config_version}"
+    compileOnly "com.electronwill.night-config:toml:${product.night_config_version}"
+    compileOnly 'org.jetbrains:annotations:23.0.0'
+}
+
+// Compile the same authoritative shared sources against Forge's patched Minecraft.
+// Keep FG and Loom in separate Gradle builds, with no plugin/classloader coupling.
+apply from: '../common/source-layout.gradle'
+sourceSets.main.java {
+    srcDir '../src/main/java'
+    exclude dscCommonExcludes
+}
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+tasks.register('verifySharedSources') {
+    dependsOn tasks.named('compileJava')
+    doLast {
+        def shared = fileTree('../src/main/java') { include '**/*.java'; exclude dscCommonExcludes }
+        def forbidden = ~/net[.\/]fabricmc|net[.\/]minecraftforge|com[.\/]tom|dev[.\/]kehai[.\/]digitalstorage[.\/]platform/
+        shared.each { source ->
+            if (source.getText('UTF-8') =~ forbidden) {
+                throw new GradleException("Platform reference in shared source: ${source.name}")
+            }
+        }
+        logger.lifecycle("Forge shared compilation passed: ${shared.files.size()} authoritative sources")
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifySharedSources') }
+tasks.named('jar') { finalizedBy 'reobfJar' }

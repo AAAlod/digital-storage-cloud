@@ -1,0 +1,10 @@
+// Shared by the Fabric common compiler and the standalone Forge build.
+ext.dscCommonExcludes = [
+    'dev/kehai/digitalstorage/platform/**',
+    'dev/kehai/digitalstorage/DigitalStorageMod.java',
+    'dev/kehai/digitalstorage/DigitalStorageClient.java',
+    'dev/kehai/digitalstorage/command/**',
+    'dev/kehai/digitalstorage/block/AdvancedInventoryHopperBlock.java',
+    'dev/kehai/digitalstorage/integration/TomIntegrationStatus.java',
+    'dev/kehai/digitalstorage/storage/DigitalItemStorageSelfTest.java'
+]
