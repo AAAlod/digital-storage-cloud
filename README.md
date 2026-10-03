@@ -54,32 +54,6 @@ equipment and other special items. Physical blocks are lightweight accessors:
 any number of accessors can link to one volume while Tom and Fabric Transfer API
 consumers see the same canonical `Storage<ItemVariant>` instance.
 
-## Architecture
-
-```text
-Player account
-  -> up to 3 storage volumes by default
-       -> independent name, tier and item contents
-            <- any number of bound accessors
-```
-
-- Items and tiers belong to `StorageVolume`, never to a block entity.
-- An accessor stores only `controllerId` and `boundVolumeId`.
-- The first successful bind sets the controller; merely opening or clicking a
-  block does not claim it.
-- Only the controller can change or clear an accessor binding.
-- A player may bind an accessor only to one of their own volumes.
-- Clearing a binding atomically clears both controller and volume IDs.
-- Accessors have no tick function and resolve a volume only when accessed.
-- Multiple accessors bound to one volume return the identical canonical storage
-  object, allowing Tom's merged inventory to deduplicate them.
-
-The default account limit is configured with `defaultVolumesPerPlayer`. Set it
-to `0` for unlimited volumes.
-
-Normal chunk save/load keeps an accessor binding. Mining it always drops a clean
-item with no controller or Volume ID, so it must be rebound after placement.
-
 ## Player commands
 
 ```text
@@ -126,87 +100,42 @@ loaded accessor remains bound to it. Operator-only diagnostics remain available:
 - Malformed volumes are quarantined individually and their raw NBT is retained.
 - A newer cloud schema is rejected instead of being rewritten by an older Mod.
 
-## Sharded persistence
+## Code overview
 
-Storage data no longer uses a monolithic Minecraft `PersistentState`. Every
-account and volume has its own compressed NBT file:
+Short module introductions are next to the relevant code:
 
-```text
-<world>/digitalstorage/
-  accounts/<player UUID>.dat
-  volumes/<volume UUID>.dat
-  quarantine/accounts/
-  quarantine/volumes/
-```
-
-Only dirty accounts and volumes are serialized. By default, dirty snapshots are
-batched every 200 server ticks and written by one ordered background writer.
-`persistenceFlushIntervalTicks` accepts values from 20 to 12000. Server shutdown
-forces a flush and waits for all queued writes.
-
-Incremental volume snapshots keep the normal `persistenceVariantsPerTick`
-budget (128 by default). An unfinished hot volume rotates to the back of the
-dirty queue so it cannot block cold volumes. If one snapshot restarts four times
-because the volume keeps changing, or remains dirty for 600 server ticks, its
-next scheduled pass finishes the in-memory snapshot in one server-thread step.
-`/digitalstorage stats` reports restart count, forced snapshot count, oldest dirty age,
-and content totals already known without loading cold Volumes. Operators can run
-`/digitalstorage stats deep` when an exact one-off total justifies loading every Volume.
-
-Each update is written to a temporary file and atomically replaces its target.
-A malformed file is moved out of the live directory into `quarantine`; other
-accounts and volumes continue loading. A file with a newer schema stops loading
-instead, preventing an older Mod from moving or rewriting newer data.
-
-## Tom's Simple Storage
-
-Tom's Simple Storage remains a hard dependency, but release 1.1.8 intentionally
-does not enforce an exact Tom version so compatibility with other builds can be
-tested. Version 1.7.1 remains the compile and verification baseline. Required integration
-mixins batch Basic Inventory Hopper transfers, use direct exact-variant extraction,
-back off failed transfers and stagger connector scans. Exact moves use a nested Fabric
-transaction so a destination capacity change rolls back the source.
-
-Tom's `MergedStorage` continues trying later physical inventories when Digital
-Storage rejects an insertion, so unstackable items fall back to ordinary chests
-when those inventories are part of the same network. The runtime self-test
-verifies this behavior against the baseline Tom 1.7.1 build. Other Tom versions
-are experimental until they pass the same checks.
-
-## Tom network performance and migration
-
-A bound accessor connected through an adjacent Tom inventory cable connector
-analyzes the network when its screen opens and shows a relative `0-100 / A-E`
-health score. A healthy network stays compact; the screen expands only actionable
-duplicate-endpoint, failing-hopper and migration guidance. Low-level counters stay
-available through the diagnostic commands instead of filling the player UI.
-Digital Storage item quantities do not directly reduce the score and the UI
-deliberately avoids absolute MSPT claims. The refresh button requests a new
-analysis after topology changes.
-
-Recommendations maximize physical views freed with the target volume's limited
-variant budget. Variants already present in the volume are selected first, then
-candidates are ordered by views freed and total amount. All Digital Storage
-instances are excluded as sources, including instances behind Tom's filtered
-storage wrapper.
-
-`migrationViewsScannedPerTick` defaults to `256` and bounds how many physical
-network entries one migration job examines per game tick. Each move runs its
-source extraction and target insertion in one Fabric transaction and commits
-only when the inserted amount equals the extracted amount. Jobs can be cancelled
-from the accessor screen. They may continue after the initiating player logs out,
-but stop without automatic resume if the accessor, Tom connector, source inventory,
-network topology or target becomes unavailable.
+- [Storage and persistence](src/main/java/dev/kehai/digitalstorage/storage/README.md)
+- [Tom integration and migration](src/main/java/dev/kehai/digitalstorage/optimization/README.md)
+- [Local dependency](libs/README.md) and [texture tool](tools/README.md)
 
 ## Build
 
-Requires Java 17.
+Clone this repository and use a Java 17 JDK. Set `JAVA_HOME` to that JDK and
+ensure its `bin` directory is on `PATH`. The checked-in wrapper selects Gradle
+8.6; no separate Gradle installation is required.
 
-```text
-./gradlew build
+From the repository root on Windows PowerShell:
+
+```powershell
+.\gradlew.bat build
 ```
 
-The distributable JAR is written to `build/libs/`.
+On Linux or macOS:
+
+```sh
+sh ./gradlew build
+```
+
+The first build needs internet access for the Gradle distribution and Maven
+dependencies. Tom's Storage 1.7.1 is already included in `libs/`; development
+runtime libraries are prepared automatically. Building does not require local
+worlds, manually generated textures or files outside this checkout.
+
+The distributable is `build/libs/digital-storage-cloud-<version>.jar`, where
+`<version>` is `mod_version` in `gradle.properties`. The matching `-sources.jar`
+is source code, not a playable mod. Development/shadow JARs are not the release
+artifact. To run a development instance, use `runClient` or `runServer` instead
+of `build`; server EULA acceptance is required before a server can run.
 
 ## AI-assisted development
 
