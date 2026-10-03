@@ -27,6 +27,8 @@ public final class DigitalItemStorageSelfTest {
 
     public static String run() {
         ItemVariant stone = ItemVariant.of(Items.STONE);
+        ItemKeySelfTest.run();
+        dev.kehai.digitalstorage.platform.fabric.FabricItemKeySelfTest.run();
         committedInsertPersistsAndMarksDirtyOnce(stone);
         abortedInsertRemovesTheProvisionalEntry(stone);
         abortedExtractRestoresThePreviousAmount(stone);
@@ -307,14 +309,14 @@ public final class DigitalItemStorageSelfTest {
             ItemVariant pickaxe = ItemVariant.of(Items.IRON_PICKAXE);
 
             expectFalse(record.acceptsUnstackableItems(), "new volume did not default to Reject");
-            expectFalse(record.canInsert(pickaxe), "Tom-facing policy accepted a tool in Reject mode");
+            expectFalse(record.canInsert(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(pickaxe)), "Tom-facing policy accepted a tool in Reject mode");
             try (Transaction transaction = Transaction.openOuter()) {
                 expectEquals(0, record.storage().insert(pickaxe, 1, transaction),
                         "Reject volume accepted a new unstackable item");
             }
 
             expectTrue(record.setAcceptUnstackableItems(true), "Accept setting did not change");
-            expectTrue(record.canInsert(pickaxe), "Tom-facing policy rejected a tool in Accept mode");
+            expectTrue(record.canInsert(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(pickaxe)), "Tom-facing policy rejected a tool in Accept mode");
             try (Transaction transaction = Transaction.openOuter()) {
                 expectEquals(1, record.storage().insert(pickaxe, 1, transaction),
                         "Accept volume rejected an unstackable item");
@@ -373,12 +375,12 @@ public final class DigitalItemStorageSelfTest {
         net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
         nbt.putString("Payload", "x".repeat(70_000));
         ItemVariant variant = ItemVariant.of(Items.PAPER, nbt);
-        int measuredBytes = ItemSecurityPolicy.variantNbtBytes(variant);
-        expectFalse(ItemSecurityPolicy.isNbtWithinLimit(variant, 65_536),
+        int measuredBytes = ItemSecurityPolicy.variantNbtBytes(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(variant));
+        expectFalse(ItemSecurityPolicy.isNbtWithinLimit(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(variant), 65_536),
                 "oversized variant NBT passed the configured limit");
-        expectTrue(ItemSecurityPolicy.isNbtWithinLimit(variant, measuredBytes),
+        expectTrue(ItemSecurityPolicy.isNbtWithinLimit(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(variant), measuredBytes),
                 "variant NBT size estimator rejected a sufficient limit");
-        expectFalse(ItemSecurityPolicy.isNbtWithinLimit(variant, measuredBytes - 1),
+        expectFalse(ItemSecurityPolicy.isNbtWithinLimit(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(variant), measuredBytes - 1),
                 "variant NBT size estimator accepted a one-byte-short limit");
     }
 

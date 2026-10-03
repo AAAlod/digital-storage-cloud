@@ -61,7 +61,7 @@ public final class TomNetworkAnalysis {
         List<Candidate> candidates = new ArrayList<>();
         for (MutableCandidate candidate : grouped.values()) {
             boolean existing = target.amountOf(candidate.variant) > 0;
-            if (!accessor.getRecord().canInsert(candidate.variant)) {
+            if (!accessor.getRecord().canInsert(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(candidate.variant))) {
                 continue;
             }
             long available = DigitalItemStorage.MAX_AMOUNT_PER_VARIANT - target.amountOf(candidate.variant);

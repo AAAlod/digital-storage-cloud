@@ -2,6 +2,8 @@
 
 ## 1.2.0 - Unreleased
 
+- 存储物品身份与安全策略改用自有不可变物品键，保留旧 Variant 编码、完整 NBT 和 long 数量。
+
 - 将屏幕消息与等级资源重载的 Fabric 接线移入平台适配层，保留现有消息格式及服务端权限检查。
 
 - Separate shared mod identity, configuration paths and server lifecycle services

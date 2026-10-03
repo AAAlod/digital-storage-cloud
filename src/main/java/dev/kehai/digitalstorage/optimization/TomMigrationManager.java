@@ -397,7 +397,7 @@ public final class TomMigrationManager {
                 }
                 ItemVariant variant = view.getResource();
                 boolean exists = target.amountOf(variant) > 0;
-                if (!record.canInsert(variant)
+                if (!record.canInsert(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(variant))
                         || (!exists && target.variantCount() >= record.variantCapacity())) {
                     blocked = true;
                     continue;

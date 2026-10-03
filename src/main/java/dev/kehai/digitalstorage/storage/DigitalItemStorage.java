@@ -1,5 +1,6 @@
 package dev.kehai.digitalstorage.storage;
 
+import dev.kehai.digitalstorage.platform.fabric.FabricItemKeys;
 import java.util.ArrayList;
 import java.util.ConcurrentModificationException;
 import java.util.HashMap;
@@ -28,13 +29,13 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
      */
     public static final long MAX_AMOUNT_PER_VARIANT = Integer.MAX_VALUE;
 
-    private final Map<ItemVariant, Entry> entries = new HashMap<>();
+    private final Map<ItemKey, Entry> entries = new HashMap<>();
     private final UUID volumeId;
     private final Runnable dirtyCallback;
     private final IntSupplier variantCapacitySupplier;
     private final LongSupplier variantNbtBudgetSupplier;
-    private final Predicate<ItemVariant> insertValidator;
-    private final Predicate<ItemVariant> newVariantValidator;
+    private final Predicate<ItemKey> insertValidator;
+    private final Predicate<ItemKey> newVariantValidator;
     private final MetricsParticipant metricsParticipant = new MetricsParticipant();
     private int variantCount;
     private long totalItemCount;
@@ -83,7 +84,7 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
     DigitalItemStorage(
             Runnable dirtyCallback,
             IntSupplier variantCapacitySupplier,
-            Predicate<ItemVariant> newVariantValidator
+            Predicate<ItemKey> newVariantValidator
     ) {
         this(null, dirtyCallback, variantCapacitySupplier, () -> Long.MAX_VALUE, variant -> true, newVariantValidator);
     }
@@ -91,8 +92,8 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
     DigitalItemStorage(
             Runnable dirtyCallback,
             IntSupplier variantCapacitySupplier,
-            Predicate<ItemVariant> insertValidator,
-            Predicate<ItemVariant> newVariantValidator
+            Predicate<ItemKey> insertValidator,
+            Predicate<ItemKey> newVariantValidator
     ) {
         this(null, dirtyCallback, variantCapacitySupplier, () -> Long.MAX_VALUE, insertValidator, newVariantValidator);
     }
@@ -102,8 +103,8 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
             Runnable dirtyCallback,
             IntSupplier variantCapacitySupplier,
             LongSupplier variantNbtBudgetSupplier,
-            Predicate<ItemVariant> insertValidator,
-            Predicate<ItemVariant> newVariantValidator
+            Predicate<ItemKey> insertValidator,
+            Predicate<ItemKey> newVariantValidator
     ) {
         this.volumeId = volumeId;
         this.dirtyCallback = dirtyCallback;
@@ -114,10 +115,11 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
     }
 
     public void load(ItemVariant resource, long amount) {
-        load(resource, amount, resource.toNbt());
+        ItemKey key = FabricItemKeys.fromVariant(resource);
+        load(key, amount, ItemKeyCodec.write(key));
     }
 
-    void load(ItemVariant resource, long amount, NbtCompound serializedVariant) {
+    void load(ItemKey resource, long amount, NbtCompound serializedVariant) {
         if (resource.isBlank() || amount <= 0) {
             return;
         }
@@ -147,7 +149,11 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
     }
 
     @Override
-    public long insert(ItemVariant resource, long maxAmount, TransactionContext transaction) {
+    public long insert(ItemVariant variant, long maxAmount, TransactionContext transaction) {
+        return insertKey(FabricItemKeys.fromVariant(variant), maxAmount, transaction);
+    }
+
+    private long insertKey(ItemKey resource, long maxAmount, TransactionContext transaction) {
         if (resource.isBlank() || maxAmount <= 0 || !insertValidator.test(resource)) {
             return 0;
         }
@@ -157,7 +163,7 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
             if (variantCount >= variantCapacitySupplier.getAsInt() || !newVariantValidator.test(resource)) {
                 return 0;
             }
-            NbtCompound serializedVariant = resource.toNbt();
+            NbtCompound serializedVariant = ItemKeyCodec.write(resource);
             int variantNbtBytes = serializedVariant.getSizeInBytes();
             if (!isVariantNbtWithinBudget(variantNbtBytes)) {
                 return 0;
@@ -185,7 +191,11 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
     }
 
     @Override
-    public long extract(ItemVariant resource, long maxAmount, TransactionContext transaction) {
+    public long extract(ItemVariant variant, long maxAmount, TransactionContext transaction) {
+        return extractKey(FabricItemKeys.fromVariant(variant), maxAmount, transaction);
+    }
+
+    private long extractKey(ItemKey resource, long maxAmount, TransactionContext transaction) {
         if (resource.isBlank() || maxAmount <= 0) {
             return 0;
         }
@@ -245,6 +255,10 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
     }
 
     public long amountOf(ItemVariant variant) {
+        return amountOf(FabricItemKeys.fromVariant(variant));
+    }
+
+    public long amountOf(ItemKey variant) {
         Entry entry = entries.get(variant);
         return entry == null ? 0 : entry.amount;
     }
@@ -260,7 +274,7 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
     public void forEach(LongEntryConsumer consumer) {
         entries.forEach((variant, entry) -> {
             if (entry.amount > 0) {
-                consumer.accept(variant, entry.amount);
+                consumer.accept(entry.getResource(), entry.amount);
             }
         });
     }
@@ -329,13 +343,15 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
     }
 
     private final class Entry extends SnapshotParticipant<Long> implements StorageView<ItemVariant> {
-        private final ItemVariant resource;
+        private final ItemKey resource;
+        private final ItemVariant fabricResource;
         private final NbtCompound serializedVariant;
         private final int variantNbtBytes;
         private long amount;
 
-        private Entry(ItemVariant resource, long amount, NbtCompound serializedVariant, int variantNbtBytes) {
+        private Entry(ItemKey resource, long amount, NbtCompound serializedVariant, int variantNbtBytes) {
             this.resource = resource;
+            this.fabricResource = FabricItemKeys.toVariant(resource);
             this.amount = amount;
             this.serializedVariant = serializedVariant;
             this.variantNbtBytes = variantNbtBytes;
@@ -369,7 +385,7 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
 
         @Override
         public ItemVariant getResource() {
-            return resource;
+            return fabricResource;
         }
 
         @Override
@@ -384,7 +400,7 @@ public final class DigitalItemStorage implements Storage<ItemVariant> {
 
         @Override
         public long extract(ItemVariant requested, long maxAmount, TransactionContext transaction) {
-            if (!resource.equals(requested)) {
+            if (!fabricResource.equals(requested)) {
                 return 0;
             }
             return DigitalItemStorage.this.extract(requested, maxAmount, transaction);

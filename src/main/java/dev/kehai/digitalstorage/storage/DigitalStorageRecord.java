@@ -9,7 +9,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtList;
@@ -139,7 +138,7 @@ public final class DigitalStorageRecord {
         for (int itemIndex = 0; itemIndex < items.size(); itemIndex++) {
             NbtCompound itemNbt = items.getCompound(itemIndex);
             NbtCompound serializedVariant = itemNbt.getCompound(VARIANT_KEY);
-            ItemVariant variant = ItemVariant.fromNbt(serializedVariant);
+            ItemKey variant = ItemKeyCodec.read(serializedVariant);
             long amount = itemNbt.getLong(AMOUNT_KEY);
             record.storage.load(variant, amount, serializedVariant);
         }
@@ -210,7 +209,7 @@ public final class DigitalStorageRecord {
         return policyVersion;
     }
 
-    public boolean canInsert(ItemVariant variant) {
+    public boolean canInsert(ItemKey variant) {
         return ItemSecurityPolicy.canInsert(variant, acceptUnstackableItems)
                 && (storage.amountOf(variant) > 0 || ItemSecurityPolicy.canCreateVariant(variant));
     }
@@ -293,10 +292,10 @@ public final class DigitalStorageRecord {
     }
 
     private static int migratedCapacity(NbtList items) {
-        Set<ItemVariant> variants = new HashSet<>();
+        Set<ItemKey> variants = new HashSet<>();
         for (int itemIndex = 0; itemIndex < items.size(); itemIndex++) {
             NbtCompound itemNbt = items.getCompound(itemIndex);
-            ItemVariant variant = ItemVariant.fromNbt(itemNbt.getCompound(VARIANT_KEY));
+            ItemKey variant = ItemKeyCodec.read(itemNbt.getCompound(VARIANT_KEY));
             if (!variant.isBlank() && itemNbt.getLong(AMOUNT_KEY) > 0) {
                 variants.add(variant);
             }
