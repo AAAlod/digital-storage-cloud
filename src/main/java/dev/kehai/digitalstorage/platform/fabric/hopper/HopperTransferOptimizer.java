@@ -17,7 +17,7 @@ import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
 import net.fabricmc.fabric.api.transfer.v1.storage.StorageUtil;
 import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
 import net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext;
-import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 public final class HopperTransferOptimizer {
     private static final Map<Storage<ItemVariant>, WeakReference<StorageView<ItemVariant>>> FILTER_CURSORS =
@@ -29,7 +29,7 @@ public final class HopperTransferOptimizer {
     /** Resolve the device tier from its cached state; this performs no registry or world lookup. */
     public static long batchLimit(BlockEntity hopper) {
         DigitalStorageConfig config = DigitalStorageConfig.get();
-        return HopperPolicy.batchLimit(hopper.getCachedState().isOf(DigitalStorageMod.ADVANCED_INVENTORY_HOPPER), config);
+        return HopperPolicy.batchLimit(hopper.getBlockState().is(DigitalStorageMod.ADVANCED_INVENTORY_HOPPER), config);
     }
 
     public static long moveFiltered(

@@ -3,7 +3,7 @@ package dev.kehai.digitalstorage.platform.fabric.mixin;
 import com.tom.storagemod.tile.InventoryConnectorBlockEntity;
 import com.tom.storagemod.util.MergedStorage;
 import dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkCache;
-import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -32,7 +32,7 @@ public abstract class InventoryConnectorBlockEntityMixin {
     @Inject(method = "updateServer", at = @At("TAIL"), remap = false)
     private void digitalstorage$detectRebuiltTopology(CallbackInfo callbackInfo) {
         BlockEntity connector = (BlockEntity) (Object) this;
-        if (connector.getWorld() == null || connector.getWorld().getTime() % 20 != 0) {
+        if (connector.getLevel() == null || connector.getLevel().getGameTime() % 20 != 0) {
             return;
         }
         TomNetworkCache.rebuilt(connector, handlers);

@@ -10,7 +10,7 @@ import java.util.Set;
 import java.util.WeakHashMap;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
-import net.minecraft.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 /**
  * Associates scanners with a volume during network analysis. Hopper events then
@@ -56,10 +56,10 @@ public final class TomScannerTelemetry {
             Storage<ItemVariant> destination,
             int consecutiveFailures
     ) {
-        if (hopper.getWorld() == null || TARGETS_BY_NETWORK.isEmpty()) {
+        if (hopper.getLevel() == null || TARGETS_BY_NETWORK.isEmpty()) {
             return;
         }
-        long tick = hopper.getWorld().getTime();
+        long tick = hopper.getLevel().getGameTime();
         Set<FabricDigitalItemStorage> sourceTargets = targetsFor(source);
         Set<FabricDigitalItemStorage> destinationTargets = targetsFor(destination);
         updateTargets(sourceTargets, null, hopper, tick, consecutiveFailures);

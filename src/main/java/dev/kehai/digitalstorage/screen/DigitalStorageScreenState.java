@@ -16,10 +16,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import net.minecraft.network.PacketByteBuf;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 
 public record DigitalStorageScreenState(
         boolean accessorBound,
@@ -27,7 +28,7 @@ public record DigitalStorageScreenState(
         String controller,
         String volumeName,
         List<VolumeChoice> ownedVolumes,
-        Identifier tierId,
+        ResourceLocation tierId,
         int usedVariants,
         int variantCapacity,
         String totalItems,
@@ -35,14 +36,14 @@ public record DigitalStorageScreenState(
         boolean unstackableItemsAllowedByServer,
         boolean unstackableItemsConfigurable,
         boolean hasNextTier,
-        Identifier nextTierId,
+        ResourceLocation nextTierId,
         int nextVariantCapacity,
         List<UpgradeIngredient> upgradeCost,
         int experienceLevels,
         boolean canAfford,
         NetworkDiagnostic networkDiagnostic,
         boolean statusSuccessful,
-        Text status
+        Component status
 ) {
     private static final int MAX_SYNCED_INGREDIENTS = 256;
     private static final int MAX_SYNCED_VOLUMES = 64;
@@ -56,27 +57,27 @@ public record DigitalStorageScreenState(
     }
 
     public static DigitalStorageScreenState capture(
-            ServerPlayerEntity player,
+            ServerPlayer player,
             DigitalStorageAccessorBlockEntity accessor,
-            Text status
+            Component status
     ) {
         return capture(player, accessor, status, NetworkDiagnostic.unavailable());
     }
 
     public static DigitalStorageScreenState capture(
-            ServerPlayerEntity player,
+            ServerPlayer player,
             DigitalStorageAccessorBlockEntity accessor,
-            Text status,
+            Component status,
             NetworkDiagnostic networkDiagnostic
     ) {
-        DigitalStorageState cloud = DigitalStorageState.get(player.getServerWorld());
-        List<VolumeChoice> choices = cloud.volumes(player.getUuid()).stream()
+        DigitalStorageState cloud = DigitalStorageState.get(player.serverLevel());
+        List<VolumeChoice> choices = cloud.volumes(player.getUUID()).stream()
                 .map(VolumeChoice::from)
                 .toList();
         StorageVolume volume = accessor.getVolume();
         boolean bound = accessor.isBound();
         boolean configurable = accessor.controllerId().isEmpty()
-                || accessor.controllerId().orElseThrow().equals(player.getUuid());
+                || accessor.controllerId().orElseThrow().equals(player.getUUID());
         String controller = controllerDisplayName(player, accessor.controllerId());
 
         if (volume == null) {
@@ -123,7 +124,7 @@ public record DigitalStorageScreenState(
                 Long.toString(record.storage().totalItemCount()),
                 record.acceptsUnstackableItems(),
                 DigitalStorageConfig.get().allowUnstackableItems,
-                volume.ownerId().equals(player.getUuid()),
+                volume.ownerId().equals(player.getUUID()),
                 nextTier.isPresent(),
                 next.id(),
                 next.variantCapacity(),
@@ -140,80 +141,80 @@ public record DigitalStorageScreenState(
         return Math.max(0, variantCapacity - usedVariants);
     }
 
-    private static String controllerDisplayName(ServerPlayerEntity viewer, Optional<UUID> controllerId) {
+    private static String controllerDisplayName(ServerPlayer viewer, Optional<UUID> controllerId) {
         if (controllerId.isEmpty()) {
             return "";
         }
         UUID id = controllerId.orElseThrow();
-        var server = viewer.getServerWorld().getServer();
-        ServerPlayerEntity online = server.getPlayerManager().getPlayer(id);
+        var server = viewer.serverLevel().getServer();
+        ServerPlayer online = server.getPlayerList().getPlayer(id);
         if (online != null) {
             return online.getGameProfile().getName();
         }
-        return server.getUserCache()
-                .getByUuid(id)
+        return server.getProfileCache()
+                .get(id)
                 .map(GameProfile::getName)
                 .filter(name -> !name.isBlank())
                 .orElse(id.toString());
     }
 
-    public void write(PacketByteBuf buf) {
+    public void write(FriendlyByteBuf buf) {
         buf.writeBoolean(accessorBound);
         buf.writeBoolean(accessorConfigurable);
-        buf.writeString(controller, MAX_TEXT_LENGTH);
-        buf.writeString(volumeName, MAX_TEXT_LENGTH);
+        buf.writeUtf(controller, MAX_TEXT_LENGTH);
+        buf.writeUtf(volumeName, MAX_TEXT_LENGTH);
         buf.writeVarInt(ownedVolumes.size());
         for (VolumeChoice choice : ownedVolumes) {
             choice.write(buf);
         }
-        buf.writeIdentifier(tierId);
+        buf.writeResourceLocation(tierId);
         buf.writeVarInt(usedVariants);
         buf.writeVarInt(variantCapacity);
-        buf.writeString(totalItems, MAX_TEXT_LENGTH);
+        buf.writeUtf(totalItems, MAX_TEXT_LENGTH);
         buf.writeBoolean(acceptsUnstackableItems);
         buf.writeBoolean(unstackableItemsAllowedByServer);
         buf.writeBoolean(unstackableItemsConfigurable);
         buf.writeBoolean(hasNextTier);
-        buf.writeIdentifier(nextTierId);
+        buf.writeResourceLocation(nextTierId);
         buf.writeVarInt(nextVariantCapacity);
         buf.writeVarInt(upgradeCost.size());
         for (UpgradeIngredient ingredient : upgradeCost) {
-            buf.writeEnumConstant(ingredient.kind());
-            buf.writeIdentifier(ingredient.id());
+            buf.writeEnum(ingredient.kind());
+            buf.writeResourceLocation(ingredient.id());
             buf.writeVarInt(ingredient.count());
         }
         buf.writeVarInt(experienceLevels);
         buf.writeBoolean(canAfford);
         networkDiagnostic.write(buf);
         buf.writeBoolean(statusSuccessful);
-        buf.writeText(status);
+        buf.writeComponent(status);
     }
 
-    public static DigitalStorageScreenState read(PacketByteBuf buf) {
+    public static DigitalStorageScreenState read(FriendlyByteBuf buf) {
         boolean accessorBound = buf.readBoolean();
         boolean accessorConfigurable = buf.readBoolean();
-        String controller = buf.readString(MAX_TEXT_LENGTH);
-        String volumeName = buf.readString(MAX_TEXT_LENGTH);
+        String controller = buf.readUtf(MAX_TEXT_LENGTH);
+        String volumeName = buf.readUtf(MAX_TEXT_LENGTH);
         int volumeCount = checkedCount(buf.readVarInt(), MAX_SYNCED_VOLUMES, "volume");
         List<VolumeChoice> ownedVolumes = new ArrayList<>(volumeCount);
         for (int index = 0; index < volumeCount; index++) {
             ownedVolumes.add(VolumeChoice.read(buf));
         }
-        Identifier tierId = buf.readIdentifier();
+        ResourceLocation tierId = buf.readResourceLocation();
         int usedVariants = buf.readVarInt();
         int variantCapacity = buf.readVarInt();
-        String totalItems = buf.readString(MAX_TEXT_LENGTH);
+        String totalItems = buf.readUtf(MAX_TEXT_LENGTH);
         boolean acceptsUnstackableItems = buf.readBoolean();
         boolean unstackableItemsAllowedByServer = buf.readBoolean();
         boolean unstackableItemsConfigurable = buf.readBoolean();
         boolean hasNextTier = buf.readBoolean();
-        Identifier nextTierId = buf.readIdentifier();
+        ResourceLocation nextTierId = buf.readResourceLocation();
         int nextVariantCapacity = buf.readVarInt();
         int ingredientCount = checkedCount(buf.readVarInt(), MAX_SYNCED_INGREDIENTS, "upgrade ingredient");
         List<UpgradeIngredient> upgradeCost = new ArrayList<>(ingredientCount);
         for (int index = 0; index < ingredientCount; index++) {
-            UpgradeIngredient.Kind kind = buf.readEnumConstant(UpgradeIngredient.Kind.class);
-            Identifier id = buf.readIdentifier();
+            UpgradeIngredient.Kind kind = buf.readEnum(UpgradeIngredient.Kind.class);
+            ResourceLocation id = buf.readResourceLocation();
             int count = buf.readVarInt();
             upgradeCost.add(new UpgradeIngredient(kind, id, count));
         }
@@ -238,11 +239,11 @@ public record DigitalStorageScreenState(
                 buf.readBoolean(),
                 NetworkDiagnostic.read(buf),
                 buf.readBoolean(),
-                buf.readText()
+                buf.readComponent()
         );
     }
 
-    public DigitalStorageScreenState withStatus(Text message, boolean successful) {
+    public DigitalStorageScreenState withStatus(Component message, boolean successful) {
         return new DigitalStorageScreenState(
                 accessorBound,
                 accessorConfigurable,
@@ -277,11 +278,11 @@ public record DigitalStorageScreenState(
                 List.of(new VolumeChoice(
                         UUID.fromString("00000000-0000-0000-0000-000000000001"),
                         "Primary",
-                        new Identifier("digitalstorage", "basic"),
+                        new ResourceLocation("digitalstorage", "basic"),
                         3,
                         64
                 )),
-                new Identifier("digitalstorage", "basic"),
+                new ResourceLocation("digitalstorage", "basic"),
                 3,
                 64,
                 "9223372036854775808",
@@ -289,11 +290,11 @@ public record DigitalStorageScreenState(
                 true,
                 true,
                 true,
-                new Identifier("digitalstorage", "advanced"),
+                new ResourceLocation("digitalstorage", "advanced"),
                 128,
                 List.of(
-                        UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 16),
-                        UpgradeIngredient.tag(new Identifier("c", "ingots"), 4)
+                        UpgradeIngredient.item(new ResourceLocation("minecraft", "diamond"), 16),
+                        UpgradeIngredient.tag(new ResourceLocation("c", "ingots"), 4)
                 ),
                 7,
                 true,
@@ -302,9 +303,9 @@ public record DigitalStorageScreenState(
                         4217, 64, "minecraft:cobblestone", "RUNNING", "4096", 3, 12, 8192
                 ),
                 true,
-                Text.literal("codec status")
+                Component.literal("codec status")
         );
-        PacketByteBuf buf = new PacketByteBuf(io.netty.buffer.Unpooled.buffer());
+        FriendlyByteBuf buf = new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
         try {
             expected.write(buf);
             DigitalStorageScreenState actual = read(buf);
@@ -388,10 +389,10 @@ public record DigitalStorageScreenState(
             );
         }
 
-        void write(PacketByteBuf buf) {
+        void write(FriendlyByteBuf buf) {
             buf.writeBoolean(available);
             buf.writeVarInt(healthScore);
-            buf.writeString(grade, 8);
+            buf.writeUtf(grade, 8);
             buf.writeVarInt(physicalInventories);
             buf.writeVarInt(totalViews);
             buf.writeVarInt(nonEmptyViews);
@@ -403,19 +404,19 @@ public record DigitalStorageScreenState(
             buf.writeVarInt(averageScanIntervalTicks);
             buf.writeVarInt(estimatedFreedViews);
             buf.writeVarInt(recommendedVariants);
-            buf.writeString(topCandidateId, MAX_TEXT_LENGTH);
-            buf.writeString(migrationState, 32);
-            buf.writeString(movedItems, MAX_TEXT_LENGTH);
+            buf.writeUtf(topCandidateId, MAX_TEXT_LENGTH);
+            buf.writeUtf(migrationState, 32);
+            buf.writeUtf(movedItems, MAX_TEXT_LENGTH);
             buf.writeVarInt(completedCandidates);
             buf.writeVarInt(totalCandidates);
             buf.writeVarLong(scannedViews);
         }
 
-        static NetworkDiagnostic read(PacketByteBuf buf) {
+        static NetworkDiagnostic read(FriendlyByteBuf buf) {
             return new NetworkDiagnostic(
                     buf.readBoolean(),
                     buf.readVarInt(),
-                    buf.readString(8),
+                    buf.readUtf(8),
                     buf.readVarInt(),
                     buf.readVarInt(),
                     buf.readVarInt(),
@@ -427,9 +428,9 @@ public record DigitalStorageScreenState(
                     buf.readVarInt(),
                     buf.readVarInt(),
                     buf.readVarInt(),
-                    buf.readString(MAX_TEXT_LENGTH),
-                    buf.readString(32),
-                    buf.readString(MAX_TEXT_LENGTH),
+                    buf.readUtf(MAX_TEXT_LENGTH),
+                    buf.readUtf(32),
+                    buf.readUtf(MAX_TEXT_LENGTH),
                     buf.readVarInt(),
                     buf.readVarInt(),
                     buf.readVarLong()
@@ -445,7 +446,7 @@ public record DigitalStorageScreenState(
         }
     }
 
-    public record VolumeChoice(UUID id, String name, Identifier tierId, int usedVariants, int variantCapacity) {
+    public record VolumeChoice(UUID id, String name, ResourceLocation tierId, int usedVariants, int variantCapacity) {
         static VolumeChoice from(StorageVolume volume) {
             DigitalStorageRecord record = volume.record();
             return new VolumeChoice(
@@ -457,19 +458,19 @@ public record DigitalStorageScreenState(
             );
         }
 
-        void write(PacketByteBuf buf) {
-            buf.writeUuid(id);
-            buf.writeString(name, MAX_TEXT_LENGTH);
-            buf.writeIdentifier(tierId);
+        void write(FriendlyByteBuf buf) {
+            buf.writeUUID(id);
+            buf.writeUtf(name, MAX_TEXT_LENGTH);
+            buf.writeResourceLocation(tierId);
             buf.writeVarInt(usedVariants);
             buf.writeVarInt(variantCapacity);
         }
 
-        static VolumeChoice read(PacketByteBuf buf) {
+        static VolumeChoice read(FriendlyByteBuf buf) {
             return new VolumeChoice(
-                    buf.readUuid(),
-                    buf.readString(MAX_TEXT_LENGTH),
-                    buf.readIdentifier(),
+                    buf.readUUID(),
+                    buf.readUtf(MAX_TEXT_LENGTH),
+                    buf.readResourceLocation(),
                     buf.readVarInt(),
                     buf.readVarInt()
             );

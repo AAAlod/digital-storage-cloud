@@ -3,9 +3,9 @@ package dev.kehai.digitalstorage.storage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
-import net.minecraft.nbt.NbtList;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 
 public final class PlayerStorageAccount {
     private static final String OWNER_KEY = "Owner";
@@ -47,13 +47,13 @@ public final class PlayerStorageAccount {
             volumeIds = List.copyOf(volumeIds);
         }
 
-        NbtCompound writeNbt() {
-            NbtCompound nbt = new NbtCompound();
-            nbt.putUuid(OWNER_KEY, ownerId);
-            NbtList volumes = new NbtList();
+        CompoundTag writeNbt() {
+            CompoundTag nbt = new CompoundTag();
+            nbt.putUUID(OWNER_KEY, ownerId);
+            ListTag volumes = new ListTag();
             for (UUID volumeId : volumeIds) {
-                NbtCompound entry = new NbtCompound();
-                entry.putUuid("Id", volumeId);
+                CompoundTag entry = new CompoundTag();
+                entry.putUUID("Id", volumeId);
                 volumes.add(entry);
             }
             nbt.put(VOLUMES_KEY, volumes);
@@ -61,16 +61,16 @@ public final class PlayerStorageAccount {
         }
     }
 
-    static PlayerStorageAccount fromNbt(NbtCompound nbt) {
-        if (!nbt.containsUuid(OWNER_KEY)) {
+    static PlayerStorageAccount fromNbt(CompoundTag nbt) {
+        if (!nbt.hasUUID(OWNER_KEY)) {
             throw new IllegalArgumentException("Storage account has no valid owner UUID");
         }
-        PlayerStorageAccount account = new PlayerStorageAccount(nbt.getUuid(OWNER_KEY));
-        NbtList volumes = nbt.getList(VOLUMES_KEY, NbtElement.COMPOUND_TYPE);
+        PlayerStorageAccount account = new PlayerStorageAccount(nbt.getUUID(OWNER_KEY));
+        ListTag volumes = nbt.getList(VOLUMES_KEY, Tag.TAG_COMPOUND);
         for (int index = 0; index < volumes.size(); index++) {
-            NbtCompound entry = volumes.getCompound(index);
-            if (entry.containsUuid("Id")) {
-                account.addVolume(entry.getUuid("Id"));
+            CompoundTag entry = volumes.getCompound(index);
+            if (entry.hasUUID("Id")) {
+                account.addVolume(entry.getUUID("Id"));
             }
         }
         return account;

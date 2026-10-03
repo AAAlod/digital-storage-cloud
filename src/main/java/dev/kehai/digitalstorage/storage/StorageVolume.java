@@ -2,7 +2,7 @@ package dev.kehai.digitalstorage.storage;
 
 import java.util.List;
 import java.util.UUID;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
 
 public final class StorageVolume {
     public static final int MAX_NAME_LENGTH = 48;
@@ -35,16 +35,16 @@ public final class StorageVolume {
         return new StorageVolume(id, ownerId, name, DigitalStorageRecord.createNew(id, dirtyCallback), dirtyCallback);
     }
 
-    static StorageVolume fromNbt(NbtCompound nbt, Runnable dirtyCallback) {
-        if (!nbt.containsUuid(ID_KEY) || !nbt.containsUuid(OWNER_KEY)) {
+    static StorageVolume fromNbt(CompoundTag nbt, Runnable dirtyCallback) {
+        if (!nbt.hasUUID(ID_KEY) || !nbt.hasUUID(OWNER_KEY)) {
             throw new IllegalArgumentException("Storage volume has no valid ID or owner UUID");
         }
         String name = nbt.contains(NAME_KEY) ? nbt.getString(NAME_KEY) : "Storage";
         return new StorageVolume(
-                nbt.getUuid(ID_KEY),
-                nbt.getUuid(OWNER_KEY),
+                nbt.getUUID(ID_KEY),
+                nbt.getUUID(OWNER_KEY),
                 name,
-                DigitalStorageRecord.fromNbt(nbt.getUuid(ID_KEY), nbt, dirtyCallback),
+                DigitalStorageRecord.fromNbt(nbt.getUUID(ID_KEY), nbt, dirtyCallback),
                 dirtyCallback
         );
     }
@@ -92,10 +92,10 @@ public final class StorageVolume {
     }
 
     record Snapshot(UUID id, UUID ownerId, String name, DigitalStorageRecord.Snapshot record) {
-        NbtCompound writeNbt() {
-            NbtCompound nbt = new NbtCompound();
-            nbt.putUuid(ID_KEY, id);
-            nbt.putUuid(OWNER_KEY, ownerId);
+        CompoundTag writeNbt() {
+            CompoundTag nbt = new CompoundTag();
+            nbt.putUUID(ID_KEY, id);
+            nbt.putUUID(OWNER_KEY, ownerId);
             nbt.putString(NAME_KEY, name);
             record.writeNbt(nbt);
             return nbt;

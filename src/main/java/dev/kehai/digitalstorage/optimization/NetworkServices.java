@@ -2,8 +2,8 @@ package dev.kehai.digitalstorage.optimization;
 
 import java.util.Objects;
 import java.util.UUID;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 /** Screen-facing network operations. The loader installs its Tom implementation during startup. */
 public final class NetworkServices {
@@ -17,8 +17,8 @@ public final class NetworkServices {
 
     public interface Backend {
         NetworkAnalysis.Report analyze(BlockEntity accessor);
-        StartResult start(ServerPlayerEntity player, BlockEntity accessor, NetworkAnalysis.Report report);
-        boolean cancel(ServerPlayerEntity player, UUID volumeId);
+        StartResult start(ServerPlayer player, BlockEntity accessor, NetworkAnalysis.Report report);
+        boolean cancel(ServerPlayer player, UUID volumeId);
         MigrationTask.Status status(UUID volumeId);
     }
 

@@ -2,9 +2,11 @@ package dev.kehai.digitalstorage.platform.fabric;
 
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenHandler;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol;
+import dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol.CreateVolume;
+import dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol.ManageVolume;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.network.PacketByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 
 public final class FabricScreenNetworking {
     private FabricScreenNetworking() {
@@ -12,7 +14,7 @@ public final class FabricScreenNetworking {
 
     public static void register() {
         DigitalStorageScreenHandler.setStateSender((player, update) -> {
-            PacketByteBuf buf = PacketByteBufs.create();
+            FriendlyByteBuf buf = PacketByteBufs.create();
             update.write(buf);
             ServerPlayNetworking.send(player, DigitalStorageScreenProtocol.STATE_PACKET_ID, buf);
         });

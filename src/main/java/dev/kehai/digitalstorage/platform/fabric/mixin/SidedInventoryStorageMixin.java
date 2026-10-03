@@ -2,7 +2,7 @@ package dev.kehai.digitalstorage.platform.fabric.mixin;
 
 import dev.kehai.digitalstorage.platform.fabric.tom.TomStorageIdentity;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
-import net.minecraft.util.math.Direction;
+import net.minecraft.core.Direction;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;

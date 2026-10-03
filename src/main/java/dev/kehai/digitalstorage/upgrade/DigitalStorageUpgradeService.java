@@ -9,12 +9,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.collection.DefaultedList;
+import net.minecraft.core.NonNullList;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 public final class DigitalStorageUpgradeService {
     private static final Map<UUID, Long> LAST_SUCCESSFUL_UPGRADE_TICK = new HashMap<>();
@@ -25,34 +25,34 @@ public final class DigitalStorageUpgradeService {
     }
 
     public static UpgradeResult tryUpgrade(
-            ServerPlayerEntity player,
+            ServerPlayer player,
             UUID storageId,
             DigitalStorageRecord record
     ) {
-        long currentTick = player.getServerWorld().getTime();
+        long currentTick = player.serverLevel().getGameTime();
         if (LAST_SUCCESSFUL_UPGRADE_TICK.getOrDefault(storageId, Long.MIN_VALUE) == currentTick) {
-            return UpgradeResult.failure(Text.translatable("screen.digitalstorage.error.duplicate"));
+            return UpgradeResult.failure(Component.translatable("screen.digitalstorage.error.duplicate"));
         }
 
         DigitalStorageTier currentTier = record.tier();
         Optional<DigitalStorageTier> nextTierResult = DigitalStorageTierRegistry.INSTANCE.next(currentTier.id());
         if (nextTierResult.isEmpty()) {
-            return UpgradeResult.failure(Text.translatable(
+            return UpgradeResult.failure(Component.translatable(
                     "screen.digitalstorage.error.maximum",
                     currentTier.id().toString()
             ));
         }
         DigitalStorageTier nextTier = nextTierResult.get();
 
-        PaymentPlanResult paymentResult = PaymentPlan.create(player.getInventory().main, nextTier.entryCost());
+        PaymentPlanResult paymentResult = PaymentPlan.create(player.getInventory().items, nextTier.entryCost());
         if (paymentResult.plan() == null) {
-            return UpgradeResult.failure(Text.translatable(
+            return UpgradeResult.failure(Component.translatable(
                     "screen.digitalstorage.error.missing_item",
                     paymentResult.missingIngredient().displayName()
             ));
         }
         if (player.experienceLevel < nextTier.experienceLevels()) {
-            return UpgradeResult.failure(Text.translatable(
+            return UpgradeResult.failure(Component.translatable(
                     "screen.digitalstorage.error.missing_xp",
                     nextTier.experienceLevels(),
                     player.experienceLevel
@@ -60,24 +60,24 @@ public final class DigitalStorageUpgradeService {
         }
 
         PaymentPlan paymentPlan = paymentResult.plan();
-        List<ItemStack> originalInventory = paymentPlan.apply(player.getInventory().main);
+        List<ItemStack> originalInventory = paymentPlan.apply(player.getInventory().items);
         if (nextTier.experienceLevels() > 0) {
-            player.addExperienceLevels(-nextTier.experienceLevels());
+            player.giveExperienceLevels(-nextTier.experienceLevels());
         }
 
         if (!record.advanceTier(currentTier.id(), nextTier.id())) {
-            paymentPlan.restore(player.getInventory().main, originalInventory);
+            paymentPlan.restore(player.getInventory().items, originalInventory);
             if (nextTier.experienceLevels() > 0) {
-                player.addExperienceLevels(nextTier.experienceLevels());
+                player.giveExperienceLevels(nextTier.experienceLevels());
             }
-            return UpgradeResult.failure(Text.translatable("screen.digitalstorage.error.changed"));
+            return UpgradeResult.failure(Component.translatable("screen.digitalstorage.error.changed"));
         }
 
-        player.getInventory().markDirty();
-        player.currentScreenHandler.sendContentUpdates();
+        player.getInventory().setChanged();
+        player.containerMenu.broadcastChanges();
         LAST_SUCCESSFUL_UPGRADE_TICK.put(storageId, currentTick);
         cleanGuard(currentTick);
-        return UpgradeResult.success(Text.translatable(
+        return UpgradeResult.success(Component.translatable(
                 "screen.digitalstorage.success",
                 currentTier.id().toString(),
                 nextTier.id().toString(),
@@ -85,30 +85,30 @@ public final class DigitalStorageUpgradeService {
         ));
     }
 
-    public static boolean canAfford(ServerPlayerEntity player, DigitalStorageTier tier) {
-        return PaymentPlan.create(player.getInventory().main, tier.entryCost()).plan() != null
+    public static boolean canAfford(ServerPlayer player, DigitalStorageTier tier) {
+        return PaymentPlan.create(player.getInventory().items, tier.entryCost()).plan() != null
                 && player.experienceLevel >= tier.experienceLevels();
     }
 
     public static void runSelfTest() {
-        DefaultedList<ItemStack> inventory = DefaultedList.ofSize(3, ItemStack.EMPTY);
+        NonNullList<ItemStack> inventory = NonNullList.withSize(3, ItemStack.EMPTY);
         inventory.set(0, new ItemStack(Items.DIAMOND, 4));
         inventory.set(1, new ItemStack(Items.DIAMOND, 6));
 
-        UpgradeIngredient sixDiamonds = UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 6);
+        UpgradeIngredient sixDiamonds = UpgradeIngredient.item(new ResourceLocation("minecraft", "diamond"), 6);
         PaymentPlanResult successful = PaymentPlan.create(inventory, List.of(sixDiamonds));
         expect(successful.plan() != null, "payment plan rejected an affordable exact-item cost");
         successful.plan().apply(inventory);
         expect(inventory.get(0).isEmpty(), "payment plan did not consume the first stack");
         expect(inventory.get(1).getCount() == 4, "payment plan consumed the wrong total");
 
-        DefaultedList<ItemStack> overlappingInventory = DefaultedList.ofSize(1, ItemStack.EMPTY);
+        NonNullList<ItemStack> overlappingInventory = NonNullList.withSize(1, ItemStack.EMPTY);
         overlappingInventory.set(0, new ItemStack(Items.DIAMOND, 10));
         PaymentPlanResult overlapping = PaymentPlan.create(
                 overlappingInventory,
                 List.of(
-                        UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 6),
-                        UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 5)
+                        UpgradeIngredient.item(new ResourceLocation("minecraft", "diamond"), 6),
+                        UpgradeIngredient.item(new ResourceLocation("minecraft", "diamond"), 5)
                 )
         );
         expect(overlapping.plan() == null, "overlapping costs reused the same inventory items");
@@ -130,12 +130,12 @@ public final class DigitalStorageUpgradeService {
         }
     }
 
-    public record UpgradeResult(boolean success, Text message) {
-        private static UpgradeResult success(Text message) {
+    public record UpgradeResult(boolean success, Component message) {
+        private static UpgradeResult success(Component message) {
             return new UpgradeResult(true, message);
         }
 
-        private static UpgradeResult failure(Text message) {
+        private static UpgradeResult failure(Component message) {
             return new UpgradeResult(false, message);
         }
     }
@@ -172,7 +172,7 @@ public final class DigitalStorageUpgradeService {
             List<ItemStack> originals = inventory.stream().map(ItemStack::copy).toList();
             for (int slot = 0; slot < deductions.length; slot++) {
                 if (deductions[slot] > 0) {
-                    inventory.get(slot).decrement(deductions[slot]);
+                    inventory.get(slot).shrink(deductions[slot]);
                 }
             }
             return originals;

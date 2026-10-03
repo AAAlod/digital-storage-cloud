@@ -16,8 +16,8 @@ import java.util.HashSet;
 import java.util.UUID;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.util.math.Direction;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 public final class TomNetworkIntrospection {
     private static final String TOM_PACKAGE = "com.tom.storagemod.";
@@ -64,11 +64,11 @@ public final class TomNetworkIntrospection {
     }
 
     static Discovery discoverContext(DigitalStorageAccessorBlockEntity accessor) {
-        if (accessor.getWorld() == null) {
+        if (accessor.getLevel() == null) {
             return null;
         }
         for (Direction direction : Direction.values()) {
-            BlockEntity neighbor = accessor.getWorld().getBlockEntity(accessor.getPos().offset(direction));
+            BlockEntity neighbor = accessor.getLevel().getBlockEntity(accessor.getBlockPos().relative(direction));
             if (neighbor == null || !neighbor.getClass().getName().startsWith(TOM_PACKAGE)) {
                 continue;
             }

@@ -10,7 +10,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import net.minecraft.registry.Registries;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 /** Shared network scoring and migration recommendations over platform-neutral inventory views. */
 public final class NetworkAnalysis {
@@ -51,7 +51,7 @@ public final class NetworkAnalysis {
                 .thenComparing(Candidate::physicalViews, Comparator.reverseOrder())
                 .thenComparing(Candidate::amount, Comparator.reverseOrder())
                 .thenComparing(Candidate::itemId)
-                .thenComparing(candidate -> ItemKeyCodec.write(candidate.variant()).asString()));
+                .thenComparing(candidate -> ItemKeyCodec.write(candidate.variant()).getAsString()));
         long remainingNbt = Math.max(0, (long) DigitalStorageConfig.get().maxVolumeVariantNbtBytes - target.totalVariantNbtBytes());
         List<Candidate> selected = snapshot.targetEndpointCount() > 1 ? List.of()
                 : selectWithinVariantBudget(candidates, remainingVariants, remainingNbt);
@@ -70,7 +70,7 @@ public final class NetworkAnalysis {
         long selectedNbt = 0;
         for (Candidate candidate : candidates) {
             if (!candidate.existingInTarget()) {
-                int bytes = ItemKeyCodec.write(candidate.variant()).getSizeInBytes();
+                int bytes = ItemKeyCodec.write(candidate.variant()).sizeInBytes();
                 if (newVariants >= remainingVariants || bytes > remainingNbt - selectedNbt) {
                     continue;
                 }
@@ -101,9 +101,9 @@ public final class NetworkAnalysis {
     }
 
     public static void runSelfTest() {
-        Candidate existing = new Candidate(ItemKey.of(net.minecraft.item.Items.STONE), 64, 2, true);
-        Candidate first = new Candidate(ItemKey.of(net.minecraft.item.Items.DIRT), 640, 10, false);
-        Candidate second = new Candidate(ItemKey.of(net.minecraft.item.Items.COBBLESTONE), 576, 9, false);
+        Candidate existing = new Candidate(ItemKey.of(net.minecraft.world.item.Items.STONE), 64, 2, true);
+        Candidate first = new Candidate(ItemKey.of(net.minecraft.world.item.Items.DIRT), 640, 10, false);
+        Candidate second = new Candidate(ItemKey.of(net.minecraft.world.item.Items.COBBLESTONE), 576, 9, false);
         if (!selectWithinVariantBudget(List.of(existing, first, second), 1, Long.MAX_VALUE).equals(List.of(existing, first))
                 || !selectWithinVariantBudget(List.of(existing, first), 1, 0).equals(List.of(existing))) {
             throw new IllegalStateException("Shared recommendation capacity/NBT budget regression failed");
@@ -114,7 +114,7 @@ public final class NetworkAnalysis {
                 || score(0, 0, 0, 0, 0, 0, 0, 1) != 80) {
             throw new IllegalStateException("Shared network health grade/weights regression failed");
         }
-        MutableCandidate huge = new MutableCandidate(ItemKey.of(net.minecraft.item.Items.STONE));
+        MutableCandidate huge = new MutableCandidate(ItemKey.of(net.minecraft.world.item.Items.STONE));
         huge.add(Long.MAX_VALUE);
         huge.add(Long.MAX_VALUE);
         if (huge.amount != VolumeLedger.MAX_AMOUNT_PER_VARIANT + 1) {
@@ -124,9 +124,9 @@ public final class NetworkAnalysis {
     }
 
     private static void runEndpointSelfTest() {
-        ItemKey stone = ItemKey.of(net.minecraft.item.Items.STONE);
-        ItemKey dirt = ItemKey.of(net.minecraft.item.Items.DIRT);
-        ItemKey sword = ItemKey.of(net.minecraft.item.Items.DIAMOND_SWORD);
+        ItemKey stone = ItemKey.of(net.minecraft.world.item.Items.STONE);
+        ItemKey dirt = ItemKey.of(net.minecraft.world.item.Items.DIRT);
+        ItemKey sword = ItemKey.of(net.minecraft.world.item.Items.DIAMOND_SWORD);
         DigitalStorageRecord record = DigitalStorageRecord.createNew(() -> { });
         record.storage().load(stone, 1);
         InventoryEndpoint extractable = testEndpoint(true, List.of(
@@ -178,7 +178,7 @@ public final class NetworkAnalysis {
     }
 
     public record Candidate(ItemKey variant, long amount, int physicalViews, boolean existingInTarget) {
-        public String itemId() { return Registries.ITEM.getId(variant.item()).toString(); }
+        public String itemId() { return BuiltInRegistries.ITEM.getKey(variant.item()).toString(); }
     }
 
     public record Report(boolean available, int healthScore, String grade, int physicalInventories, int totalViews,

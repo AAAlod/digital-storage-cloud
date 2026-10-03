@@ -3,15 +3,15 @@ package dev.kehai.digitalstorage.screen;
 import dev.kehai.digitalstorage.DigitalStorage;
 import dev.kehai.digitalstorage.storage.StorageVolume;
 import java.util.UUID;
-import net.minecraft.network.PacketByteBuf;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
 
 /** Loader-independent messages; field order remains compatible with the Fabric protocol. */
 public final class DigitalStorageScreenProtocol {
-    public static final Identifier STATE_PACKET_ID = DigitalStorage.id("screen_state");
-    public static final Identifier CREATE_VOLUME_PACKET_ID = DigitalStorage.id("create_volume");
-    public static final Identifier MANAGE_VOLUME_PACKET_ID = DigitalStorage.id("manage_volume");
+    public static final ResourceLocation STATE_PACKET_ID = DigitalStorage.id("screen_state");
+    public static final ResourceLocation CREATE_VOLUME_PACKET_ID = DigitalStorage.id("create_volume");
+    public static final ResourceLocation MANAGE_VOLUME_PACKET_ID = DigitalStorage.id("manage_volume");
 
     private DigitalStorageScreenProtocol() {
     }
@@ -24,41 +24,41 @@ public final class DigitalStorageScreenProtocol {
 
     @FunctionalInterface
     public interface StateSender {
-        void send(ServerPlayerEntity player, StateUpdate update);
+        void send(ServerPlayer player, StateUpdate update);
     }
 
     public record CreateVolume(int syncId, String name) {
-        public void write(PacketByteBuf buf) {
+        public void write(FriendlyByteBuf buf) {
             buf.writeVarInt(syncId);
-            buf.writeString(name, StorageVolume.MAX_NAME_LENGTH);
+            buf.writeUtf(name, StorageVolume.MAX_NAME_LENGTH);
         }
 
-        public static CreateVolume read(PacketByteBuf buf) {
-            return new CreateVolume(buf.readVarInt(), buf.readString(StorageVolume.MAX_NAME_LENGTH));
+        public static CreateVolume read(FriendlyByteBuf buf) {
+            return new CreateVolume(buf.readVarInt(), buf.readUtf(StorageVolume.MAX_NAME_LENGTH));
         }
     }
 
     public record ManageVolume(int syncId, int action, UUID volumeId, String name) {
-        public void write(PacketByteBuf buf) {
+        public void write(FriendlyByteBuf buf) {
             buf.writeVarInt(syncId);
             buf.writeVarInt(action);
-            buf.writeUuid(volumeId);
-            buf.writeString(name, StorageVolume.MAX_NAME_LENGTH);
+            buf.writeUUID(volumeId);
+            buf.writeUtf(name, StorageVolume.MAX_NAME_LENGTH);
         }
 
-        public static ManageVolume read(PacketByteBuf buf) {
-            return new ManageVolume(buf.readVarInt(), buf.readVarInt(), buf.readUuid(),
-                    buf.readString(StorageVolume.MAX_NAME_LENGTH));
+        public static ManageVolume read(FriendlyByteBuf buf) {
+            return new ManageVolume(buf.readVarInt(), buf.readVarInt(), buf.readUUID(),
+                    buf.readUtf(StorageVolume.MAX_NAME_LENGTH));
         }
     }
 
     public record StateUpdate(int syncId, DigitalStorageScreenState state) {
-        public void write(PacketByteBuf buf) {
+        public void write(FriendlyByteBuf buf) {
             buf.writeVarInt(syncId);
             state.write(buf);
         }
 
-        public static StateUpdate read(PacketByteBuf buf) {
+        public static StateUpdate read(FriendlyByteBuf buf) {
             return new StateUpdate(buf.readVarInt(), DigitalStorageScreenState.read(buf));
         }
     }
@@ -70,7 +70,7 @@ public final class DigitalStorageScreenProtocol {
         CreateVolume create = new CreateVolume(300, "主要仓库");
         ManageVolume manage = new ManageVolume(300, DigitalStorageScreenHandler.RENAME_VOLUME_ACTION,
                 UUID.fromString("00000000-0000-0000-0000-000000000001"), "主要仓库");
-        PacketByteBuf buf = new PacketByteBuf(io.netty.buffer.Unpooled.buffer());
+        FriendlyByteBuf buf = new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
         try {
             create.write(buf);
             if (!createFixture.equals(io.netty.buffer.ByteBufUtil.hexDump(buf))) {
@@ -91,7 +91,7 @@ public final class DigitalStorageScreenProtocol {
             }
             buf.clear();
             buf.writeVarInt(300);
-            buf.writeString("x".repeat(StorageVolume.MAX_NAME_LENGTH + 1));
+            buf.writeUtf("x".repeat(StorageVolume.MAX_NAME_LENGTH + 1));
             boolean rejected = false;
             try {
                 CreateVolume.read(buf);

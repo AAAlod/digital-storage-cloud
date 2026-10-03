@@ -3,19 +3,19 @@ package dev.kehai.digitalstorage.platform.fabric;
 import dev.kehai.digitalstorage.storage.ItemKey;
 import dev.kehai.digitalstorage.storage.ItemKeyCodec;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
-import net.minecraft.item.Items;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.item.Items;
 
 public final class FabricItemKeySelfTest {
     private FabricItemKeySelfTest() {
     }
 
     public static void run() {
-        NbtCompound nested = new NbtCompound();
+        CompoundTag nested = new CompoundTag();
         nested.putInt("Damage", 23);
         nested.putString("Unknown", "preserve 中文");
         ItemVariant[] variants = {
-                ItemVariant.blank(), ItemVariant.of(Items.PAPER), ItemVariant.of(Items.PAPER, new NbtCompound()),
+                ItemVariant.blank(), ItemVariant.of(Items.PAPER), ItemVariant.of(Items.PAPER, new CompoundTag()),
                 ItemVariant.of(Items.PAPER, nested), ItemVariant.of(Items.IRON_PICKAXE, nested)
         };
         for (ItemVariant legacy : variants) {

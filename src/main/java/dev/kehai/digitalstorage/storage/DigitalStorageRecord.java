@@ -9,10 +9,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.util.Identifier;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 
 public final class DigitalStorageRecord {
     private static final long ACCESS_TIME_UPDATE_INTERVAL_MILLIS = 1_000;
@@ -29,7 +29,7 @@ public final class DigitalStorageRecord {
     private static final String ACCEPT_UNSTACKABLE_ITEMS_KEY = "AcceptUnstackableItems";
     private final Runnable dirtyCallback;
     private final VolumeLedger storage;
-    private Identifier tierId;
+    private ResourceLocation tierId;
     private int lastKnownVariantCapacity;
     private boolean acceptUnstackableItems;
     private long policyVersion;
@@ -38,7 +38,7 @@ public final class DigitalStorageRecord {
 
     private DigitalStorageRecord(
             UUID volumeId,
-            Identifier tierId,
+            ResourceLocation tierId,
             int lastKnownVariantCapacity,
             boolean acceptUnstackableItems,
             Runnable dirtyCallback,
@@ -79,19 +79,19 @@ public final class DigitalStorageRecord {
         );
     }
 
-    static DigitalStorageRecord fromNbt(NbtCompound nbt, Runnable dirtyCallback) {
+    static DigitalStorageRecord fromNbt(CompoundTag nbt, Runnable dirtyCallback) {
         return fromNbt(null, nbt, dirtyCallback);
     }
 
-    static DigitalStorageRecord fromNbt(UUID volumeId, NbtCompound nbt, Runnable dirtyCallback) {
+    static DigitalStorageRecord fromNbt(UUID volumeId, CompoundTag nbt, Runnable dirtyCallback) {
         DigitalStorageTierRegistry tiers = DigitalStorageTierRegistry.INSTANCE;
-        NbtList items = nbt.getList(ITEMS_KEY, NbtElement.COMPOUND_TYPE);
-        boolean hasStoredTier = nbt.contains(TIER_KEY, NbtElement.STRING_TYPE);
-        Identifier storedTierId = hasStoredTier
-                ? Identifier.tryParse(nbt.getString(TIER_KEY))
+        ListTag items = nbt.getList(ITEMS_KEY, Tag.TAG_COMPOUND);
+        boolean hasStoredTier = nbt.contains(TIER_KEY, Tag.TAG_STRING);
+        ResourceLocation storedTierId = hasStoredTier
+                ? ResourceLocation.tryParse(nbt.getString(TIER_KEY))
                 : null;
         boolean migrated = storedTierId == null || tiers.find(storedTierId).isEmpty();
-        int preservedCapacity = nbt.contains(LAST_KNOWN_VARIANT_CAPACITY_KEY, NbtElement.INT_TYPE)
+        int preservedCapacity = nbt.contains(LAST_KNOWN_VARIANT_CAPACITY_KEY, Tag.TAG_INT)
                 ? Math.max(1, nbt.getInt(LAST_KNOWN_VARIANT_CAPACITY_KEY))
                 : migratedCapacity(items);
 
@@ -114,15 +114,15 @@ public final class DigitalStorageRecord {
         int lastKnownVariantCapacity = Math.max(preservedCapacity, resolvedTier.variantCapacity());
 
         long now = System.currentTimeMillis();
-        boolean missingMetadata = !nbt.contains(CREATED_TIME_KEY, NbtElement.LONG_TYPE)
-                || !nbt.contains(LAST_ACCESS_TIME_KEY, NbtElement.LONG_TYPE);
-        long createdTime = nbt.contains(CREATED_TIME_KEY, NbtElement.LONG_TYPE)
+        boolean missingMetadata = !nbt.contains(CREATED_TIME_KEY, Tag.TAG_LONG)
+                || !nbt.contains(LAST_ACCESS_TIME_KEY, Tag.TAG_LONG);
+        long createdTime = nbt.contains(CREATED_TIME_KEY, Tag.TAG_LONG)
                 ? nbt.getLong(CREATED_TIME_KEY)
                 : now;
-        long lastAccessTime = nbt.contains(LAST_ACCESS_TIME_KEY, NbtElement.LONG_TYPE)
+        long lastAccessTime = nbt.contains(LAST_ACCESS_TIME_KEY, Tag.TAG_LONG)
                 ? nbt.getLong(LAST_ACCESS_TIME_KEY)
                 : createdTime;
-        boolean missingUnstackablePolicy = !nbt.contains(ACCEPT_UNSTACKABLE_ITEMS_KEY, NbtElement.BYTE_TYPE);
+        boolean missingUnstackablePolicy = !nbt.contains(ACCEPT_UNSTACKABLE_ITEMS_KEY, Tag.TAG_BYTE);
         boolean acceptUnstackableItems = missingUnstackablePolicy
                 ? DigitalStorageConfig.get().allowUnstackableItems
                 : nbt.getBoolean(ACCEPT_UNSTACKABLE_ITEMS_KEY);
@@ -136,8 +136,8 @@ public final class DigitalStorageRecord {
                 Math.max(createdTime, lastAccessTime)
         );
         for (int itemIndex = 0; itemIndex < items.size(); itemIndex++) {
-            NbtCompound itemNbt = items.getCompound(itemIndex);
-            NbtCompound serializedVariant = itemNbt.getCompound(VARIANT_KEY);
+            CompoundTag itemNbt = items.getCompound(itemIndex);
+            CompoundTag serializedVariant = itemNbt.getCompound(VARIANT_KEY);
             ItemKey variant = ItemKeyCodec.read(serializedVariant);
             long amount = itemNbt.getLong(AMOUNT_KEY);
             record.storage.load(variant, amount, serializedVariant);
@@ -153,7 +153,7 @@ public final class DigitalStorageRecord {
         return storage;
     }
 
-    public Identifier tierId() {
+    public ResourceLocation tierId() {
         return tier().id();
     }
 
@@ -214,7 +214,7 @@ public final class DigitalStorageRecord {
                 && (storage.amountOf(variant) > 0 || ItemSecurityPolicy.canCreateVariant(variant));
     }
 
-    public boolean setTier(Identifier requestedTierId) {
+    public boolean setTier(ResourceLocation requestedTierId) {
         if (DigitalStorageTierRegistry.INSTANCE.find(requestedTierId).isEmpty() || tierId.equals(requestedTierId)) {
             return false;
         }
@@ -227,14 +227,14 @@ public final class DigitalStorageRecord {
         return true;
     }
 
-    public boolean advanceTier(Identifier expectedCurrentTierId, Identifier requestedTierId) {
+    public boolean advanceTier(ResourceLocation expectedCurrentTierId, ResourceLocation requestedTierId) {
         if (!tierId().equals(expectedCurrentTierId)) {
             return false;
         }
         return setTier(requestedTierId);
     }
 
-    void writeNbt(NbtCompound nbt) {
+    void writeNbt(CompoundTag nbt) {
         snapshot().writeNbt(nbt);
     }
 
@@ -262,7 +262,7 @@ public final class DigitalStorageRecord {
     }
 
     record Snapshot(
-            Identifier tierId,
+            ResourceLocation tierId,
             int lastKnownVariantCapacity,
             boolean acceptUnstackableItems,
             long createdTime,
@@ -273,16 +273,16 @@ public final class DigitalStorageRecord {
             items = List.copyOf(items);
         }
 
-        void writeNbt(NbtCompound nbt) {
+        void writeNbt(CompoundTag nbt) {
             nbt.putString(TIER_KEY, tierId.toString());
             nbt.putInt(LAST_KNOWN_VARIANT_CAPACITY_KEY, lastKnownVariantCapacity);
             nbt.putBoolean(ACCEPT_UNSTACKABLE_ITEMS_KEY, acceptUnstackableItems);
             nbt.putLong(CREATED_TIME_KEY, createdTime);
             nbt.putLong(LAST_ACCESS_TIME_KEY, lastAccessTime);
 
-            NbtList items = new NbtList();
+            ListTag items = new ListTag();
             for (VolumeLedger.StoredEntrySnapshot entry : this.items) {
-                NbtCompound itemNbt = new NbtCompound();
+                CompoundTag itemNbt = new CompoundTag();
                 itemNbt.put(VARIANT_KEY, entry.serializedVariant());
                 itemNbt.putLong(AMOUNT_KEY, entry.amount());
                 items.add(itemNbt);
@@ -291,10 +291,10 @@ public final class DigitalStorageRecord {
         }
     }
 
-    private static int migratedCapacity(NbtList items) {
+    private static int migratedCapacity(ListTag items) {
         Set<ItemKey> variants = new HashSet<>();
         for (int itemIndex = 0; itemIndex < items.size(); itemIndex++) {
-            NbtCompound itemNbt = items.getCompound(itemIndex);
+            CompoundTag itemNbt = items.getCompound(itemIndex);
             ItemKey variant = ItemKeyCodec.read(itemNbt.getCompound(VARIANT_KEY));
             if (!variant.isBlank() && itemNbt.getLong(AMOUNT_KEY) > 0) {
                 variants.add(variant);

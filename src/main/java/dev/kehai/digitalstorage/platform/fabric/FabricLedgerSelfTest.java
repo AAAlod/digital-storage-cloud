@@ -3,15 +3,16 @@ package dev.kehai.digitalstorage.platform.fabric;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import dev.kehai.digitalstorage.storage.ItemKey;
 import dev.kehai.digitalstorage.storage.VolumeLedger;
+import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
-import net.minecraft.inventory.SimpleInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 public final class FabricLedgerSelfTest {
     private FabricLedgerSelfTest() {
@@ -60,7 +61,7 @@ public final class FabricLedgerSelfTest {
         ItemVariant stone = ItemVariant.of(Items.STONE);
         for (boolean innerCommit : new boolean[]{false, true}) {
             for (boolean outerCommit : new boolean[]{false, true}) {
-                SimpleInventory physical = new SimpleInventory(new ItemStack(Items.STONE, 64));
+                SimpleContainer physical = new SimpleContainer(new ItemStack(Items.STONE, 64));
                 var source = InventoryStorage.of(physical, null);
                 AtomicInteger dirty = new AtomicInteger();
                 VolumeLedger ledger = new VolumeLedger(dirty::incrementAndGet, 1);
@@ -80,7 +81,7 @@ public final class FabricLedgerSelfTest {
                     }
                 }
                 boolean committed = innerCommit && outerCommit;
-                expect(physical.getStack(0).getCount() == (committed ? 48 : 64)
+                expect(physical.getItem(0).getCount() == (committed ? 48 : 64)
                                 && ledger.totalItemCount() == (committed ? 16 : 0)
                                 && dirty.get() == (committed ? 1 : 0),
                         "Vanilla and ledger did not commit or roll back together");
@@ -89,7 +90,7 @@ public final class FabricLedgerSelfTest {
     }
 
     private static void exceptionRollsBackBothInventories() {
-        SimpleInventory physical = new SimpleInventory(new ItemStack(Items.STONE, 64));
+        SimpleContainer physical = new SimpleContainer(new ItemStack(Items.STONE, 64));
         var source = InventoryStorage.of(physical, null);
         VolumeLedger ledger = new VolumeLedger(() -> { }, 1);
         var target = FabricDigitalItemStorage.of(ledger);
@@ -106,14 +107,14 @@ public final class FabricLedgerSelfTest {
                 throw expected;
             }
         }
-        expect(physical.getStack(0).getCount() == 64 && ledger.totalItemCount() == 0 && ledger.contentVersion() == 0,
+        expect(physical.getItem(0).getCount() == 64 && ledger.totalItemCount() == 0 && ledger.contentVersion() == 0,
                 "Exception left a partially completed physical-to-ledger transfer");
     }
 
     private static void detachedEntriesReleaseAdapterCaches() {
         FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, 1);
         for (int index = 0; index < 1000; index++) {
-            NbtCompound tag = new NbtCompound();
+            CompoundTag tag = new CompoundTag();
             tag.putInt("Variant", index);
             ItemVariant variant = ItemVariant.of(Items.PAPER, tag);
             try (Transaction transaction = Transaction.openOuter()) {

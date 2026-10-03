@@ -1,23 +1,23 @@
 package dev.kehai.digitalstorage.tier;
 
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.util.Identifier;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.ItemStack;
 
-public record UpgradeIngredient(Kind kind, Identifier id, int count) {
+public record UpgradeIngredient(Kind kind, ResourceLocation id, int count) {
     public UpgradeIngredient {
         if (count <= 0) {
             throw new IllegalArgumentException("Upgrade ingredient count must be positive");
         }
     }
 
-    public static UpgradeIngredient item(Identifier id, int count) {
+    public static UpgradeIngredient item(ResourceLocation id, int count) {
         return new UpgradeIngredient(Kind.ITEM, id, count);
     }
 
-    public static UpgradeIngredient tag(Identifier id, int count) {
+    public static UpgradeIngredient tag(ResourceLocation id, int count) {
         return new UpgradeIngredient(Kind.TAG, id, count);
     }
 
@@ -26,8 +26,8 @@ public record UpgradeIngredient(Kind kind, Identifier id, int count) {
             return false;
         }
         return switch (kind) {
-            case ITEM -> stack.isOf(Registries.ITEM.get(id));
-            case TAG -> stack.isIn(TagKey.of(RegistryKeys.ITEM, id));
+            case ITEM -> stack.is(BuiltInRegistries.ITEM.get(id));
+            case TAG -> stack.is(TagKey.create(Registries.ITEM, id));
         };
     }
 

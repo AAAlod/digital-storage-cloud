@@ -28,12 +28,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.WorldSavePath;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.storage.LevelResource;
 
 /**
  * Server-level storage manager. Accounts and volumes are deliberately persisted
@@ -128,13 +128,13 @@ public final class DigitalStorageState {
         INSTANCES.remove(server);
     }
 
-    public static DigitalStorageState get(ServerWorld world) {
+    public static DigitalStorageState get(ServerLevel world) {
         return getOrCreate(world.getServer());
     }
 
     private static synchronized DigitalStorageState getOrCreate(MinecraftServer server) {
         return INSTANCES.computeIfAbsent(server, ignored -> new DigitalStorageState(
-                server.getSavePath(WorldSavePath.ROOT).resolve("digitalstorage")
+                server.getWorldPath(LevelResource.ROOT).resolve("digitalstorage")
         ));
     }
 
@@ -435,7 +435,7 @@ public final class DigitalStorageState {
     private void loadAccountFiles() {
         for (Path path : dataFiles(accountsDirectory)) {
             try {
-                NbtCompound nbt = readFile(path, ACCOUNT_SCHEMA_VERSION, "account");
+                CompoundTag nbt = readFile(path, ACCOUNT_SCHEMA_VERSION, "account");
                 UUID fileId = uuidFromFile(path);
                 long diskBytes = Files.size(path);
                 PlayerStorageAccount account = PlayerStorageAccount.fromNbt(nbt);
@@ -505,8 +505,8 @@ public final class DigitalStorageState {
         }
         Path path = volumesDirectory.resolve(id + ".dat");
         try {
-            NbtCompound nbt = readFile(path, VOLUME_SCHEMA_VERSION, "volume");
-            if (!nbt.containsUuid("Id") || !nbt.getUuid("Id").equals(id)) {
+            CompoundTag nbt = readFile(path, VOLUME_SCHEMA_VERSION, "volume");
+            if (!nbt.hasUUID("Id") || !nbt.getUUID("Id").equals(id)) {
                 throw new IllegalArgumentException("Volume ID does not match filename");
             }
             StorageVolume volume = StorageVolume.fromNbt(nbt, () -> markVolumeDirty(id));
@@ -517,7 +517,7 @@ public final class DigitalStorageState {
             VolumeLedger storage = volume.record().storage();
             recordVolumeFileMetrics(
                     id,
-                    nbt.getSizeInBytes(),
+                    nbt.sizeInBytes(),
                     Files.size(path),
                     storage.variantCount(),
                     storage.totalItemCount()
@@ -563,9 +563,9 @@ public final class DigitalStorageState {
         }
     }
 
-    private static NbtCompound readFile(Path path, int supportedSchema, String description) throws IOException {
-        NbtCompound nbt = NbtIo.readCompressed(path.toFile());
-        int schema = nbt.contains(SCHEMA_VERSION_KEY, NbtElement.INT_TYPE)
+    private static CompoundTag readFile(Path path, int supportedSchema, String description) throws IOException {
+        CompoundTag nbt = NbtIo.readCompressed(path.toFile());
+        int schema = nbt.contains(SCHEMA_VERSION_KEY, Tag.TAG_INT)
                 ? nbt.getInt(SCHEMA_VERSION_KEY)
                 : 0;
         if (schema > supportedSchema) {
@@ -738,7 +738,7 @@ public final class DigitalStorageState {
                 accountsDirectory.resolve(id + ".dat"),
                 () -> {
                     lastNbtEncodeThreadName = Thread.currentThread().getName();
-                    NbtCompound nbt = snapshot.writeNbt();
+                    CompoundTag nbt = snapshot.writeNbt();
                     nbt.putInt(SCHEMA_VERSION_KEY, ACCOUNT_SCHEMA_VERSION);
                     return nbt;
                 },
@@ -749,7 +749,7 @@ public final class DigitalStorageState {
                 volumesDirectory.resolve(id + ".dat"),
                 () -> {
                     lastNbtEncodeThreadName = Thread.currentThread().getName();
-                    NbtCompound nbt = snapshot.writeNbt();
+                    CompoundTag nbt = snapshot.writeNbt();
                     nbt.putInt(SCHEMA_VERSION_KEY, VOLUME_SCHEMA_VERSION);
                     return nbt;
                 },
@@ -776,14 +776,14 @@ public final class DigitalStorageState {
 
     private static void writeOrRetry(
             Path target,
-            Supplier<NbtCompound> nbtFactory,
+            Supplier<CompoundTag> nbtFactory,
             Consumer<FileMeasurement> onSuccess,
             Runnable retry
     ) {
         try {
-            NbtCompound nbt = nbtFactory.get();
+            CompoundTag nbt = nbtFactory.get();
             long diskBytes = writeAtomic(target, nbt);
-            onSuccess.accept(new FileMeasurement(nbt.getSizeInBytes(), diskBytes));
+            onSuccess.accept(new FileMeasurement(nbt.sizeInBytes(), diskBytes));
         } catch (IOException | RuntimeException exception) {
             DigitalStorage.LOGGER.error("Could not write Digital Storage file {}; will retry", target, exception);
             retry.run();
@@ -866,7 +866,7 @@ public final class DigitalStorageState {
         return total;
     }
 
-    private static long writeAtomic(Path target, NbtCompound nbt) throws IOException {
+    private static long writeAtomic(Path target, CompoundTag nbt) throws IOException {
         Files.createDirectories(target.getParent());
         Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
         NbtIo.writeCompressed(nbt, temporary.toFile());

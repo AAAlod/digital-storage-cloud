@@ -1,10 +1,10 @@
 package dev.kehai.digitalstorage.tier;
 
 import java.util.List;
-import net.minecraft.util.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 public record DigitalStorageTier(
-        Identifier id,
+        ResourceLocation id,
         int variantCapacity,
         List<UpgradeIngredient> entryCost,
         int experienceLevels

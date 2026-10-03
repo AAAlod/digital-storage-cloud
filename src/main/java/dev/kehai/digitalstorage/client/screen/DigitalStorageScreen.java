@@ -5,21 +5,21 @@ import dev.kehai.digitalstorage.screen.DigitalStorageScreenHandler;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenState;
 import dev.kehai.digitalstorage.tier.UpgradeIngredient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.tooltip.Tooltip;
-import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.OrderedText;
-import net.minecraft.text.Text;
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 
-public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScreenHandler> {
+public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalStorageScreenHandler> {
     private static final int SCREEN_WIDTH = 360;
     private static final int SCREEN_HEIGHT = 270;
     private static final int CONTENT_MARGIN = 12;
@@ -58,18 +58,18 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     private static final int ERROR_TEXT = 0xFFFF7777;
     private static final ItemStack ACCESSOR_ICON = new ItemStack(DigitalStorageContent.accessorItem());
 
-    private ButtonWidget upgradeButton;
-    private ButtonWidget clearBindingButton;
-    private ButtonWidget migrationButton;
-    private ButtonWidget networkAnalysisButton;
-    private ButtonWidget unstackableButton;
-    private ButtonWidget createVolumeButton;
-    private ButtonWidget previousPageButton;
-    private ButtonWidget nextPageButton;
-    private TextFieldWidget volumeNameField;
-    private final List<ButtonWidget> volumeButtons = new ArrayList<>();
-    private final List<ButtonWidget> renameVolumeButtons = new ArrayList<>();
-    private final List<ButtonWidget> deleteVolumeButtons = new ArrayList<>();
+    private Button upgradeButton;
+    private Button clearBindingButton;
+    private Button migrationButton;
+    private Button networkAnalysisButton;
+    private Button unstackableButton;
+    private Button createVolumeButton;
+    private Button previousPageButton;
+    private Button nextPageButton;
+    private EditBox volumeNameField;
+    private final List<Button> volumeButtons = new ArrayList<>();
+    private final List<Button> renameVolumeButtons = new ArrayList<>();
+    private final List<Button> deleteVolumeButtons = new ArrayList<>();
     private int volumePage;
     private int lastKnownVolumeCount;
     private DigitalStorageScreenState creationRequestedFromState;
@@ -79,15 +79,15 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
 
     public DigitalStorageScreen(
             DigitalStorageScreenHandler handler,
-            PlayerInventory inventory,
-            Text title,
+            Inventory inventory,
+            Component title,
             DigitalStorageScreenProtocol.RequestSender requestSender
     ) {
         super(handler, inventory, title);
         this.requestSender = java.util.Objects.requireNonNull(requestSender, "requestSender");
-        backgroundWidth = SCREEN_WIDTH;
-        backgroundHeight = SCREEN_HEIGHT;
-        playerInventoryTitleY = 10000;
+        imageWidth = SCREEN_WIDTH;
+        imageHeight = SCREEN_HEIGHT;
+        inventoryLabelY = 10000;
     }
 
     @Override
@@ -96,139 +96,139 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         volumeButtons.clear();
         renameVolumeButtons.clear();
         deleteVolumeButtons.clear();
-        volumeNameField = addDrawableChild(new TextFieldWidget(
-                textRenderer,
-                x + CONTENT_MARGIN,
-                y + FORM_Y,
+        volumeNameField = addRenderableWidget(new EditBox(
+                font,
+                leftPos + CONTENT_MARGIN,
+                topPos + FORM_Y,
                 FORM_FIELD_WIDTH,
                 20,
-                Text.translatable("screen.digitalstorage.volume_name")
+                Component.translatable("screen.digitalstorage.volume_name")
         ));
         volumeNameField.setMaxLength(dev.kehai.digitalstorage.storage.StorageVolume.MAX_NAME_LENGTH);
 
-        createVolumeButton = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.digitalstorage.create_volume"),
+        createVolumeButton = addRenderableWidget(Button.builder(
+                Component.translatable("screen.digitalstorage.create_volume"),
                 button -> requestVolumeCreation()
-        ).dimensions(x + 192, y + FORM_Y, 72, 20).build());
+        ).bounds(leftPos + 192, topPos + FORM_Y, 72, 20).build());
 
         for (int slot = 0; slot < VOLUMES_PER_PAGE; slot++) {
             int selectedSlot = slot;
-            ButtonWidget button = addDrawableChild(ButtonWidget.builder(
-                    Text.empty(),
+            Button button = addRenderableWidget(Button.builder(
+                    Component.empty(),
                     ignored -> bindVisibleVolume(selectedSlot)
-            ).dimensions(
-                    x + CONTENT_MARGIN,
-                    y + VOLUME_LIST_Y + slot * VOLUME_ROW_HEIGHT,
+            ).bounds(
+                    leftPos + CONTENT_MARGIN,
+                    topPos + VOLUME_LIST_Y + slot * VOLUME_ROW_HEIGHT,
                     VOLUME_BIND_BUTTON_WIDTH,
                     20
             ).build());
             volumeButtons.add(button);
             int manageButtonX = CONTENT_MARGIN + VOLUME_BIND_BUTTON_WIDTH + VOLUME_BUTTON_GAP;
-            renameVolumeButtons.add(addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("screen.digitalstorage.rename_volume"),
+            renameVolumeButtons.add(addRenderableWidget(Button.builder(
+                    Component.translatable("screen.digitalstorage.rename_volume"),
                     ignored -> requestVolumeManagement(DigitalStorageScreenHandler.RENAME_VOLUME_ACTION, selectedSlot)
-            ).dimensions(
-                    x + manageButtonX,
-                    y + VOLUME_LIST_Y + slot * VOLUME_ROW_HEIGHT,
+            ).bounds(
+                    leftPos + manageButtonX,
+                    topPos + VOLUME_LIST_Y + slot * VOLUME_ROW_HEIGHT,
                     VOLUME_MANAGE_BUTTON_WIDTH,
                     20
             ).build()));
-            deleteVolumeButtons.add(addDrawableChild(ButtonWidget.builder(
-                    Text.translatable("screen.digitalstorage.delete_volume"),
+            deleteVolumeButtons.add(addRenderableWidget(Button.builder(
+                    Component.translatable("screen.digitalstorage.delete_volume"),
                     ignored -> requestVolumeManagement(DigitalStorageScreenHandler.DELETE_VOLUME_ACTION, selectedSlot)
-            ).dimensions(
-                    x + manageButtonX + VOLUME_MANAGE_BUTTON_WIDTH + VOLUME_BUTTON_GAP,
-                    y + VOLUME_LIST_Y + slot * VOLUME_ROW_HEIGHT,
+            ).bounds(
+                    leftPos + manageButtonX + VOLUME_MANAGE_BUTTON_WIDTH + VOLUME_BUTTON_GAP,
+                    topPos + VOLUME_LIST_Y + slot * VOLUME_ROW_HEIGHT,
                     VOLUME_MANAGE_BUTTON_WIDTH,
                     20
             ).build()));
         }
 
-        previousPageButton = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.digitalstorage.previous_page"),
+        previousPageButton = addRenderableWidget(Button.builder(
+                Component.translatable("screen.digitalstorage.previous_page"),
                 button -> {
                     volumePage = Math.max(0, volumePage - 1);
                     updateButton();
                 }
-        ).dimensions(x + CONTENT_MARGIN, y + PAGE_BUTTON_Y, 64, 20).build());
-        nextPageButton = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.digitalstorage.next_page"),
+        ).bounds(leftPos + CONTENT_MARGIN, topPos + PAGE_BUTTON_Y, 64, 20).build());
+        nextPageButton = addRenderableWidget(Button.builder(
+                Component.translatable("screen.digitalstorage.next_page"),
                 button -> {
                     volumePage = Math.min(pageCount() - 1, volumePage + 1);
                     updateButton();
                 }
-        ).dimensions(x + backgroundWidth - CONTENT_MARGIN - 64, y + PAGE_BUTTON_Y, 64, 20).build());
+        ).bounds(leftPos + imageWidth - CONTENT_MARGIN - 64, topPos + PAGE_BUTTON_Y, 64, 20).build());
 
-        int actionWidth = (backgroundWidth - 32) / 3;
-        upgradeButton = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.digitalstorage.upgrade"),
+        int actionWidth = (imageWidth - 32) / 3;
+        upgradeButton = addRenderableWidget(Button.builder(
+                Component.translatable("screen.digitalstorage.upgrade"),
                 button -> {
-                    if (client != null && client.interactionManager != null) {
-                        client.interactionManager.clickButton(handler.syncId, DigitalStorageScreenHandler.UPGRADE_BUTTON_ID);
+                    if (minecraft != null && minecraft.gameMode != null) {
+                        minecraft.gameMode.handleInventoryButtonClick(menu.containerId, DigitalStorageScreenHandler.UPGRADE_BUTTON_ID);
                     }
                 }
-        ).dimensions(x + CONTENT_MARGIN, y + ACTION_BUTTON_Y, actionWidth, 20).build());
-        migrationButton = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.digitalstorage.migration.run"),
+        ).bounds(leftPos + CONTENT_MARGIN, topPos + ACTION_BUTTON_Y, actionWidth, 20).build());
+        migrationButton = addRenderableWidget(Button.builder(
+                Component.translatable("screen.digitalstorage.migration.run"),
                 button -> {
-                    if (client != null && client.interactionManager != null) {
-                        client.interactionManager.clickButton(
-                                handler.syncId,
+                    if (minecraft != null && minecraft.gameMode != null) {
+                        minecraft.gameMode.handleInventoryButtonClick(
+                                menu.containerId,
                                 DigitalStorageScreenHandler.MIGRATION_BUTTON_ID
                         );
                     }
                 }
-        ).dimensions(x + 16 + actionWidth, y + ACTION_BUTTON_Y, actionWidth, 20).build());
-        clearBindingButton = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.digitalstorage.clear_binding"),
+        ).bounds(leftPos + 16 + actionWidth, topPos + ACTION_BUTTON_Y, actionWidth, 20).build());
+        clearBindingButton = addRenderableWidget(Button.builder(
+                Component.translatable("screen.digitalstorage.clear_binding"),
                 button -> {
-                    if (client != null && client.interactionManager != null) {
-                        client.interactionManager.clickButton(
-                                handler.syncId,
+                    if (minecraft != null && minecraft.gameMode != null) {
+                        minecraft.gameMode.handleInventoryButtonClick(
+                                menu.containerId,
                                 DigitalStorageScreenHandler.CLEAR_BINDING_BUTTON_ID
                         );
                     }
                 }
-        ).dimensions(x + 20 + actionWidth * 2, y + ACTION_BUTTON_Y, actionWidth, 20).build());
-        networkAnalysisButton = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.digitalstorage.network.refresh"),
+        ).bounds(leftPos + 20 + actionWidth * 2, topPos + ACTION_BUTTON_Y, actionWidth, 20).build());
+        networkAnalysisButton = addRenderableWidget(Button.builder(
+                Component.translatable("screen.digitalstorage.network.refresh"),
                 button -> {
-                    if (client != null && client.interactionManager != null) {
-                        client.interactionManager.clickButton(
-                                handler.syncId,
+                    if (minecraft != null && minecraft.gameMode != null) {
+                        minecraft.gameMode.handleInventoryButtonClick(
+                                menu.containerId,
                                 DigitalStorageScreenHandler.NETWORK_ANALYSIS_BUTTON_ID
                         );
                     }
                 }
-        ).dimensions(x + backgroundWidth - 72, y + 3, 60, 16).build());
-        unstackableButton = addDrawableChild(ButtonWidget.builder(
-                Text.translatable("screen.digitalstorage.unstackables.reject"),
+        ).bounds(leftPos + imageWidth - 72, topPos + 3, 60, 16).build());
+        unstackableButton = addRenderableWidget(Button.builder(
+                Component.translatable("screen.digitalstorage.unstackables.reject"),
                 button -> requestUnstackablePolicy()
-        ).dimensions(
-                x + CARD_MARGIN + CARD_WIDTH - 62,
-                y + TOP_CARD_Y + 88,
+        ).bounds(
+                leftPos + CARD_MARGIN + CARD_WIDTH - 62,
+                topPos + TOP_CARD_Y + 88,
                 54,
                 14
         ).build());
 
-        lastKnownVolumeCount = handler.state().ownedVolumes().size();
+        lastKnownVolumeCount = menu.state().ownedVolumes().size();
         updateButton();
     }
 
     @Override
-    protected void handledScreenTick() {
-        if (creationRequestedFromState != null && handler.state() != creationRequestedFromState) {
+    protected void containerTick() {
+        if (creationRequestedFromState != null && menu.state() != creationRequestedFromState) {
             creationRequestedFromState = null;
         }
-        if (managementRequestedFromState != null && handler.state() != managementRequestedFromState) {
+        if (managementRequestedFromState != null && menu.state() != managementRequestedFromState) {
             managementRequestedFromState = null;
         }
-        if (unstackableRequestedFromState != null && handler.state() != unstackableRequestedFromState) {
+        if (unstackableRequestedFromState != null && menu.state() != unstackableRequestedFromState) {
             unstackableRequestedFromState = null;
         }
-        int currentVolumeCount = handler.state().ownedVolumes().size();
-        if (currentVolumeCount > lastKnownVolumeCount && handler.state().statusSuccessful()) {
-            volumeNameField.setText("");
+        int currentVolumeCount = menu.state().ownedVolumes().size();
+        if (currentVolumeCount > lastKnownVolumeCount && menu.state().statusSuccessful()) {
+            volumeNameField.setValue("");
             volumePage = Math.max(0, pageCount() - 1);
         }
         lastKnownVolumeCount = currentVolumeCount;
@@ -240,45 +240,45 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         if (volumeNameField != null
                 && volumeNameField.visible
                 && volumeNameField.isFocused()
-                && client != null
-                && client.options.inventoryKey.matchesKey(keyCode, scanCode)) {
+                && minecraft != null
+                && minecraft.options.keyInventory.matches(keyCode, scanCode)) {
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
         renderBackground(context);
         super.render(context, mouseX, mouseY, delta);
-        drawMouseoverTooltip(context, mouseX, mouseY);
+        renderTooltip(context, mouseX, mouseY);
     }
 
     @Override
-    protected void drawBackground(DrawContext context, float delta, int mouseX, int mouseY) {
-        context.fill(x, y, x + backgroundWidth, y + backgroundHeight, PANEL_BACKGROUND);
-        context.drawBorder(x, y, backgroundWidth, backgroundHeight, PANEL_BORDER);
-        context.fill(x + 1, y + 1, x + backgroundWidth - 1, y + HEADER_HEIGHT, 0xFF252C36);
-        if (handler.state().accessorBound()) {
-            int rightX = x + CARD_MARGIN + CARD_WIDTH + CARD_GAP;
-            drawCardBackground(context, x + CARD_MARGIN, y + TOP_CARD_Y, CARD_WIDTH, TOP_CARD_HEIGHT);
-            drawCardBackground(context, rightX, y + TOP_CARD_Y, CARD_WIDTH, TOP_CARD_HEIGHT);
-            drawCardBackground(context, x + CARD_MARGIN, y + BOTTOM_CARD_Y, CARD_WIDTH, BOTTOM_CARD_HEIGHT);
-            drawCardBackground(context, rightX, y + BOTTOM_CARD_Y, CARD_WIDTH, BOTTOM_CARD_HEIGHT);
+    protected void renderBg(GuiGraphics context, float delta, int mouseX, int mouseY) {
+        context.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, PANEL_BACKGROUND);
+        context.renderOutline(leftPos, topPos, imageWidth, imageHeight, PANEL_BORDER);
+        context.fill(leftPos + 1, topPos + 1, leftPos + imageWidth - 1, topPos + HEADER_HEIGHT, 0xFF252C36);
+        if (menu.state().accessorBound()) {
+            int rightX = leftPos + CARD_MARGIN + CARD_WIDTH + CARD_GAP;
+            drawCardBackground(context, leftPos + CARD_MARGIN, topPos + TOP_CARD_Y, CARD_WIDTH, TOP_CARD_HEIGHT);
+            drawCardBackground(context, rightX, topPos + TOP_CARD_Y, CARD_WIDTH, TOP_CARD_HEIGHT);
+            drawCardBackground(context, leftPos + CARD_MARGIN, topPos + BOTTOM_CARD_Y, CARD_WIDTH, BOTTOM_CARD_HEIGHT);
+            drawCardBackground(context, rightX, topPos + BOTTOM_CARD_Y, CARD_WIDTH, BOTTOM_CARD_HEIGHT);
         } else {
             drawCardBackground(
                     context,
-                    x + CARD_MARGIN,
-                    y + TOP_CARD_Y,
-                    backgroundWidth - CARD_MARGIN * 2,
+                    leftPos + CARD_MARGIN,
+                    topPos + TOP_CARD_Y,
+                    imageWidth - CARD_MARGIN * 2,
                     194
             );
         }
     }
 
     @Override
-    protected void drawForeground(DrawContext context, int mouseX, int mouseY) {
-        DigitalStorageScreenState state = handler.state();
+    protected void renderLabels(GuiGraphics context, int mouseX, int mouseY) {
+        DigitalStorageScreenState state = menu.state();
         drawHeader(context, state);
 
         if (!state.accessorBound()) {
@@ -294,89 +294,89 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         drawStatus(context, state);
     }
 
-    private void drawCardBackground(DrawContext context, int drawX, int drawY, int width, int height) {
+    private void drawCardBackground(GuiGraphics context, int drawX, int drawY, int width, int height) {
         context.fill(drawX, drawY, drawX + width, drawY + height, CARD_BACKGROUND);
-        context.drawBorder(drawX, drawY, width, height, CARD_BORDER);
+        context.renderOutline(drawX, drawY, width, height, CARD_BORDER);
     }
 
-    private void drawHeader(DrawContext context, DigitalStorageScreenState state) {
-        context.drawItem(ACCESSOR_ICON, 5, 4);
-        context.drawText(textRenderer, title, 26, 8, PRIMARY_TEXT, false);
+    private void drawHeader(GuiGraphics context, DigitalStorageScreenState state) {
+        context.renderItem(ACCESSOR_ICON, 5, 4);
+        context.drawString(font, title, 26, 8, PRIMARY_TEXT, false);
         if (!state.accessorBound()) {
             return;
         }
         DigitalStorageScreenState.NetworkDiagnostic diagnostic = state.networkDiagnostic();
-        Text badge = diagnostic.available()
-                ? Text.literal(diagnostic.grade() + " · " + diagnostic.healthScore() + " / 100")
-                : Text.translatable("screen.digitalstorage.network.not_connected_short");
+        Component badge = diagnostic.available()
+                ? Component.literal(diagnostic.grade() + " · " + diagnostic.healthScore() + " / 100")
+                : Component.translatable("screen.digitalstorage.network.not_connected_short");
         int color = diagnostic.available() ? healthColor(diagnostic.healthScore()) : SECONDARY_TEXT;
-        int badgeRight = backgroundWidth - 80;
-        context.drawText(
-                textRenderer,
+        int badgeRight = imageWidth - 80;
+        context.drawString(
+                font,
                 badge,
-                badgeRight - textRenderer.getWidth(badge),
+                badgeRight - font.width(badge),
                 8,
                 color,
                 false
         );
     }
 
-    private void drawUnboundState(DrawContext context, DigitalStorageScreenState state) {
-        context.drawText(
-                textRenderer,
-                Text.translatable("screen.digitalstorage.unbound"),
+    private void drawUnboundState(GuiGraphics context, DigitalStorageScreenState state) {
+        context.drawString(
+                font,
+                Component.translatable("screen.digitalstorage.unbound"),
                 16,
                 36,
                 WARNING_TEXT,
                 false
         );
-        context.drawTextWrapped(
-                textRenderer,
-                Text.translatable("screen.digitalstorage.choose_volume"),
+        context.drawWordWrap(
+                font,
+                Component.translatable("screen.digitalstorage.choose_volume"),
                 16,
                 49,
-                backgroundWidth - 32,
+                imageWidth - 32,
                 SECONDARY_TEXT
         );
-        context.drawText(
-                textRenderer,
-                Text.translatable("screen.digitalstorage.volume_name"),
+        context.drawString(
+                font,
+                Component.translatable("screen.digitalstorage.volume_name"),
                 16,
                 64,
                 SECONDARY_TEXT,
                 false
         );
         if (state.ownedVolumes().isEmpty()) {
-            context.drawTextWrapped(
-                    textRenderer,
-                    Text.translatable("screen.digitalstorage.no_volumes"),
+            context.drawWordWrap(
+                    font,
+                    Component.translatable("screen.digitalstorage.no_volumes"),
                     16,
                     108,
-                    backgroundWidth - 32,
+                    imageWidth - 32,
                     WARNING_TEXT
             );
         }
         if (pageCount() > 1) {
-            Text page = Text.translatable("screen.digitalstorage.page", volumePage + 1, pageCount());
-            context.drawCenteredTextWithShadow(textRenderer, page, backgroundWidth / 2, 206, SECONDARY_TEXT);
+            Component page = Component.translatable("screen.digitalstorage.page", volumePage + 1, pageCount());
+            context.drawCenteredString(font, page, imageWidth / 2, 206, SECONDARY_TEXT);
         }
         drawStatus(context, state);
     }
 
     private void drawStorageOverview(
-            DrawContext context,
+            GuiGraphics context,
             DigitalStorageScreenState state,
             int drawX,
             int drawY
     ) {
         drawSectionTitle(context, "screen.digitalstorage.section.storage", drawX, drawY);
-        drawKeyValue(context, "screen.digitalstorage.volume", Text.literal(state.volumeName()),
+        drawKeyValue(context, "screen.digitalstorage.volume", Component.literal(state.volumeName()),
                 drawX + 8, drawY + 23, CARD_WIDTH - 16);
-        drawKeyValue(context, "screen.digitalstorage.controller", Text.literal(state.controller()),
+        drawKeyValue(context, "screen.digitalstorage.controller", Component.literal(state.controller()),
                 drawX + 8, drawY + 35, CARD_WIDTH - 16);
         drawKeyValue(context, "screen.digitalstorage.current_tier", tierName(state.tierId()),
                 drawX + 8, drawY + 47, CARD_WIDTH - 16);
-        drawKeyValue(context, "screen.digitalstorage.variants", Text.literal(
+        drawKeyValue(context, "screen.digitalstorage.variants", Component.literal(
                 state.usedVariants() + " / " + state.variantCapacity()
         ), drawX + 8, drawY + 59, CARD_WIDTH - 16);
         drawProgressBar(
@@ -387,11 +387,11 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                 5,
                 state.variantCapacity() <= 0 ? 0.0 : (double) state.usedVariants() / state.variantCapacity()
         );
-        drawKeyValue(context, "screen.digitalstorage.total_items", Text.literal(state.totalItems()),
+        drawKeyValue(context, "screen.digitalstorage.total_items", Component.literal(state.totalItems()),
                 drawX + 8, drawY + 78, CARD_WIDTH - 16);
-        context.drawText(
-                textRenderer,
-                Text.translatable("screen.digitalstorage.unstackables"),
+        context.drawString(
+                font,
+                Component.translatable("screen.digitalstorage.unstackables"),
                 drawX + 8,
                 drawY + 91,
                 SECONDARY_TEXT,
@@ -400,21 +400,21 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     }
 
     private void drawNetworkSummary(
-            DrawContext context,
+            GuiGraphics context,
             DigitalStorageScreenState.NetworkDiagnostic diagnostic,
             int drawX,
             int drawY
     ) {
         drawSectionTitle(context, "screen.digitalstorage.section.network", drawX, drawY);
         if (!diagnostic.available()) {
-            drawWrappedText(context, Text.translatable("screen.digitalstorage.network.unavailable"),
+            drawWrappedText(context, Component.translatable("screen.digitalstorage.network.unavailable"),
                     drawX + 8, drawY + 25, CARD_WIDTH - 16, SECONDARY_TEXT);
             return;
         }
         int lineY = drawY + 25;
         lineY = drawWrappedText(
                 context,
-                Text.translatable(diagnostic.healthScore() >= 90
+                Component.translatable(diagnostic.healthScore() >= 90
                         ? "screen.digitalstorage.network.good"
                         : "screen.digitalstorage.network.degraded"),
                 drawX + 8,
@@ -426,7 +426,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         if (diagnostic.hasDuplicateTargetEndpoints()) {
             lineY = drawWrappedText(
                     context,
-                    Text.translatable(
+                    Component.translatable(
                             "screen.digitalstorage.network.duplicate_warning",
                             diagnostic.targetEndpointCount()
                     ),
@@ -440,7 +440,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         if (diagnostic.failingScanners() > 0) {
             lineY = drawWrappedText(
                     context,
-                    Text.translatable(
+                    Component.translatable(
                             "screen.digitalstorage.network.hopper_warning",
                             diagnostic.failingScanners()
                     ),
@@ -454,7 +454,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         if (!diagnostic.hasDuplicateTargetEndpoints() && diagnostic.recommendedVariants() > 0) {
             drawWrappedText(
                     context,
-                    Text.translatable(
+                    Component.translatable(
                             "screen.digitalstorage.network.migration_available",
                             diagnostic.recommendedVariants()
                     ),
@@ -466,7 +466,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         } else if (!diagnostic.hasDuplicateTargetEndpoints() && diagnostic.failingScanners() == 0) {
             drawWrappedText(
                     context,
-                    Text.translatable("screen.digitalstorage.network.no_action"),
+                    Component.translatable("screen.digitalstorage.network.no_action"),
                     drawX + 8,
                     lineY,
                     CARD_WIDTH - 16,
@@ -476,16 +476,16 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     }
 
     private void drawUpgradePanel(
-            DrawContext context,
+            GuiGraphics context,
             DigitalStorageScreenState state,
             int drawX,
             int drawY
     ) {
         drawSectionTitle(context, "screen.digitalstorage.section.upgrade", drawX, drawY);
         if (!state.hasNextTier()) {
-            context.drawText(
-                    textRenderer,
-                    Text.translatable("screen.digitalstorage.maximum"),
+            context.drawString(
+                    font,
+                    Component.translatable("screen.digitalstorage.maximum"),
                     drawX + 8,
                     drawY + 28,
                     SUCCESS_TEXT,
@@ -495,7 +495,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         }
         drawFittedText(
                 context,
-                Text.translatable(
+                Component.translatable(
                         "screen.digitalstorage.upgrade.transition",
                         tierName(state.tierId()),
                         tierName(state.nextTierId())
@@ -508,7 +508,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         );
         drawFittedText(
                 context,
-                Text.translatable(
+                Component.translatable(
                         "screen.digitalstorage.upgrade.capacity_transition",
                         state.variantCapacity(),
                         state.nextVariantCapacity()
@@ -521,9 +521,9 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         );
         drawKeyValue(context, "screen.digitalstorage.cost", costText(state),
                 drawX + 8, drawY + 51, CARD_WIDTH - 16);
-        context.drawText(
-                textRenderer,
-                Text.translatable(state.canAfford()
+        context.drawString(
+                font,
+                Component.translatable(state.canAfford()
                         ? "screen.digitalstorage.affordable"
                         : "screen.digitalstorage.unaffordable"),
                 drawX + 8,
@@ -534,26 +534,26 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     }
 
     private void drawOptimizationPanel(
-            DrawContext context,
+            GuiGraphics context,
             DigitalStorageScreenState.NetworkDiagnostic diagnostic,
             int drawX,
             int drawY
     ) {
         drawSectionTitle(context, "screen.digitalstorage.section.optimization", drawX, drawY);
         if (!diagnostic.available()) {
-            drawWrappedText(context, Text.translatable("screen.digitalstorage.network.not_connected"),
+            drawWrappedText(context, Component.translatable("screen.digitalstorage.network.not_connected"),
                     drawX + 8, drawY + 28, CARD_WIDTH - 16, SECONDARY_TEXT);
             return;
         }
         if (diagnostic.migrationActive()) {
-            drawFittedText(context, Text.translatable("screen.digitalstorage.migration.running"),
+            drawFittedText(context, Component.translatable("screen.digitalstorage.migration.running"),
                     drawX + 8, drawY + 23, CARD_WIDTH - 16, SUCCESS_TEXT, 0.85F);
             double progress = diagnostic.totalCandidates() <= 0 ? 0.0
                     : (double) diagnostic.completedCandidates() / diagnostic.totalCandidates();
             drawProgressBar(context, drawX + 8, drawY + 37, CARD_WIDTH - 16, 7, progress);
             drawFittedText(
                     context,
-                    Text.translatable(
+                    Component.translatable(
                             "screen.digitalstorage.migration.progress_short",
                             diagnostic.completedCandidates(),
                             diagnostic.totalCandidates()
@@ -566,7 +566,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             );
             drawFittedText(
                     context,
-                    Text.translatable("screen.digitalstorage.migration.moved_short", diagnostic.movedItems()),
+                    Component.translatable("screen.digitalstorage.migration.moved_short", diagnostic.movedItems()),
                     drawX + 8,
                     drawY + 63,
                     CARD_WIDTH - 16,
@@ -578,7 +578,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         if (diagnostic.hasDuplicateTargetEndpoints()) {
             int lineY = drawWrappedText(
                     context,
-                    Text.translatable("screen.digitalstorage.network.migration_blocked"),
+                    Component.translatable("screen.digitalstorage.network.migration_blocked"),
                     drawX + 8,
                     drawY + 27,
                     CARD_WIDTH - 16,
@@ -586,7 +586,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             );
             drawWrappedText(
                     context,
-                    Text.translatable("screen.digitalstorage.network.keep_one_endpoint"),
+                    Component.translatable("screen.digitalstorage.network.keep_one_endpoint"),
                     drawX + 8,
                     lineY + 2,
                     CARD_WIDTH - 16,
@@ -597,7 +597,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         if (diagnostic.recommendedVariants() > 0) {
             int lineY = drawWrappedText(
                     context,
-                    Text.translatable(
+                    Component.translatable(
                             "screen.digitalstorage.network.migration_available",
                             diagnostic.recommendedVariants()
                     ),
@@ -608,7 +608,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             );
             drawWrappedText(
                     context,
-                    Text.translatable(
+                    Component.translatable(
                             "screen.digitalstorage.network.freed_views_short",
                             diagnostic.estimatedFreedViews()
                     ),
@@ -619,33 +619,33 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             );
             return;
         }
-        drawWrappedText(context, Text.translatable("screen.digitalstorage.network.no_optimization"),
+        drawWrappedText(context, Component.translatable("screen.digitalstorage.network.no_optimization"),
                 drawX + 8, drawY + 30, CARD_WIDTH - 16, SUCCESS_TEXT);
     }
 
-    private void drawSectionTitle(DrawContext context, String key, int drawX, int drawY) {
-        context.drawText(
-                textRenderer,
-                Text.translatable(key),
+    private void drawSectionTitle(GuiGraphics context, String key, int drawX, int drawY) {
+        context.drawString(
+                font,
+                Component.translatable(key),
                 drawX + 8,
                 drawY + 7,
                 PRIMARY_TEXT,
                 false
         );
-        context.drawHorizontalLine(drawX + 8, drawX + CARD_WIDTH - 9, drawY + 19, CARD_BORDER);
+        context.hLine(drawX + 8, drawX + CARD_WIDTH - 9, drawY + 19, CARD_BORDER);
     }
 
     private void drawKeyValue(
-            DrawContext context,
+            GuiGraphics context,
             String labelKey,
-            Text value,
+            Component value,
             int drawX,
             int drawY,
             int width
     ) {
-        Text label = Text.translatable(labelKey);
-        context.drawText(textRenderer, label, drawX, drawY, SECONDARY_TEXT, false);
-        int maxValueWidth = Math.max(20, width - textRenderer.getWidth(label) - 8);
+        Component label = Component.translatable(labelKey);
+        context.drawString(font, label, drawX, drawY, SECONDARY_TEXT, false);
+        int maxValueWidth = Math.max(20, width - font.width(label) - 8);
         drawFittedTextRightAligned(
                 context,
                 value,
@@ -658,8 +658,8 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     }
 
     private void drawFittedText(
-            DrawContext context,
-            Text text,
+            GuiGraphics context,
+            Component text,
             int drawX,
             int drawY,
             int width,
@@ -670,8 +670,8 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     }
 
     private void drawFittedTextRightAligned(
-            DrawContext context,
-            Text text,
+            GuiGraphics context,
+            Component text,
             int drawX,
             int drawY,
             int width,
@@ -682,8 +682,8 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
     }
 
     private void drawFittedText(
-            DrawContext context,
-            Text text,
+            GuiGraphics context,
+            Component text,
             int drawX,
             int drawY,
             int width,
@@ -691,50 +691,50 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             float minScale,
             boolean rightAligned
     ) {
-        int textWidth = textRenderer.getWidth(text);
+        int textWidth = font.width(text);
         if (textWidth <= width) {
             int textX = rightAligned ? drawX + width - textWidth : drawX;
-            context.drawText(textRenderer, text, textX, drawY, color, false);
+            context.drawString(font, text, textX, drawY, color, false);
             return;
         }
 
         float scale = Math.max(minScale, width / (float) textWidth);
-        Text displayText = text;
+        Component displayText = text;
         int displayWidth = textWidth;
         if (displayWidth * scale > width) {
             int unscaledWidth = Math.max(1, (int) Math.floor(width / scale));
-            displayText = Text.literal(textRenderer.trimToWidth(text.getString(), unscaledWidth));
-            displayWidth = textRenderer.getWidth(displayText);
+            displayText = Component.literal(font.plainSubstrByWidth(text.getString(), unscaledWidth));
+            displayWidth = font.width(displayText);
         }
 
-        context.getMatrices().push();
-        context.getMatrices().scale(scale, scale, 1.0F);
+        context.pose().pushPose();
+        context.pose().scale(scale, scale, 1.0F);
         int scaledY = Math.round(drawY / scale);
         int scaledX = rightAligned
                 ? Math.round((drawX + width) / scale) - displayWidth
                 : Math.round(drawX / scale);
-        context.drawText(textRenderer, displayText, scaledX, scaledY, color, false);
-        context.getMatrices().pop();
+        context.drawString(font, displayText, scaledX, scaledY, color, false);
+        context.pose().popPose();
     }
 
     private int drawWrappedText(
-            DrawContext context,
-            Text text,
+            GuiGraphics context,
+            Component text,
             int drawX,
             int drawY,
             int width,
             int color
     ) {
-        List<OrderedText> lines = textRenderer.wrapLines(text, width);
-        int lineHeight = textRenderer.fontHeight + 1;
+        List<FormattedCharSequence> lines = font.split(text, width);
+        int lineHeight = font.lineHeight + 1;
         for (int index = 0; index < lines.size(); index++) {
-            context.drawText(textRenderer, lines.get(index), drawX, drawY + index * lineHeight, color, false);
+            context.drawString(font, lines.get(index), drawX, drawY + index * lineHeight, color, false);
         }
         return drawY + lines.size() * lineHeight;
     }
 
     private void drawProgressBar(
-            DrawContext context,
+            GuiGraphics context,
             int drawX,
             int drawY,
             int width,
@@ -742,7 +742,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             double progress
     ) {
         context.fill(drawX, drawY, drawX + width, drawY + height, PROGRESS_BACKGROUND);
-        context.drawBorder(drawX, drawY, width, height, CARD_BORDER);
+        context.renderOutline(drawX, drawY, width, height, CARD_BORDER);
         double clamped = Math.max(0.0, Math.min(1.0, progress));
         int fillWidth = (int) Math.round((width - 2) * clamped);
         if (fillWidth > 0) {
@@ -754,34 +754,34 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         return score >= 75 ? SUCCESS_TEXT : score >= 40 ? WARNING_TEXT : ERROR_TEXT;
     }
 
-    private Text tierName(net.minecraft.util.Identifier id) {
+    private Component tierName(net.minecraft.resources.ResourceLocation id) {
         String translationKey = "tier.digitalstorage." + id.getNamespace() + "." + id.getPath().replace('/', '.');
-        return Text.translatableWithFallback(translationKey, id.toString());
+        return Component.translatableWithFallback(translationKey, id.toString());
     }
 
-    private Text costText(DigitalStorageScreenState state) {
-        MutableText result = Text.empty();
+    private Component costText(DigitalStorageScreenState state) {
+        MutableComponent result = Component.empty();
         boolean hasPrevious = false;
         for (UpgradeIngredient ingredient : state.upgradeCost()) {
             if (hasPrevious) {
-                result.append(Text.literal(", "));
+                result.append(Component.literal(", "));
             }
-            Text name = ingredient.kind() == UpgradeIngredient.Kind.ITEM
-                    ? Registries.ITEM.getOrEmpty(ingredient.id())
-                            .<Text>map(item -> item.getName())
-                            .orElse(Text.literal(ingredient.id().toString()))
-                    : Text.literal("#" + ingredient.id());
-            result.append(Text.translatable("screen.digitalstorage.cost_entry", name, ingredient.count()));
+            Component name = ingredient.kind() == UpgradeIngredient.Kind.ITEM
+                    ? BuiltInRegistries.ITEM.getOptional(ingredient.id())
+                            .<Component>map(item -> item.getDescription())
+                            .orElse(Component.literal(ingredient.id().toString()))
+                    : Component.literal("#" + ingredient.id());
+            result.append(Component.translatable("screen.digitalstorage.cost_entry", name, ingredient.count()));
             hasPrevious = true;
         }
         if (state.experienceLevels() > 0) {
             if (hasPrevious) {
-                result.append(Text.literal(", "));
+                result.append(Component.literal(", "));
             }
-            result.append(Text.translatable("screen.digitalstorage.cost_xp", state.experienceLevels()));
+            result.append(Component.translatable("screen.digitalstorage.cost_xp", state.experienceLevels()));
             hasPrevious = true;
         }
-        return hasPrevious ? result : Text.translatable("screen.digitalstorage.cost_free");
+        return hasPrevious ? result : Component.translatable("screen.digitalstorage.cost_free");
     }
 
     private void updateButton() {
@@ -790,14 +790,14 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                 || clearBindingButton == null || volumeNameField == null) {
             return;
         }
-        DigitalStorageScreenState state = handler.state();
+        DigitalStorageScreenState state = menu.state();
         boolean canConfigureUnbound = !state.accessorBound() && state.accessorConfigurable();
         volumeNameField.visible = canConfigureUnbound;
         volumeNameField.setEditable(canConfigureUnbound);
         createVolumeButton.visible = canConfigureUnbound;
         createVolumeButton.active = canConfigureUnbound
                 && creationRequestedFromState == null
-                && !volumeNameField.getText().isBlank();
+                && !volumeNameField.getValue().isBlank();
 
         int pageCount = pageCount();
         volumePage = Math.max(0, Math.min(volumePage, pageCount - 1));
@@ -808,7 +808,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
 
         upgradeButton.visible = state.accessorBound();
         upgradeButton.active = state.accessorBound() && state.accessorConfigurable() && state.hasNextTier();
-        upgradeButton.setMessage(Text.translatable(
+        upgradeButton.setMessage(Component.translatable(
                 state.hasNextTier() ? "screen.digitalstorage.upgrade" : "screen.digitalstorage.maximum_button"
         ));
         migrationButton.visible = state.accessorBound();
@@ -818,12 +818,12 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                 || (state.networkDiagnostic().available()
                 && !state.networkDiagnostic().hasDuplicateTargetEndpoints()
                 && state.networkDiagnostic().recommendedVariants() > 0));
-        migrationButton.setMessage(Text.translatable(state.networkDiagnostic().migrationActive()
+        migrationButton.setMessage(Component.translatable(state.networkDiagnostic().migrationActive()
                 ? "screen.digitalstorage.migration.cancel"
                 : "screen.digitalstorage.migration.run"));
         migrationButton.setTooltip(state.networkDiagnostic().migrationActive()
                 ? null
-                : Tooltip.of(Text.translatable("screen.digitalstorage.network.migration_hint")));
+                : Tooltip.create(Component.translatable("screen.digitalstorage.network.migration_hint")));
         networkAnalysisButton.visible = state.accessorBound();
         networkAnalysisButton.active = state.accessorBound() && !state.networkDiagnostic().migrationActive();
         unstackableButton.visible = state.accessorBound();
@@ -833,7 +833,7 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                 && !state.networkDiagnostic().migrationActive()
                 && unstackableRequestedFromState == null;
         boolean effectiveAccept = state.unstackableItemsAllowedByServer() && state.acceptsUnstackableItems();
-        unstackableButton.setMessage(Text.translatable(effectiveAccept
+        unstackableButton.setMessage(Component.translatable(effectiveAccept
                 ? "screen.digitalstorage.unstackables.accept"
                 : "screen.digitalstorage.unstackables.reject"));
         String unstackableTooltipKey;
@@ -848,14 +848,14 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
                     ? "screen.digitalstorage.unstackables.tooltip.accept"
                     : "screen.digitalstorage.unstackables.tooltip.reject";
         }
-        unstackableButton.setTooltip(Tooltip.of(Text.translatable(unstackableTooltipKey)));
+        unstackableButton.setTooltip(Tooltip.create(Component.translatable(unstackableTooltipKey)));
         clearBindingButton.visible = state.accessorBound();
         clearBindingButton.active = clearBindingButton.visible && state.accessorConfigurable();
         List<DigitalStorageScreenState.VolumeChoice> choices = state.ownedVolumes();
         for (int slot = 0; slot < volumeButtons.size(); slot++) {
-            ButtonWidget button = volumeButtons.get(slot);
-            ButtonWidget renameButton = renameVolumeButtons.get(slot);
-            ButtonWidget deleteButton = deleteVolumeButtons.get(slot);
+            Button button = volumeButtons.get(slot);
+            Button renameButton = renameVolumeButtons.get(slot);
+            Button deleteButton = deleteVolumeButtons.get(slot);
             int volumeIndex = volumePage * VOLUMES_PER_PAGE + slot;
             boolean hasChoice = volumeIndex < choices.size();
             button.visible = canConfigureUnbound && hasChoice;
@@ -867,23 +867,23 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
             deleteButton.setTooltip(null);
             if (hasChoice) {
                 DigitalStorageScreenState.VolumeChoice choice = choices.get(volumeIndex);
-                Text usage = Text.translatable(
+                Component usage = Component.translatable(
                         choice.usedVariants() == 0
                                 ? "screen.digitalstorage.volume_empty"
                                 : "screen.digitalstorage.volume_in_use",
                         choice.usedVariants(),
                         choice.variantCapacity()
                 );
-                button.setMessage(Text.translatable(
+                button.setMessage(Component.translatable(
                         "screen.digitalstorage.bind_volume",
                         choice.name(),
                         tierName(choice.tierId()),
                         usage
                 ));
                 renameButton.active = managementRequestedFromState == null
-                        && !volumeNameField.getText().isBlank();
+                        && !volumeNameField.getValue().isBlank();
                 deleteButton.active = managementRequestedFromState == null && choice.usedVariants() == 0;
-                deleteButton.setTooltip(Tooltip.of(Text.translatable(choice.usedVariants() == 0
+                deleteButton.setTooltip(Tooltip.create(Component.translatable(choice.usedVariants() == 0
                         ? "screen.digitalstorage.delete_volume.tooltip.empty"
                         : "screen.digitalstorage.delete_volume.tooltip.non_empty")));
             }
@@ -894,32 +894,32 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
         if (!createVolumeButton.active) {
             return;
         }
-        creationRequestedFromState = handler.state();
+        creationRequestedFromState = menu.state();
         createVolumeButton.active = false;
         requestSender.send(new DigitalStorageScreenProtocol.CreateVolume(
-                handler.syncId, volumeNameField.getText().strip()));
+                menu.containerId, volumeNameField.getValue().strip()));
     }
 
     private void requestUnstackablePolicy() {
-        if (!unstackableButton.active || client == null || client.interactionManager == null) {
+        if (!unstackableButton.active || minecraft == null || minecraft.gameMode == null) {
             return;
         }
-        DigitalStorageScreenState current = handler.state();
+        DigitalStorageScreenState current = menu.state();
         int buttonId = current.acceptsUnstackableItems()
                 ? DigitalStorageScreenHandler.SET_UNSTACKABLE_REJECT_BUTTON_ID
                 : DigitalStorageScreenHandler.SET_UNSTACKABLE_ACCEPT_BUTTON_ID;
         unstackableRequestedFromState = current;
         unstackableButton.active = false;
-        client.interactionManager.clickButton(handler.syncId, buttonId);
+        minecraft.gameMode.handleInventoryButtonClick(menu.containerId, buttonId);
     }
 
     private void bindVisibleVolume(int slot) {
         int volumeIndex = volumePage * VOLUMES_PER_PAGE + slot;
-        if (client != null
-                && client.interactionManager != null
-                && volumeIndex < handler.state().ownedVolumes().size()) {
-            client.interactionManager.clickButton(
-                    handler.syncId,
+        if (minecraft != null
+                && minecraft.gameMode != null
+                && volumeIndex < menu.state().ownedVolumes().size()) {
+            minecraft.gameMode.handleInventoryButtonClick(
+                    menu.containerId,
                     DigitalStorageScreenHandler.BIND_VOLUME_BUTTON_BASE + volumeIndex
             );
         }
@@ -927,32 +927,32 @@ public final class DigitalStorageScreen extends HandledScreen<DigitalStorageScre
 
     private void requestVolumeManagement(int action, int slot) {
         int volumeIndex = volumePage * VOLUMES_PER_PAGE + slot;
-        List<DigitalStorageScreenState.VolumeChoice> choices = handler.state().ownedVolumes();
+        List<DigitalStorageScreenState.VolumeChoice> choices = menu.state().ownedVolumes();
         if (managementRequestedFromState != null || volumeIndex < 0 || volumeIndex >= choices.size()) {
             return;
         }
-        String requestedName = volumeNameField.getText().strip();
+        String requestedName = volumeNameField.getValue().strip();
         if (action == DigitalStorageScreenHandler.RENAME_VOLUME_ACTION && requestedName.isEmpty()) {
             return;
         }
-        managementRequestedFromState = handler.state();
+        managementRequestedFromState = menu.state();
         requestSender.send(new DigitalStorageScreenProtocol.ManageVolume(
-                handler.syncId, action, choices.get(volumeIndex).id(), requestedName));
+                menu.containerId, action, choices.get(volumeIndex).id(), requestedName));
         updateButton();
     }
 
     private int pageCount() {
-        return Math.max(1, (handler.state().ownedVolumes().size() + VOLUMES_PER_PAGE - 1) / VOLUMES_PER_PAGE);
+        return Math.max(1, (menu.state().ownedVolumes().size() + VOLUMES_PER_PAGE - 1) / VOLUMES_PER_PAGE);
     }
 
-    private void drawStatus(DrawContext context, DigitalStorageScreenState state) {
+    private void drawStatus(GuiGraphics context, DigitalStorageScreenState state) {
         if (!state.status().getString().isEmpty()) {
             drawFittedText(
                     context,
                     state.status(),
                     CONTENT_MARGIN,
                     STATUS_Y,
-                    backgroundWidth - 24,
+                    imageWidth - 24,
                     state.statusSuccessful() ? SUCCESS_TEXT : ERROR_TEXT,
                     0.8F
             );

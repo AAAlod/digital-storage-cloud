@@ -6,6 +6,9 @@ import dev.kehai.digitalstorage.optimization.InventoryEndpoint;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import dev.kehai.digitalstorage.platform.fabric.FabricInventoryEndpoint;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkCache.Topology;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkIntrospection.Discovery;
+import dev.kehai.digitalstorage.platform.fabric.tom.TomScannerTelemetry.Snapshot;
 import java.util.List;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
@@ -24,7 +27,7 @@ public final class TomNetworkAnalysis {
         }
         var topology = TomNetworkCache.topology(discovery.connector(), discovery.storage());
         TomScannerTelemetry.associate(target, topology.identity());
-        long tick = accessor.getWorld() == null ? 0 : accessor.getWorld().getTime();
+        long tick = accessor.getLevel() == null ? 0 : accessor.getLevel().getGameTime();
         var scanners = TomScannerTelemetry.snapshot(target, tick);
         List<InventoryEndpoint> physical = topology.physical().stream()
                 .map(storage -> (InventoryEndpoint) new FabricInventoryEndpoint(storage)).toList();
@@ -104,7 +107,7 @@ public final class TomNetworkAnalysis {
             add.invoke(merged, duplicateWrappedTarget);
             add.invoke(merged, physical);
 
-            ItemVariant stone = ItemVariant.of(net.minecraft.item.Items.STONE);
+            ItemVariant stone = ItemVariant.of(net.minecraft.world.item.Items.STONE);
             try (net.fabricmc.fabric.api.transfer.v1.transaction.Transaction transaction =
                          net.fabricmc.fabric.api.transfer.v1.transaction.Transaction.openOuter()) {
                 target.insert(stone, 37, transaction);

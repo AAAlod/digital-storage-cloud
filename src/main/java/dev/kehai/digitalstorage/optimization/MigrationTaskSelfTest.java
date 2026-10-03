@@ -6,7 +6,7 @@ import dev.kehai.digitalstorage.storage.LedgerTransaction;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import net.minecraft.item.Items;
+import net.minecraft.world.item.Items;
 
 /** Shared scheduler tests use ordinary inventory views; Fabric integration is verified separately. */
 public final class MigrationTaskSelfTest {

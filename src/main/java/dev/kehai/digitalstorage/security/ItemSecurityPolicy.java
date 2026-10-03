@@ -5,11 +5,11 @@ import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
 import dev.kehai.digitalstorage.storage.ItemKey;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.util.Identifier;
 
 public final class ItemSecurityPolicy {
     private static final AtomicLong FILTER_REJECTIONS = new AtomicLong();
@@ -23,8 +23,8 @@ public final class ItemSecurityPolicy {
 
     public static void reload() {
         DigitalStorageConfig config = DigitalStorageConfig.get();
-        Set<Identifier> items = parseIdentifiers(config.itemFilterItems, "item");
-        Set<Identifier> tags = parseIdentifiers(config.itemFilterTags, "tag");
+        Set<ResourceLocation> items = parseIdentifiers(config.itemFilterItems, "item");
+        Set<ResourceLocation> tags = parseIdentifiers(config.itemFilterTags, "tag");
         snapshot = new Snapshot(
                 "whitelist".equals(config.itemFilterMode),
                 Set.copyOf(items),
@@ -48,7 +48,7 @@ public final class ItemSecurityPolicy {
         Snapshot current = snapshot;
         if (!isInsertAllowed(variant, current, volumeAcceptsUnstackables)) {
             UNSTACKABLE_REJECTIONS.incrementAndGet();
-            logRejected(current, Registries.ITEM.getId(variant.item()), "unstackable item");
+            logRejected(current, BuiltInRegistries.ITEM.getKey(variant.item()), "unstackable item");
             return false;
         }
         return true;
@@ -64,7 +64,7 @@ public final class ItemSecurityPolicy {
 
     public static boolean canCreateVariant(ItemKey variant) {
         Snapshot current = snapshot;
-        Identifier itemId = Registries.ITEM.getId(variant.item());
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(variant.item());
         if (!passesFilter(variant, current, itemId)) {
             return false;
         }
@@ -73,7 +73,7 @@ public final class ItemSecurityPolicy {
 
     public static boolean allowsNewVariant(ItemKey variant) {
         Snapshot current = snapshot;
-        Identifier itemId = Registries.ITEM.getId(variant.item());
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(variant.item());
         if (!passesFilter(variant, current, itemId)) {
             FILTER_REJECTIONS.incrementAndGet();
             logRejected(current, itemId, "item filter");
@@ -94,15 +94,15 @@ public final class ItemSecurityPolicy {
             Snapshot current,
             boolean volumeAcceptsUnstackables
     ) {
-        return variant.item().getMaxCount() > 1
+        return variant.item().getMaxStackSize() > 1
                 || (current.allowUnstackables() && volumeAcceptsUnstackables);
     }
 
-    private static boolean passesFilter(ItemKey variant, Snapshot current, Identifier itemId) {
+    private static boolean passesFilter(ItemKey variant, Snapshot current, ResourceLocation itemId) {
         boolean listed = current.items().contains(itemId);
         if (!listed) {
-            for (Identifier tagId : current.tags()) {
-                if (variant.item().getRegistryEntry().isIn(TagKey.of(RegistryKeys.ITEM, tagId))) {
+            for (ResourceLocation tagId : current.tags()) {
+                if (variant.item().builtInRegistryHolder().is(TagKey.create(Registries.ITEM, tagId))) {
                     listed = true;
                     break;
                 }
@@ -137,34 +137,34 @@ public final class ItemSecurityPolicy {
         long originalNbtRejections = NBT_REJECTIONS.get();
         long originalUnstackableRejections = UNSTACKABLE_REJECTIONS.get();
         try {
-            Identifier diamondId = new Identifier("minecraft", "diamond");
+            ResourceLocation diamondId = new ResourceLocation("minecraft", "diamond");
             snapshot = new Snapshot(true, Set.of(diamondId), Set.of(), 65_536, false, false);
-            expect(allowsNewVariant(ItemKey.of(net.minecraft.item.Items.DIAMOND)),
+            expect(allowsNewVariant(ItemKey.of(net.minecraft.world.item.Items.DIAMOND)),
                     "whitelist rejected its listed item");
-            expect(!allowsNewVariant(ItemKey.of(net.minecraft.item.Items.DIRT)),
+            expect(!allowsNewVariant(ItemKey.of(net.minecraft.world.item.Items.DIRT)),
                     "whitelist accepted an unlisted item");
 
             snapshot = new Snapshot(
                     false,
                     Set.of(),
-                    Set.of(new Identifier("minecraft", "logs")),
+                    Set.of(new ResourceLocation("minecraft", "logs")),
                     65_536,
                     false,
                     false
             );
-            expect(!allowsNewVariant(ItemKey.of(net.minecraft.item.Items.OAK_LOG)),
+            expect(!allowsNewVariant(ItemKey.of(net.minecraft.world.item.Items.OAK_LOG)),
                     "blacklist tag accepted a tagged item");
-            expect(allowsNewVariant(ItemKey.of(net.minecraft.item.Items.DIAMOND)),
+            expect(allowsNewVariant(ItemKey.of(net.minecraft.world.item.Items.DIAMOND)),
                     "blacklist tag rejected an unrelated item");
 
-            net.minecraft.nbt.NbtCompound oversizedNbt = new net.minecraft.nbt.NbtCompound();
+            net.minecraft.nbt.CompoundTag oversizedNbt = new net.minecraft.nbt.CompoundTag();
             oversizedNbt.putString("Payload", "x".repeat(2_000));
             snapshot = new Snapshot(false, Set.of(), Set.of(), 1_024, false, false);
-            expect(!allowsNewVariant(ItemKey.of(net.minecraft.item.Items.PAPER, oversizedNbt)),
+            expect(!allowsNewVariant(ItemKey.of(net.minecraft.world.item.Items.PAPER, oversizedNbt)),
                     "NBT guard accepted an oversized new variant");
 
-            ItemKey pickaxe = ItemKey.of(net.minecraft.item.Items.IRON_PICKAXE);
-            ItemKey diamond = ItemKey.of(net.minecraft.item.Items.DIAMOND);
+            ItemKey pickaxe = ItemKey.of(net.minecraft.world.item.Items.IRON_PICKAXE);
+            ItemKey diamond = ItemKey.of(net.minecraft.world.item.Items.DIAMOND);
             snapshot = new Snapshot(false, Set.of(), Set.of(), 65_536, false, false);
             expect(!canInsert(pickaxe, false), "server deny + volume reject accepted a tool");
             expect(!canInsert(pickaxe, true), "server deny + volume accept accepted a tool");
@@ -182,10 +182,10 @@ public final class ItemSecurityPolicy {
         }
     }
 
-    private static Set<Identifier> parseIdentifiers(Iterable<String> values, String type) {
-        Set<Identifier> result = new HashSet<>();
+    private static Set<ResourceLocation> parseIdentifiers(Iterable<String> values, String type) {
+        Set<ResourceLocation> result = new HashSet<>();
         for (String value : values) {
-            Identifier id = Identifier.tryParse(value);
+            ResourceLocation id = ResourceLocation.tryParse(value);
             if (id == null) {
                 DigitalStorage.LOGGER.warn("Ignoring invalid item filter {} identifier {}", type, value);
             } else {
@@ -195,7 +195,7 @@ public final class ItemSecurityPolicy {
         return result;
     }
 
-    private static void logRejected(Snapshot current, Identifier itemId, String reason) {
+    private static void logRejected(Snapshot current, ResourceLocation itemId, String reason) {
         if (!current.logRejected()) {
             return;
         }
@@ -214,8 +214,8 @@ public final class ItemSecurityPolicy {
 
     private record Snapshot(
             boolean whitelist,
-            Set<Identifier> items,
-            Set<Identifier> tags,
+            Set<ResourceLocation> items,
+            Set<ResourceLocation> tags,
             int maxNbtBytes,
             boolean allowUnstackables,
             boolean logRejected

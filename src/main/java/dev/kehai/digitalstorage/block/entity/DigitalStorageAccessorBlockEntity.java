@@ -8,19 +8,19 @@ import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import dev.kehai.digitalstorage.storage.StorageVolume;
 import java.util.Optional;
 import java.util.UUID;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.screen.NamedScreenHandlerFactory;
-import net.minecraft.screen.ScreenHandler;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.MenuProvider;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
 
-public class DigitalStorageAccessorBlockEntity extends BlockEntity implements NamedScreenHandlerFactory {
+public class DigitalStorageAccessorBlockEntity extends BlockEntity implements MenuProvider {
     private static final String CONTROLLER_ID_KEY = "ControllerId";
     private static final String BOUND_VOLUME_ID_KEY = "BoundVolumeId";
 
@@ -49,7 +49,7 @@ public class DigitalStorageAccessorBlockEntity extends BlockEntity implements Na
     }
 
     public StorageVolume getVolume() {
-        if (!(world instanceof ServerWorld serverWorld) || boundVolumeId == null) {
+        if (!(level instanceof ServerLevel serverWorld) || boundVolumeId == null) {
             return null;
         }
         DigitalStorageState state = DigitalStorageState.get(serverWorld);
@@ -79,11 +79,11 @@ public class DigitalStorageAccessorBlockEntity extends BlockEntity implements Na
         return true;
     }
 
-    public BindResult bind(ServerPlayerEntity player, UUID requestedVolumeId) {
-        if (!(world instanceof ServerWorld serverWorld)) {
+    public BindResult bind(ServerPlayer player, UUID requestedVolumeId) {
+        if (!(level instanceof ServerLevel serverWorld)) {
             return BindResult.UNAVAILABLE;
         }
-        UUID playerId = player.getUuid();
+        UUID playerId = player.getUUID();
         DigitalStorageState state = DigitalStorageState.get(serverWorld);
         if (!state.ownsVolume(playerId, requestedVolumeId)) {
             return BindResult.NOT_OWNER;
@@ -100,19 +100,19 @@ public class DigitalStorageAccessorBlockEntity extends BlockEntity implements Na
         return BindResult.SUCCESS;
     }
 
-    public BindResult clearBinding(ServerPlayerEntity player) {
+    public BindResult clearBinding(ServerPlayer player) {
         synchronized (this) {
             if (controllerId == null) {
                 return BindResult.NOT_BOUND;
             }
-            if (!controllerId.equals(player.getUuid())) {
+            if (!controllerId.equals(player.getUUID())) {
                 return BindResult.NOT_CONTROLLER;
             }
             controllerId = null;
             boundVolumeId = null;
             markDirtyAndSync();
         }
-        if (world instanceof ServerWorld serverWorld) {
+        if (level instanceof ServerLevel serverWorld) {
             DigitalStorageMountTracker.update(this, serverWorld);
         }
         return BindResult.SUCCESS;
@@ -127,51 +127,51 @@ public class DigitalStorageAccessorBlockEntity extends BlockEntity implements Na
             boundVolumeId = null;
             markDirtyAndSync();
         }
-        if (world instanceof ServerWorld serverWorld) {
+        if (level instanceof ServerLevel serverWorld) {
             DigitalStorageMountTracker.update(this, serverWorld);
         }
         return BindResult.SUCCESS;
     }
 
     @Override
-    public Text getDisplayName() {
-        return Text.translatable("block.digitalstorage.digital_storage_accessor");
+    public Component getDisplayName() {
+        return Component.translatable("block.digitalstorage.digital_storage_accessor");
     }
 
     @Override
-    public ScreenHandler createMenu(int syncId, PlayerInventory playerInventory, PlayerEntity player) {
+    public AbstractContainerMenu createMenu(int syncId, Inventory playerInventory, Player player) {
         return new DigitalStorageScreenHandler(syncId, playerInventory, this);
     }
 
     @Override
-    protected void writeNbt(NbtCompound nbt) {
-        super.writeNbt(nbt);
+    protected void saveAdditional(CompoundTag nbt) {
+        super.saveAdditional(nbt);
         if (controllerId != null) {
-            nbt.putUuid(CONTROLLER_ID_KEY, controllerId);
+            nbt.putUUID(CONTROLLER_ID_KEY, controllerId);
         }
         if (boundVolumeId != null) {
-            nbt.putUuid(BOUND_VOLUME_ID_KEY, boundVolumeId);
+            nbt.putUUID(BOUND_VOLUME_ID_KEY, boundVolumeId);
         }
     }
 
     @Override
-    public void readNbt(NbtCompound nbt) {
-        super.readNbt(nbt);
-        controllerId = nbt.containsUuid(CONTROLLER_ID_KEY) ? nbt.getUuid(CONTROLLER_ID_KEY) : null;
-        boundVolumeId = nbt.containsUuid(BOUND_VOLUME_ID_KEY) ? nbt.getUuid(BOUND_VOLUME_ID_KEY) : null;
+    public void load(CompoundTag nbt) {
+        super.load(nbt);
+        controllerId = nbt.hasUUID(CONTROLLER_ID_KEY) ? nbt.getUUID(CONTROLLER_ID_KEY) : null;
+        boundVolumeId = nbt.hasUUID(BOUND_VOLUME_ID_KEY) ? nbt.getUUID(BOUND_VOLUME_ID_KEY) : null;
         if ((controllerId == null) != (boundVolumeId == null)) {
             controllerId = null;
             boundVolumeId = null;
         }
-        if (world instanceof ServerWorld serverWorld) {
+        if (level instanceof ServerLevel serverWorld) {
             DigitalStorageMountTracker.update(this, serverWorld);
         }
     }
 
     private void markDirtyAndSync() {
-        markDirty();
-        if (world != null) {
-            world.updateListeners(pos, getCachedState(), getCachedState(), 3);
+        setChanged();
+        if (level != null) {
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
     }
 

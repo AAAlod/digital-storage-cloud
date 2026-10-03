@@ -4,7 +4,7 @@ import java.util.List;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
 import net.fabricmc.fabric.api.transfer.v1.storage.base.CombinedStorage;
-import net.minecraft.util.math.Direction;
+import net.minecraft.core.Direction;
 
 /** Structural keys only: never reads item contents or advances a storage iterator. */
 public final class TomStorageIdentity {

@@ -20,26 +20,27 @@ import java.util.UUID;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemStorage;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
-import net.minecraft.command.argument.BlockPosArgumentType;
-import net.minecraft.command.argument.UuidArgumentType;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.BlockPos;
+import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.arguments.UuidArgument;
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 
-import static net.minecraft.server.command.CommandManager.argument;
-import static net.minecraft.server.command.CommandManager.literal;
+import static net.minecraft.commands.Commands.argument;
+import static net.minecraft.commands.Commands.literal;
 
 public final class DigitalStorageCommands {
     private DigitalStorageCommands() {
     }
 
-    public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
+    public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(root("digitalstorage"));
         dispatcher.register(root("dsc"));
     }
 
-    private static LiteralArgumentBuilder<ServerCommandSource> root(String rootName) {
+    private static LiteralArgumentBuilder<CommandSourceStack> root(String rootName) {
         return literal(rootName)
                 .then(literal("volume")
                         .then(literal("create")
@@ -50,87 +51,87 @@ public final class DigitalStorageCommands {
                                         ))))
                         .then(literal("list").executes(context -> listVolumes(context.getSource())))
                         .then(literal("rename")
-                                .then(argument("volume", UuidArgumentType.uuid())
+                                .then(argument("volume", UuidArgument.uuid())
                                         .then(argument("name", StringArgumentType.greedyString())
                                                 .executes(context -> renameVolume(
                                                         context.getSource(),
-                                                        UuidArgumentType.getUuid(context, "volume"),
+                                                        UuidArgument.getUuid(context, "volume"),
                                                         StringArgumentType.getString(context, "name")
                                                 )))))
                         .then(literal("delete")
-                                .then(argument("volume", UuidArgumentType.uuid())
+                                .then(argument("volume", UuidArgument.uuid())
                                         .executes(context -> deleteVolume(
                                                 context.getSource(),
-                                                UuidArgumentType.getUuid(context, "volume")
+                                                UuidArgument.getUuid(context, "volume")
                                         )))))
                 .then(literal("accessor")
                         .then(literal("bind")
-                                .then(argument("pos", BlockPosArgumentType.blockPos())
-                                        .then(argument("volume", UuidArgumentType.uuid())
+                                .then(argument("pos", BlockPosArgument.blockPos())
+                                        .then(argument("volume", UuidArgument.uuid())
                                                 .executes(context -> bindAccessor(
                                                         context.getSource(),
-                                                        BlockPosArgumentType.getLoadedBlockPos(context, "pos"),
-                                                        UuidArgumentType.getUuid(context, "volume")
+                                                        BlockPosArgument.getLoadedBlockPos(context, "pos"),
+                                                        UuidArgument.getUuid(context, "volume")
                                                 )))))
                         .then(literal("clear")
-                                .then(argument("pos", BlockPosArgumentType.blockPos())
+                                .then(argument("pos", BlockPosArgument.blockPos())
                                         .executes(context -> clearAccessor(
                                                 context.getSource(),
-                                                BlockPosArgumentType.getLoadedBlockPos(context, "pos")
+                                                BlockPosArgument.getLoadedBlockPos(context, "pos")
                                         ))))
                         .then(literal("forceclear")
-                                .requires(source -> source.hasPermissionLevel(2))
-                                .then(argument("pos", BlockPosArgumentType.blockPos())
+                                .requires(source -> source.hasPermission(2))
+                                .then(argument("pos", BlockPosArgument.blockPos())
                                         .executes(context -> forceClearAccessor(
                                                 context.getSource(),
-                                                BlockPosArgumentType.getLoadedBlockPos(context, "pos")
+                                                BlockPosArgument.getLoadedBlockPos(context, "pos")
                                         ))))
                         .then(literal("inspect")
-                                .then(argument("pos", BlockPosArgumentType.blockPos())
+                                .then(argument("pos", BlockPosArgument.blockPos())
                                         .executes(context -> inspectAccessor(
                                                 context.getSource(),
-                                                BlockPosArgumentType.getLoadedBlockPos(context, "pos")
+                                                BlockPosArgument.getLoadedBlockPos(context, "pos")
                                         )))))
                 .then(literal("selftest")
-                        .requires(source -> source.hasPermissionLevel(2))
+                        .requires(source -> source.hasPermission(2))
                         .executes(context -> selfTest(context.getSource())))
                 .then(literal("benchmark")
-                        .requires(source -> source.hasPermissionLevel(2))
+                        .requires(source -> source.hasPermission(2))
                         .executes(context -> benchmark(context.getSource())))
                 .then(literal("reloadconfig")
-                        .requires(source -> source.hasPermissionLevel(2))
+                        .requires(source -> source.hasPermission(2))
                         .executes(context -> reloadConfig(context.getSource())))
                 .then(literal("flush")
-                        .requires(source -> source.hasPermissionLevel(2))
+                        .requires(source -> source.hasPermission(2))
                         .executes(context -> flush(context.getSource())))
                 .then(literal("probe")
-                        .requires(source -> source.hasPermissionLevel(2))
-                        .then(argument("pos", BlockPosArgumentType.blockPos())
+                        .requires(source -> source.hasPermission(2))
+                        .then(argument("pos", BlockPosArgument.blockPos())
                                 .executes(context -> probe(
                                         context.getSource(),
-                                        BlockPosArgumentType.getLoadedBlockPos(context, "pos")
+                                        BlockPosArgument.getLoadedBlockPos(context, "pos")
                                 ))))
                 .then(literal("stats")
-                        .requires(source -> source.hasPermissionLevel(2))
+                        .requires(source -> source.hasPermission(2))
                         .executes(context -> stats(context.getSource(), false))
                         .then(literal("deep")
                                 .executes(context -> stats(context.getSource(), true))))
                 .then(literal("diagnostics")
-                        .requires(source -> source.hasPermissionLevel(2))
+                        .requires(source -> source.hasPermission(2))
                         .executes(context -> diagnostics(context.getSource())));
     }
 
-    private static int createVolume(ServerCommandSource source, String name)
+    private static int createVolume(CommandSourceStack source, String name)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
-        ServerPlayerEntity player = source.getPlayerOrThrow();
-        DigitalStorageState state = DigitalStorageState.get(player.getServerWorld());
+        ServerPlayer player = source.getPlayerOrException();
+        DigitalStorageState state = DigitalStorageState.get(player.serverLevel());
         int limit = DigitalStorageConfig.get().defaultVolumesPerPlayer;
-        StorageVolume volume = state.createVolume(player.getUuid(), name, limit).orElse(null);
+        StorageVolume volume = state.createVolume(player.getUUID(), name, limit).orElse(null);
         if (volume == null) {
-            source.sendError(Text.translatable("command.digitalstorage.volume.limit", limit));
+            source.sendFailure(Component.translatable("command.digitalstorage.volume.limit", limit));
             return 0;
         }
-        source.sendFeedback(() -> Text.translatable(
+        source.sendSuccess(() -> Component.translatable(
                 "command.digitalstorage.volume.created",
                 volume.name(),
                 volume.id().toString()
@@ -138,13 +139,13 @@ public final class DigitalStorageCommands {
         return 1;
     }
 
-    private static int listVolumes(ServerCommandSource source)
+    private static int listVolumes(CommandSourceStack source)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
-        ServerPlayerEntity player = source.getPlayerOrThrow();
-        List<StorageVolume> volumes = DigitalStorageState.get(player.getServerWorld()).volumes(player.getUuid());
-        source.sendFeedback(() -> Text.translatable("command.digitalstorage.volume.count", volumes.size()), false);
+        ServerPlayer player = source.getPlayerOrException();
+        List<StorageVolume> volumes = DigitalStorageState.get(player.serverLevel()).volumes(player.getUUID());
+        source.sendSuccess(() -> Component.translatable("command.digitalstorage.volume.count", volumes.size()), false);
         for (StorageVolume volume : volumes) {
-            source.sendFeedback(() -> Text.literal(
+            source.sendSuccess(() -> Component.literal(
                     volume.id() + "  " + volume.name()
                             + "  " + volume.record().tierId()
                             + "  " + volume.record().storage().variantCount()
@@ -154,73 +155,73 @@ public final class DigitalStorageCommands {
         return volumes.size();
     }
 
-    private static int renameVolume(ServerCommandSource source, UUID volumeId, String name)
+    private static int renameVolume(CommandSourceStack source, UUID volumeId, String name)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
-        ServerPlayerEntity player = source.getPlayerOrThrow();
-        boolean renamed = DigitalStorageState.get(player.getServerWorld())
-                .renameVolume(player.getUuid(), volumeId, name);
+        ServerPlayer player = source.getPlayerOrException();
+        boolean renamed = DigitalStorageState.get(player.serverLevel())
+                .renameVolume(player.getUUID(), volumeId, name);
         if (!renamed) {
-            source.sendError(Text.translatable("command.digitalstorage.volume.not_owned"));
+            source.sendFailure(Component.translatable("command.digitalstorage.volume.not_owned"));
             return 0;
         }
-        source.sendFeedback(() -> Text.translatable("command.digitalstorage.volume.renamed"), false);
+        source.sendSuccess(() -> Component.translatable("command.digitalstorage.volume.renamed"), false);
         return 1;
     }
 
-    private static int deleteVolume(ServerCommandSource source, UUID volumeId)
+    private static int deleteVolume(CommandSourceStack source, UUID volumeId)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
-        ServerPlayerEntity player = source.getPlayerOrThrow();
+        ServerPlayer player = source.getPlayerOrException();
         VolumeManagementService.DeleteResult result = VolumeManagementService.delete(
-                DigitalStorageState.get(player.getServerWorld()),
-                player.getUuid(),
+                DigitalStorageState.get(player.serverLevel()),
+                player.getUUID(),
                 volumeId
         );
         if (result != VolumeManagementService.DeleteResult.SUCCESS) {
-            source.sendError(Text.translatable("command.digitalstorage.volume.delete_failed"));
+            source.sendFailure(Component.translatable("command.digitalstorage.volume.delete_failed"));
             return 0;
         }
-        source.sendFeedback(() -> Text.translatable("command.digitalstorage.volume.deleted"), false);
+        source.sendSuccess(() -> Component.translatable("command.digitalstorage.volume.deleted"), false);
         return 1;
     }
 
-    private static int bindAccessor(ServerCommandSource source, BlockPos pos, UUID volumeId)
+    private static int bindAccessor(CommandSourceStack source, BlockPos pos, UUID volumeId)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
-        ServerPlayerEntity player = source.getPlayerOrThrow();
+        ServerPlayer player = source.getPlayerOrException();
         DigitalStorageAccessorBlockEntity accessor = accessor(source, pos);
         if (accessor == null) {
             return 0;
         }
         DigitalStorageAccessorBlockEntity.BindResult result = accessor.bind(player, volumeId);
         if (result != DigitalStorageAccessorBlockEntity.BindResult.SUCCESS) {
-            source.sendError(Text.translatable("command.digitalstorage.accessor.bind_failed", result.name()));
+            source.sendFailure(Component.translatable("command.digitalstorage.accessor.bind_failed", result.name()));
             return 0;
         }
-        source.sendFeedback(() -> Text.translatable("command.digitalstorage.accessor.bound", volumeId.toString()), false);
+        source.sendSuccess(() -> Component.translatable("command.digitalstorage.accessor.bound", volumeId.toString()), false);
         return 1;
     }
 
-    private static int clearAccessor(ServerCommandSource source, BlockPos pos)
+    private static int clearAccessor(CommandSourceStack source, BlockPos pos)
             throws com.mojang.brigadier.exceptions.CommandSyntaxException {
-        ServerPlayerEntity player = source.getPlayerOrThrow();
+        ServerPlayer player = source.getPlayerOrException();
         DigitalStorageAccessorBlockEntity accessor = accessor(source, pos);
         if (accessor == null) {
             return 0;
         }
         DigitalStorageAccessorBlockEntity.BindResult result = accessor.clearBinding(player);
         if (result != DigitalStorageAccessorBlockEntity.BindResult.SUCCESS) {
-            source.sendError(Text.translatable("command.digitalstorage.accessor.clear_failed", result.name()));
+            source.sendFailure(Component.translatable("command.digitalstorage.accessor.clear_failed", result.name()));
             return 0;
         }
-        source.sendFeedback(() -> Text.translatable("command.digitalstorage.accessor.cleared"), false);
+        source.sendSuccess(() -> Component.translatable("command.digitalstorage.accessor.cleared"), false);
         return 1;
     }
 
-    private static int inspectAccessor(ServerCommandSource source, BlockPos pos) {
+    private static int inspectAccessor(CommandSourceStack source, BlockPos pos) {
         DigitalStorageAccessorBlockEntity accessor = accessor(source, pos);
         if (accessor == null) {
             return 0;
         }
-        source.sendFeedback(() -> Text.literal(
+        source.sendSuccess(() -> Component.literal(
                 "Accessor " + pos.toShortString()
                         + ": controller=" + accessor.controllerId().map(UUID::toString).orElse("none")
                         + ", volume=" + accessor.boundVolumeId().map(UUID::toString).orElse("none")
@@ -228,70 +229,70 @@ public final class DigitalStorageCommands {
         return 1;
     }
 
-    private static int forceClearAccessor(ServerCommandSource source, BlockPos pos) {
+    private static int forceClearAccessor(CommandSourceStack source, BlockPos pos) {
         DigitalStorageAccessorBlockEntity accessor = accessor(source, pos);
         if (accessor == null) {
             return 0;
         }
         DigitalStorageAccessorBlockEntity.BindResult result = accessor.forceClearBinding();
         if (result != DigitalStorageAccessorBlockEntity.BindResult.SUCCESS) {
-            source.sendError(Text.translatable("command.digitalstorage.accessor.force_clear_failed", result.name()));
+            source.sendFailure(Component.translatable("command.digitalstorage.accessor.force_clear_failed", result.name()));
             return 0;
         }
-        source.sendFeedback(
-                () -> Text.translatable("command.digitalstorage.accessor.force_cleared", pos.toShortString()),
+        source.sendSuccess(
+                () -> Component.translatable("command.digitalstorage.accessor.force_cleared", pos.toShortString()),
                 true
         );
         return 1;
     }
 
-    private static int selfTest(ServerCommandSource source) {
+    private static int selfTest(CommandSourceStack source) {
         try {
             String result = DigitalItemStorageSelfTest.run();
-            source.sendFeedback(() -> Text.literal(result), false);
+            source.sendSuccess(() -> Component.literal(result), false);
             return 1;
         } catch (RuntimeException exception) {
             DigitalStorage.LOGGER.error("Digital Storage self-test failed", exception);
-            source.sendError(Text.literal("Digital Storage self-test failed: " + exception));
+            source.sendFailure(Component.literal("Digital Storage self-test failed: " + exception));
             return 0;
         }
     }
 
-    private static int benchmark(ServerCommandSource source) {
+    private static int benchmark(CommandSourceStack source) {
         try {
             TomPerformanceBenchmark.Result result = TomPerformanceBenchmark.run();
-            source.sendFeedback(() -> Text.literal(result.summary()), false);
+            source.sendSuccess(() -> Component.literal(result.summary()), false);
             DigitalStorage.LOGGER.info(result.summary());
             return 1;
         } catch (RuntimeException exception) {
             DigitalStorage.LOGGER.error("Digital Storage benchmark failed", exception);
-            source.sendError(Text.literal("Digital Storage benchmark failed: " + exception));
+            source.sendFailure(Component.literal("Digital Storage benchmark failed: " + exception));
             return 0;
         }
     }
 
-    private static int reloadConfig(ServerCommandSource source) {
+    private static int reloadConfig(CommandSourceStack source) {
         DigitalStorageConfig.LoadResult result = DigitalStorageConfig.reload();
         if (!result.success()) {
-            source.sendError(Text.literal("Digital Storage config reload failed: " + result.message()));
+            source.sendFailure(Component.literal("Digital Storage config reload failed: " + result.message()));
             return 0;
         }
         ItemSecurityPolicy.reload();
-        source.sendFeedback(() -> Text.literal(result.message()), false);
+        source.sendSuccess(() -> Component.literal(result.message()), false);
         return 1;
     }
 
-    private static int flush(ServerCommandSource source) {
-        DigitalStorageState state = DigitalStorageState.get(source.getWorld());
+    private static int flush(CommandSourceStack source) {
+        DigitalStorageState state = DigitalStorageState.get(source.getLevel());
         state.flushNow();
-        source.sendFeedback(() -> Text.literal("Digital Storage files flushed successfully"), false);
+        source.sendSuccess(() -> Component.literal("Digital Storage files flushed successfully"), false);
         return 1;
     }
 
-    private static int probe(ServerCommandSource source, BlockPos pos) {
-        Storage<ItemVariant> storage = ItemStorage.SIDED.find(source.getWorld(), pos, null);
+    private static int probe(CommandSourceStack source, BlockPos pos) {
+        Storage<ItemVariant> storage = ItemStorage.SIDED.find(source.getLevel(), pos, null);
         if (storage == null) {
-            source.sendError(Text.literal("No bound Fabric item storage found at " + pos.toShortString()));
+            source.sendFailure(Component.literal("No bound Fabric item storage found at " + pos.toShortString()));
             return 0;
         }
         int views = 0;
@@ -299,17 +300,17 @@ public final class DigitalStorageCommands {
             views++;
         }
         int finalViews = views;
-        source.sendFeedback(() -> Text.literal(
+        source.sendSuccess(() -> Component.literal(
                 "Fabric item storage found at " + pos.toShortString() + " with " + finalViews + " non-empty views"
         ), false);
         return 1;
     }
 
-    private static int stats(ServerCommandSource source, boolean inspectColdVolumes) {
-        DigitalStorageState state = DigitalStorageState.get(source.getWorld());
+    private static int stats(CommandSourceStack source, boolean inspectColdVolumes) {
+        DigitalStorageState state = DigitalStorageState.get(source.getLevel());
         DigitalStorageState.StorageSizeStats sizes = state.storageSizeStats();
         DigitalStorageState.ContentStats content = state.contentStats(inspectColdVolumes);
-        source.sendFeedback(() -> Text.literal(
+        source.sendSuccess(() -> Component.literal(
                 "Digital Storage Cloud: accounts=" + state.accountCount()
                         + ", volumes=" + state.volumeCount()
                         + ", quarantined=" + state.quarantinedRecordCount()
@@ -339,7 +340,7 @@ public final class DigitalStorageCommands {
                         + ", unstackable rejects=" + ItemSecurityPolicy.unstackableRejections()
         ), false);
         if (!inspectColdVolumes && content.uninspectedVolumeCount() > 0) {
-            source.sendFeedback(() -> Text.literal(
+            source.sendSuccess(() -> Component.literal(
                     "Use /digitalstorage stats deep for exact totals; it will load "
                             + content.uninspectedVolumeCount() + " cold volume(s)."
             ), false);
@@ -347,12 +348,12 @@ public final class DigitalStorageCommands {
         return state.volumeCount();
     }
 
-    private static int diagnostics(ServerCommandSource source) {
+    private static int diagnostics(CommandSourceStack source) {
         TomIntegrationStatus.Snapshot status = TomIntegrationStatus.snapshot();
-        source.sendFeedback(() -> Text.literal(
+        source.sendSuccess(() -> Component.literal(
                 "Tom integration: " + (status.allActive() ? "ACTIVE" : "INCOMPLETE")
         ), false);
-        source.sendFeedback(() -> Text.literal(
+        source.sendSuccess(() -> Component.literal(
                 "hopper=" + state(status.hopperOptimizationMixinApplied())
                         + ", connector stagger=" + state(status.connectorStaggerMixinApplied())
                         + ", topology tracking=" + state(status.topologyTrackingMixinApplied())
@@ -377,11 +378,11 @@ public final class DigitalStorageCommands {
         return bytes + " B";
     }
 
-    private static DigitalStorageAccessorBlockEntity accessor(ServerCommandSource source, BlockPos pos) {
-        if (source.getWorld().getBlockEntity(pos) instanceof DigitalStorageAccessorBlockEntity accessor) {
+    private static DigitalStorageAccessorBlockEntity accessor(CommandSourceStack source, BlockPos pos) {
+        if (source.getLevel().getBlockEntity(pos) instanceof DigitalStorageAccessorBlockEntity accessor) {
             return accessor;
         }
-        source.sendError(Text.translatable("command.digitalstorage.accessor.missing", pos.toShortString()));
+        source.sendFailure(Component.translatable("command.digitalstorage.accessor.missing", pos.toShortString()));
         return null;
     }
 }

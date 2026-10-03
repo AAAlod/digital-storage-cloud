@@ -114,6 +114,10 @@ Clone this repository and use a Java 17 JDK. Set `JAVA_HOME` to that JDK and
 ensure its `bin` directory is on `PATH`. The checked-in wrapper selects Gradle
 8.6; no separate Gradle installation is required.
 
+Development sources use official Mojang mappings for Minecraft 1.20.1. Loom
+remaps the Fabric release JAR to intermediary; keep platform inventory and Tom
+integration inside `platform/fabric` when changing shared code.
+
 From the repository root on Windows PowerShell:
 
 ```powershell

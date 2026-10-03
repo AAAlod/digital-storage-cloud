@@ -7,8 +7,8 @@ import dev.kehai.digitalstorage.optimization.NetworkServices;
 import dev.kehai.digitalstorage.platform.fabric.tom.TomMigrationManager;
 import dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkAnalysis;
 import java.util.UUID;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 /** Adapts shared screen operations to the Fabric Tom network and migration lifecycle. */
 public final class FabricNetworkServices implements NetworkServices.Backend {
@@ -19,13 +19,13 @@ public final class FabricNetworkServices implements NetworkServices.Backend {
     }
 
     @Override
-    public NetworkServices.StartResult start(ServerPlayerEntity player, BlockEntity accessor, NetworkAnalysis.Report report) {
+    public NetworkServices.StartResult start(ServerPlayer player, BlockEntity accessor, NetworkAnalysis.Report report) {
         return accessor instanceof DigitalStorageAccessorBlockEntity digital ? TomMigrationManager.start(player, digital, report)
                 : NetworkServices.StartResult.NO_NETWORK;
     }
 
     @Override
-    public boolean cancel(ServerPlayerEntity player, UUID volumeId) { return TomMigrationManager.cancel(player, volumeId); }
+    public boolean cancel(ServerPlayer player, UUID volumeId) { return TomMigrationManager.cancel(player, volumeId); }
 
     @Override
     public MigrationTask.Status status(UUID volumeId) { return TomMigrationManager.status(volumeId); }

@@ -2,6 +2,8 @@
 
 ## 1.2.0 - Unreleased
 
+- 开发源码统一使用 Minecraft 1.20.1 官方 Mojang 映射，为共用 Fabric/Forge 源码建立映射基线；Fabric 发行 JAR 继续 remap 为 intermediary。
+
 - 接入器绑定和菜单业务改用平台注入的内容句柄/创建工厂，Fabric 库存接口与扩展开屏数据由独立适配实体提供。
 
 - 将网络评分、迁移候选与逐 tick 迁移调度改为共享物品键和库存端点契约；Fabric 适配层保留 Tom 拓扑失效、过滤规则及原子转移回滚。

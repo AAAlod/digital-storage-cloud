@@ -16,10 +16,11 @@ import java.util.WeakHashMap;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.inventory.Inventory;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.math.Direction;
+import net.fabricmc.fabric.api.transfer.v1.storage.base.CombinedStorage;
+import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.Container;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 /**
  * Event-invalidated Tom topology snapshots shared by analysis, migration and
@@ -160,8 +161,8 @@ public final class TomNetworkCache {
 
     static void runSelfTest() {
         BlockEntity connector = new dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity(
-                net.minecraft.util.math.BlockPos.ORIGIN,
-                dev.kehai.digitalstorage.DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR.getDefaultState()
+                net.minecraft.core.BlockPos.ZERO,
+                dev.kehai.digitalstorage.DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR.defaultBlockState()
         );
         Storage<ItemVariant> source = new Storage<>() {
             @Override
@@ -187,8 +188,8 @@ public final class TomNetworkCache {
             if (!isCurrent(sourceToken) || sourceTopology.physicalEndpoints().size() != 1) {
                 throw new IllegalStateException("Tom lifecycle self-test could not create a current source endpoint");
             }
-            var first = InventoryStorage.of(new net.minecraft.inventory.SimpleInventory(27), null);
-            var second = InventoryStorage.of(new net.minecraft.inventory.SimpleInventory(27), null);
+            var first = InventoryStorage.of(new net.minecraft.world.SimpleContainer(27), null);
+            var second = InventoryStorage.of(new net.minecraft.world.SimpleContainer(27), null);
             var chest = new net.fabricmc.fabric.api.transfer.v1.storage.base.CombinedStorage<ItemVariant, Storage<ItemVariant>>(
                     List.of(first, second));
             var replacedChest = new net.fabricmc.fabric.api.transfer.v1.storage.base.CombinedStorage<ItemVariant, Storage<ItemVariant>>(
@@ -198,7 +199,7 @@ public final class TomNetworkCache {
                 throw new IllegalStateException("Double chest identity/replaced inventory regression failed");
             }
             var changedChest = new net.fabricmc.fabric.api.transfer.v1.storage.base.CombinedStorage<ItemVariant, Storage<ItemVariant>>(
-                    List.of(first, InventoryStorage.of(new net.minecraft.inventory.SimpleInventory(27), null)));
+                    List.of(first, InventoryStorage.of(new net.minecraft.world.SimpleContainer(27), null)));
             if (TomStorageIdentity.key(chest).equals(TomStorageIdentity.key(changedChest))) {
                 throw new IllegalStateException("Replaced double chest half retained its identity");
             }
@@ -240,13 +241,13 @@ public final class TomNetworkCache {
     }
 
     @SuppressWarnings("unchecked")
-    public static void onBlockEntityUnload(BlockEntity blockEntity, ServerWorld world) {
+    public static void onBlockEntityUnload(BlockEntity blockEntity, ServerLevel world) {
         boolean matched = invalidateConnectorOnUnload(blockEntity);
         Set<Storage<ItemVariant>> exposed = Collections.newSetFromMap(new IdentityHashMap<>());
         if (blockEntity instanceof Storage<?> storage) {
             exposed.add((Storage<ItemVariant>) storage);
         }
-        if (blockEntity instanceof Inventory inventory) {
+        if (blockEntity instanceof Container inventory) {
             exposed.add(InventoryStorage.of(inventory, null));
             for (Direction direction : Direction.values()) {
                 exposed.add(InventoryStorage.of(inventory, direction));
@@ -260,7 +261,7 @@ public final class TomNetworkCache {
         }
     }
 
-    private static void invalidateNearbyNetworks(ServerWorld world, BlockEntity unloaded) {
+    private static void invalidateNearbyNetworks(ServerLevel world, BlockEntity unloaded) {
         int range = tomInventoryRange();
         if (range <= 0) {
             return;
@@ -269,8 +270,8 @@ public final class TomNetworkCache {
         for (Entry entry : List.copyOf(ENTRIES.values())) {
             BlockEntity connector = entry.identity.connector().get();
             if (connector != null
-                    && connector.getWorld() == world
-                    && connector.getPos().getSquaredDistance(unloaded.getPos()) < squaredRange) {
+                    && connector.getLevel() == world
+                    && connector.getBlockPos().distSqr(unloaded.getBlockPos()) < squaredRange) {
                 invalidateEntry(entry, "inventory unloaded");
             }
         }

@@ -8,10 +8,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 public final class DigitalStorageMountTracker {
     private static final MountIndex INDEX = new MountIndex();
@@ -19,30 +19,30 @@ public final class DigitalStorageMountTracker {
     private DigitalStorageMountTracker() {
     }
 
-    public static void onBlockEntityLoad(BlockEntity blockEntity, ServerWorld world) {
+    public static void onBlockEntityLoad(BlockEntity blockEntity, ServerLevel world) {
         if (blockEntity instanceof DigitalStorageAccessorBlockEntity digitalStorage) {
             world.getServer().execute(() -> {
-                if (!digitalStorage.isRemoved() && digitalStorage.getWorld() == world) {
+                if (!digitalStorage.isRemoved() && digitalStorage.getLevel() == world) {
                     update(digitalStorage, world);
                 }
             });
         }
     }
 
-    public static void onBlockEntityUnload(BlockEntity blockEntity, ServerWorld world) {
+    public static void onBlockEntityUnload(BlockEntity blockEntity, ServerLevel world) {
         if (blockEntity instanceof DigitalStorageAccessorBlockEntity digitalStorage) {
-            untrack(world, digitalStorage.getPos());
+            untrack(world, digitalStorage.getBlockPos());
         }
     }
 
-    public static synchronized void update(DigitalStorageAccessorBlockEntity blockEntity, ServerWorld world) {
+    public static synchronized void update(DigitalStorageAccessorBlockEntity blockEntity, ServerLevel world) {
         blockEntity.clearOrphanedBinding(dev.kehai.digitalstorage.storage.DigitalStorageState.get(world));
-        MountPoint point = MountPoint.of(world, blockEntity.getPos());
+        MountPoint point = MountPoint.of(world, blockEntity.getBlockPos());
         UUID volumeId = blockEntity.boundVolumeId().orElse(null);
         INDEX.update(point, volumeId);
     }
 
-    public static synchronized void untrack(ServerWorld world, BlockPos pos) {
+    public static synchronized void untrack(ServerLevel world, BlockPos pos) {
         MountPoint point = MountPoint.of(world, pos);
         INDEX.untrack(point);
     }
@@ -77,7 +77,7 @@ public final class DigitalStorageMountTracker {
 
     public static void runSelfTest() {
         MountIndex index = new MountIndex();
-        Identifier dimension = new Identifier("digitalstorage", "mount_tracker_selftest");
+        ResourceLocation dimension = new ResourceLocation("digitalstorage", "mount_tracker_selftest");
         MountPoint first = new MountPoint(dimension, new BlockPos(1, 2, 3));
         MountPoint second = new MountPoint(dimension, new BlockPos(4, 5, 6));
         MountPoint third = new MountPoint(dimension, new BlockPos(7, 8, 9));
@@ -123,13 +123,13 @@ public final class DigitalStorageMountTracker {
         }
     }
 
-    public record MountPoint(Identifier dimension, BlockPos pos) {
+    public record MountPoint(ResourceLocation dimension, BlockPos pos) {
         public MountPoint {
-            pos = pos.toImmutable();
+            pos = pos.immutable();
         }
 
-        private static MountPoint of(ServerWorld world, BlockPos pos) {
-            return new MountPoint(world.getRegistryKey().getValue(), pos);
+        private static MountPoint of(ServerLevel world, BlockPos pos) {
+            return new MountPoint(world.dimension().location(), pos);
         }
 
         @Override

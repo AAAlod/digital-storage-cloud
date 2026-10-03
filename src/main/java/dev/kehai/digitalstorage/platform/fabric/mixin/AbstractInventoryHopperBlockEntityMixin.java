@@ -2,9 +2,9 @@ package dev.kehai.digitalstorage.platform.fabric.mixin;
 
 import com.tom.storagemod.tile.AbstractInventoryHopperBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.World;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -18,17 +18,17 @@ public abstract class AbstractInventoryHopperBlockEntityMixin {
             require = 0,
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/world/World;getTime()J",
+                    target = "Lnet/minecraft/world/level/Level;getGameTime()J",
                     remap = true
             )
     )
-    private long digitalstorage$staggerConnectorScan(World world) {
+    private long digitalstorage$staggerConnectorScan(Level world) {
         DigitalStorageConfig config = DigitalStorageConfig.get();
         if (!config.optimizeTomsHopper || !config.staggerConnectorScans) {
-            return world.getTime();
+            return world.getGameTime();
         }
 
-        BlockPos pos = ((BlockEntity) (Object) this).getPos();
-        return dev.kehai.digitalstorage.hopper.HopperPolicy.staggeredScanTime(world.getTime(), pos.hashCode());
+        BlockPos pos = ((BlockEntity) (Object) this).getBlockPos();
+        return dev.kehai.digitalstorage.hopper.HopperPolicy.staggeredScanTime(world.getGameTime(), pos.hashCode());
     }
 }

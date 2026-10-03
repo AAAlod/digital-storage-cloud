@@ -13,8 +13,8 @@ import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
 import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
 import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
 import net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext;
-import net.minecraft.item.Items;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.item.Items;
 
 /** Manual, bounded microbenchmark for calibrating Tom view-cost heuristics. */
 public final class TomPerformanceBenchmark {
@@ -97,7 +97,7 @@ public final class TomPerformanceBenchmark {
     }
 
     private static ItemVariant variant(int index) {
-        NbtCompound nbt = new NbtCompound();
+        CompoundTag nbt = new CompoundTag();
         nbt.putInt("DigitalStorageBenchmark", index);
         return ItemVariant.of(Items.PAPER, nbt);
     }

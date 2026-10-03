@@ -12,7 +12,7 @@ import java.util.UUID;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
 
 public final class VolumeLedger implements Iterable<VolumeLedger.View> {
     /**
@@ -112,15 +112,15 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
         load(resource, amount, ItemKeyCodec.write(resource));
     }
 
-    void load(ItemKey resource, long amount, NbtCompound serializedVariant) {
+    void load(ItemKey resource, long amount, CompoundTag serializedVariant) {
         if (resource.isBlank() || amount <= 0) {
             return;
         }
 
         Entry existing = entries.get(resource);
         if (existing == null) {
-            NbtCompound storedVariant = serializedVariant.copy();
-            int variantNbtBytes = storedVariant.getSizeInBytes();
+            CompoundTag storedVariant = serializedVariant.copy();
+            int variantNbtBytes = storedVariant.sizeInBytes();
             long newVariantNbtBytes = checkedVariantNbtTotal(variantNbtBytes);
             long newItemCount = checkedAdd(totalItemCount, amount);
             entries.put(resource, new Entry(resource, amount, storedVariant, variantNbtBytes));
@@ -152,8 +152,8 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
             if (variantCount >= variantCapacitySupplier.getAsInt() || !newVariantValidator.test(resource)) {
                 return 0;
             }
-            NbtCompound serializedVariant = ItemKeyCodec.write(resource);
-            int variantNbtBytes = serializedVariant.getSizeInBytes();
+            CompoundTag serializedVariant = ItemKeyCodec.write(resource);
+            int variantNbtBytes = serializedVariant.sizeInBytes();
             if (!isVariantNbtWithinBudget(variantNbtBytes)) {
                 return 0;
             }
@@ -330,11 +330,11 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
 
     private final class Entry implements MutationParticipant<Long>, View {
         private final ItemKey resource;
-        private final NbtCompound serializedVariant;
+        private final CompoundTag serializedVariant;
         private final int variantNbtBytes;
         private long amount;
 
-        private Entry(ItemKey resource, long amount, NbtCompound serializedVariant, int variantNbtBytes) {
+        private Entry(ItemKey resource, long amount, CompoundTag serializedVariant, int variantNbtBytes) {
             this.resource = resource;
             this.amount = amount;
             this.serializedVariant = serializedVariant;
@@ -407,7 +407,7 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
         }
     }
 
-    public record StoredEntrySnapshot(NbtCompound serializedVariant, long amount) {
+    public record StoredEntrySnapshot(CompoundTag serializedVariant, long amount) {
     }
 
     public record CursorProgress(

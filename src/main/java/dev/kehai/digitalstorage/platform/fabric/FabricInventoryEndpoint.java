@@ -30,7 +30,7 @@ public final class FabricInventoryEndpoint implements InventoryEndpoint {
             public boolean hasNext() { return iterator.hasNext(); }
 
             @Override
-            public InventoryEndpoint.View next() { return new View(iterator.next()); }
+            public InventoryEndpoint.View next() { return new dev.kehai.digitalstorage.platform.fabric.FabricInventoryEndpoint.View(iterator.next()); }
         };
     }
 

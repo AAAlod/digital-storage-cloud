@@ -1,11 +1,11 @@
 package dev.kehai.digitalstorage.storage;
 
 import java.util.Objects;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemConvertible;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ItemLike;
 
 /** Immutable item identity. Counts belong to the ledger, never to a key. */
 public final class ItemKey {
@@ -13,26 +13,26 @@ public final class ItemKey {
     private static final java.util.concurrent.ConcurrentMap<Item, ItemKey> TAGLESS_KEYS =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final Item item;
-    private final NbtCompound tag;
+    private final CompoundTag tag;
     private final int hashCode;
     private final int tagBytes;
 
-    private ItemKey(Item item, NbtCompound tag) {
+    private ItemKey(Item item, CompoundTag tag) {
         this.item = item;
         this.tag = tag == null ? null : tag.copy();
         this.hashCode = Objects.hash(item, this.tag);
-        this.tagBytes = this.tag == null ? 0 : this.tag.getSizeInBytes();
+        this.tagBytes = this.tag == null ? 0 : this.tag.sizeInBytes();
     }
 
     public static ItemKey blank() {
         return BLANK;
     }
 
-    public static ItemKey of(ItemConvertible item) {
+    public static ItemKey of(ItemLike item) {
         return of(item, null);
     }
 
-    public static ItemKey of(ItemConvertible item, NbtCompound tag) {
+    public static ItemKey of(ItemLike item, CompoundTag tag) {
         Item resolved = Objects.requireNonNull(item, "item").asItem();
         if (resolved == Items.AIR) {
             return BLANK;
@@ -42,7 +42,7 @@ public final class ItemKey {
     }
 
     public static ItemKey of(ItemStack stack) {
-        return of(stack.getItem(), stack.getNbt());
+        return of(stack.getItem(), stack.getTag());
     }
 
     public Item item() {
@@ -54,7 +54,7 @@ public final class ItemKey {
     }
 
     /** Never exposes the compound held by a map key. Null and empty are distinct. */
-    public NbtCompound copyTag() {
+    public CompoundTag copyTag() {
         return tag == null ? null : tag.copy();
     }
 
@@ -67,7 +67,7 @@ public final class ItemKey {
             return ItemStack.EMPTY;
         }
         ItemStack stack = new ItemStack(item, count);
-        stack.setNbt(copyTag());
+        stack.setTag(copyTag());
         return stack;
     }
 

@@ -21,7 +21,7 @@ import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
 import net.fabricmc.fabric.api.transfer.v1.storage.StorageUtil;
 import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
 import net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext;
-import net.minecraft.item.Items;
+import net.minecraft.world.item.Items;
 
 public final class DigitalItemStorageSelfTest {
     private DigitalItemStorageSelfTest() {
@@ -247,7 +247,7 @@ public final class DigitalItemStorageSelfTest {
             transaction.commit();
         }
 
-        net.minecraft.nbt.NbtCompound capturedNbt = new net.minecraft.nbt.NbtCompound();
+        net.minecraft.nbt.CompoundTag capturedNbt = new net.minecraft.nbt.CompoundTag();
         snapshot.writeNbt(capturedNbt);
         DigitalStorageRecord captured = DigitalStorageRecord.fromNbt(capturedNbt, () -> { });
         expectEquals(5, onlyView(FabricDigitalItemStorage.of(captured.storage())).getAmount(), "captured snapshot changed after mutation");
@@ -354,7 +354,7 @@ public final class DigitalItemStorageSelfTest {
         try {
             DigitalStorageRecord record = DigitalStorageRecord.createNew(() -> { });
             expectTrue(record.setAcceptUnstackableItems(true), "persistence seed policy did not change");
-            net.minecraft.nbt.NbtCompound saved = new net.minecraft.nbt.NbtCompound();
+            net.minecraft.nbt.CompoundTag saved = new net.minecraft.nbt.CompoundTag();
             record.snapshot().writeNbt(saved);
             DigitalStorageRecord reloaded = DigitalStorageRecord.fromNbt(saved, () -> { });
             expectTrue(reloaded.acceptsUnstackableItems(), "saved Accept policy did not round trip");
@@ -378,7 +378,7 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void oversizedVariantNbtIsMeasurableAndRejectable() {
-        net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
+        net.minecraft.nbt.CompoundTag nbt = new net.minecraft.nbt.CompoundTag();
         nbt.putString("Payload", "x".repeat(70_000));
         ItemVariant variant = ItemVariant.of(Items.PAPER, nbt);
         int measuredBytes = ItemSecurityPolicy.variantNbtBytes(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(variant));
@@ -393,8 +393,8 @@ public final class DigitalItemStorageSelfTest {
     private static void aggregateVariantNbtBudgetIsTransactional() {
         ItemVariant stone = ItemVariant.of(Items.STONE);
         ItemVariant dirt = ItemVariant.of(Items.DIRT);
-        int stoneBytes = stone.toNbt().getSizeInBytes();
-        int dirtBytes = dirt.toNbt().getSizeInBytes();
+        int stoneBytes = stone.toNbt().sizeInBytes();
+        int dirtBytes = dirt.toNbt().sizeInBytes();
         long budget = stoneBytes + dirtBytes - 1L;
         FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, () -> 2, () -> budget);
 
@@ -620,7 +620,7 @@ public final class DigitalItemStorageSelfTest {
         expectEquals(expected.size(), storage.variantCount(), label + " variant metric");
         expectEquals(expected.values().stream().mapToLong(Long::longValue).sum(), storage.totalItemCount(),
                 label + " item metric");
-        expectEquals(expected.keySet().stream().mapToLong(variant -> variant.toNbt().getSizeInBytes()).sum(),
+        expectEquals(expected.keySet().stream().mapToLong(variant -> variant.toNbt().sizeInBytes()).sum(),
                 storage.totalVariantNbtBytes(), label + " NBT metric");
     }
 
@@ -719,7 +719,7 @@ public final class DigitalItemStorageSelfTest {
             StorageVolume coldTwo = state.createVolume(owner, "Cold two", 3).orElseThrow();
             ItemVariant hotVariant = null;
             for (int index = 0; index < 8; index++) {
-                net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
+                net.minecraft.nbt.CompoundTag nbt = new net.minecraft.nbt.CompoundTag();
                 nbt.putInt("SnapshotLiveness", index);
                 ItemVariant variant = ItemVariant.of(Items.PAPER, nbt);
                 if (hotVariant == null) {
@@ -772,7 +772,7 @@ public final class DigitalItemStorageSelfTest {
         try {
             StorageVolume volume = state.createVolume(java.util.UUID.randomUUID(), "Aged", 1).orElseThrow();
             for (int index = 0; index < 8; index++) {
-                net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
+                net.minecraft.nbt.CompoundTag nbt = new net.minecraft.nbt.CompoundTag();
                 nbt.putInt("SnapshotDirtyAge", index);
                 try (Transaction transaction = Transaction.openOuter()) {
                     FabricDigitalItemStorage.of(volume.record().storage()).insert(ItemVariant.of(Items.PAPER, nbt), 1, transaction);
@@ -793,7 +793,7 @@ public final class DigitalItemStorageSelfTest {
     private static void stressVariantCapacityAtHardLimit() {
         FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, DigitalStorageRecord.ABSOLUTE_MAX_VARIANTS);
         for (int index = 0; index < DigitalStorageRecord.ABSOLUTE_MAX_VARIANTS; index++) {
-            net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
+            net.minecraft.nbt.CompoundTag nbt = new net.minecraft.nbt.CompoundTag();
             nbt.putInt("StressVariant", index);
             try (Transaction transaction = Transaction.openOuter()) {
                 expectEquals(1, storage.insert(ItemVariant.of(Items.PAPER, nbt), 1, transaction),
@@ -801,7 +801,7 @@ public final class DigitalItemStorageSelfTest {
                 transaction.commit();
             }
         }
-        net.minecraft.nbt.NbtCompound overflowNbt = new net.minecraft.nbt.NbtCompound();
+        net.minecraft.nbt.CompoundTag overflowNbt = new net.minecraft.nbt.CompoundTag();
         overflowNbt.putInt("StressVariant", DigitalStorageRecord.ABSOLUTE_MAX_VARIANTS);
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(0, storage.insert(ItemVariant.of(Items.PAPER, overflowNbt), 1, transaction),
@@ -972,13 +972,13 @@ public final class DigitalItemStorageSelfTest {
     private static void forceClearResetsBothBindingFields() {
         dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity accessor =
                 new dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity(
-                        net.minecraft.util.math.BlockPos.ORIGIN,
-                        dev.kehai.digitalstorage.DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR.getDefaultState()
+                        net.minecraft.core.BlockPos.ZERO,
+                        dev.kehai.digitalstorage.DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR.defaultBlockState()
                 );
-        net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
-        nbt.putUuid("ControllerId", java.util.UUID.randomUUID());
-        nbt.putUuid("BoundVolumeId", java.util.UUID.randomUUID());
-        accessor.readNbt(nbt);
+        net.minecraft.nbt.CompoundTag nbt = new net.minecraft.nbt.CompoundTag();
+        nbt.putUUID("ControllerId", java.util.UUID.randomUUID());
+        nbt.putUUID("BoundVolumeId", java.util.UUID.randomUUID());
+        accessor.load(nbt);
         expectTrue(accessor.isBound(), "force-clear test accessor did not load as bound");
         expectEquals(
                 dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity.BindResult.SUCCESS,
@@ -1003,13 +1003,13 @@ public final class DigitalItemStorageSelfTest {
             StorageVolume volume = state.createVolume(ownerId, "Orphan test", 1).orElseThrow();
             dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity accessor =
                     new dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity(
-                            net.minecraft.util.math.BlockPos.ORIGIN,
-                            dev.kehai.digitalstorage.DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR.getDefaultState()
+                            net.minecraft.core.BlockPos.ZERO,
+                            dev.kehai.digitalstorage.DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR.defaultBlockState()
                     );
-            net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
-            nbt.putUuid("ControllerId", ownerId);
-            nbt.putUuid("BoundVolumeId", volume.id());
-            accessor.readNbt(nbt);
+            net.minecraft.nbt.CompoundTag nbt = new net.minecraft.nbt.CompoundTag();
+            nbt.putUUID("ControllerId", ownerId);
+            nbt.putUUID("BoundVolumeId", volume.id());
+            accessor.load(nbt);
 
             expectFalse(accessor.clearOrphanedBinding(state), "valid binding was cleared");
             expectTrue(accessor.isBound(), "valid binding no longer appeared bound");
@@ -1105,13 +1105,13 @@ public final class DigitalItemStorageSelfTest {
     private static void hopperTierBatchLimitsAreDeviceScoped() {
         com.tom.storagemod.tile.BasicInventoryHopperBlockEntity normal =
                 new com.tom.storagemod.tile.BasicInventoryHopperBlockEntity(
-                        net.minecraft.util.math.BlockPos.ORIGIN,
-                        com.tom.storagemod.Content.invHopperBasic.get().getDefaultState()
+                        net.minecraft.core.BlockPos.ZERO,
+                        com.tom.storagemod.Content.invHopperBasic.get().defaultBlockState()
                 );
         com.tom.storagemod.tile.BasicInventoryHopperBlockEntity advanced =
                 new com.tom.storagemod.tile.BasicInventoryHopperBlockEntity(
-                        net.minecraft.util.math.BlockPos.ORIGIN,
-                        dev.kehai.digitalstorage.DigitalStorageMod.ADVANCED_INVENTORY_HOPPER.getDefaultState()
+                        net.minecraft.core.BlockPos.ZERO,
+                        dev.kehai.digitalstorage.DigitalStorageMod.ADVANCED_INVENTORY_HOPPER.defaultBlockState()
                 );
         dev.kehai.digitalstorage.config.DigitalStorageConfig config =
                 dev.kehai.digitalstorage.config.DigitalStorageConfig.get();
@@ -1119,18 +1119,18 @@ public final class DigitalItemStorageSelfTest {
                 "normal Tom hopper batch tier");
         expectEquals(config.advancedHopperBatchSize, HopperTransferOptimizer.batchLimit(advanced),
                 "advanced hopper batch tier");
-        expectTrue(com.tom.storagemod.Content.invHopperBasicTile.get().supports(advanced.getCachedState()),
+        expectTrue(com.tom.storagemod.Content.invHopperBasicTile.get().isValid(advanced.getBlockState()),
                 "Tom hopper block entity type does not support the advanced block");
     }
 
     private static void missingTierFallsBackWithoutReducingCapacity(ItemVariant stone) {
-        net.minecraft.nbt.NbtCompound recordNbt = new net.minecraft.nbt.NbtCompound();
+        net.minecraft.nbt.CompoundTag recordNbt = new net.minecraft.nbt.CompoundTag();
         recordNbt.putString("Tier", "digitalstorage:removed_tier");
         recordNbt.putInt("LastKnownVariantCapacity", 200);
-        net.minecraft.nbt.NbtCompound itemNbt = new net.minecraft.nbt.NbtCompound();
+        net.minecraft.nbt.CompoundTag itemNbt = new net.minecraft.nbt.CompoundTag();
         itemNbt.put("Variant", stone.toNbt());
         itemNbt.putLong("Amount", 1);
-        net.minecraft.nbt.NbtList items = new net.minecraft.nbt.NbtList();
+        net.minecraft.nbt.ListTag items = new net.minecraft.nbt.ListTag();
         items.add(itemNbt);
         recordNbt.put("Items", items);
 
@@ -1143,7 +1143,7 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void duplicateStoredVariantsAreMergedWithoutLoss(ItemVariant stone) {
-        net.minecraft.nbt.NbtCompound recordNbt = recordWithItems(stone, 10, 20);
+        net.minecraft.nbt.CompoundTag recordNbt = recordWithItems(stone, 10, 20);
         DigitalStorageRecord record = DigitalStorageRecord.fromNbt(recordNbt, () -> { });
         expectEquals(30, onlyView(FabricDigitalItemStorage.of(record.storage())).getAmount(), "duplicate stored variant merge");
     }
@@ -1154,9 +1154,9 @@ public final class DigitalItemStorageSelfTest {
             java.util.UUID id = java.util.UUID.randomUUID();
             java.nio.file.Path volumes = root.resolve("volumes");
             java.nio.file.Files.createDirectories(volumes);
-            net.minecraft.nbt.NbtCompound future = new net.minecraft.nbt.NbtCompound();
+            net.minecraft.nbt.CompoundTag future = new net.minecraft.nbt.CompoundTag();
             future.putInt("SchemaVersion", DigitalStorageState.VOLUME_SCHEMA_VERSION + 1);
-            future.putUuid("Id", id);
+            future.putUUID("Id", id);
             net.minecraft.nbt.NbtIo.writeCompressed(future, volumes.resolve(id + ".dat").toFile());
             DigitalStorageState state = DigitalStorageState.openForTest(root);
             try {
@@ -1181,10 +1181,10 @@ public final class DigitalItemStorageSelfTest {
         java.nio.file.Path root = temporaryStorageDirectory("corrupt-volume");
         try {
             java.util.UUID id = java.util.UUID.randomUUID();
-            net.minecraft.nbt.NbtCompound corruptRecord = recordWithItems(stone, Long.MAX_VALUE, 1);
+            net.minecraft.nbt.CompoundTag corruptRecord = recordWithItems(stone, Long.MAX_VALUE, 1);
             corruptRecord.putInt("SchemaVersion", DigitalStorageState.VOLUME_SCHEMA_VERSION);
-            corruptRecord.putUuid("Id", id);
-            corruptRecord.putUuid("Owner", java.util.UUID.randomUUID());
+            corruptRecord.putUUID("Id", id);
+            corruptRecord.putUUID("Owner", java.util.UUID.randomUUID());
             corruptRecord.putString("Name", "Corrupt test volume");
             java.nio.file.Path volumes = root.resolve("volumes");
             java.nio.file.Files.createDirectories(volumes);
@@ -1234,15 +1234,15 @@ public final class DigitalItemStorageSelfTest {
         }
     }
 
-    private static net.minecraft.nbt.NbtCompound recordWithItems(
+    private static net.minecraft.nbt.CompoundTag recordWithItems(
             ItemVariant variant,
             long... amounts
     ) {
-        net.minecraft.nbt.NbtCompound recordNbt = new net.minecraft.nbt.NbtCompound();
+        net.minecraft.nbt.CompoundTag recordNbt = new net.minecraft.nbt.CompoundTag();
         recordNbt.putString("Tier", DigitalStorageTierRegistry.INSTANCE.first().id().toString());
-        net.minecraft.nbt.NbtList items = new net.minecraft.nbt.NbtList();
+        net.minecraft.nbt.ListTag items = new net.minecraft.nbt.ListTag();
         for (long amount : amounts) {
-            net.minecraft.nbt.NbtCompound itemNbt = new net.minecraft.nbt.NbtCompound();
+            net.minecraft.nbt.CompoundTag itemNbt = new net.minecraft.nbt.CompoundTag();
             itemNbt.put("Variant", variant.toNbt());
             itemNbt.putLong("Amount", amount);
             items.add(itemNbt);

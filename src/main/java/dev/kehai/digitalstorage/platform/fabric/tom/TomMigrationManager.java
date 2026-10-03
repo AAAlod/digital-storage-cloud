@@ -6,32 +6,34 @@ import dev.kehai.digitalstorage.optimization.NetworkAnalysis;
 import dev.kehai.digitalstorage.optimization.InventoryEndpoint;
 import dev.kehai.digitalstorage.optimization.TopologyToken;
 import dev.kehai.digitalstorage.optimization.NetworkServices.StartResult;
-
+import com.tom.storagemod.util.MergedStorage;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import dev.kehai.digitalstorage.storage.StorageVolume;
+import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
 import dev.kehai.digitalstorage.storage.ItemKey;
 import dev.kehai.digitalstorage.optimization.MigrationTask.State;
 import dev.kehai.digitalstorage.optimization.MigrationTask.Status;
 import dev.kehai.digitalstorage.optimization.InventoryTransferExecutor.MoveResult;
 import dev.kehai.digitalstorage.platform.fabric.FabricTransferExecutor;
-
+import dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkCache.Topology;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
 import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.registry.RegistryKey;
+import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.World;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 public final class TomMigrationManager {
     private static final long FINISHED_STATUS_TICKS = 1_200;
@@ -49,12 +51,12 @@ public final class TomMigrationManager {
     }
 
     public static StartResult start(
-            ServerPlayerEntity player,
+            ServerPlayer player,
             DigitalStorageAccessorBlockEntity accessor,
             NetworkAnalysis.Report report
     ) {
         StorageVolume volume = accessor.getVolume();
-        if (volume == null || !volume.ownerId().equals(player.getUuid())) {
+        if (volume == null || !volume.ownerId().equals(player.getUUID())) {
             return StartResult.NOT_OWNER;
         }
         if (!report.available()) {
@@ -72,7 +74,7 @@ public final class TomMigrationManager {
         if (JOBS.containsKey(volume.id())) {
             return StartResult.ALREADY_RUNNING;
         }
-        if (!(accessor.getWorld() instanceof ServerWorld world)) {
+        if (!(accessor.getLevel() instanceof ServerLevel world)) {
             return StartResult.NO_NETWORK;
         }
 
@@ -81,26 +83,26 @@ public final class TomMigrationManager {
                 .toList();
         Job job = new Job(
                 volume.id(),
-                player.getUuid(),
-                world.getRegistryKey(),
-                accessor.getPos().toImmutable(),
+                player.getUUID(),
+                world.dimension(),
+                accessor.getBlockPos().immutable(),
                 variants,
                 report.estimatedFreedViews(),
                 report.topology(),
                 report.sourceEndpoints()
         );
         JOBS.put(volume.id(), job);
-        STATUSES.put(volume.id(), job.status(player.getServer().getTicks(), State.RUNNING, ""));
+        STATUSES.put(volume.id(), job.status(player.getServer().getTickCount(), State.RUNNING, ""));
         return StartResult.STARTED;
     }
 
-    public static boolean cancel(ServerPlayerEntity player, UUID volumeId) {
+    public static boolean cancel(ServerPlayer player, UUID volumeId) {
         Job job = JOBS.get(volumeId);
-        if (job == null || !job.ownerId.equals(player.getUuid())) {
+        if (job == null || !job.ownerId.equals(player.getUUID())) {
             return false;
         }
         JOBS.remove(volumeId);
-        long tick = player.getServer().getTicks();
+        long tick = player.getServer().getTickCount();
         STATUSES.put(volumeId, job.status(tick, State.CANCELLED, "cancelled"));
         return true;
     }
@@ -110,14 +112,14 @@ public final class TomMigrationManager {
     }
 
     public static void tick(MinecraftServer server) {
-        TomScannerTelemetry.tick(server.getTicks());
+        TomScannerTelemetry.tick(server.getTickCount());
         Iterator<Job> iterator = JOBS.values().iterator();
         while (iterator.hasNext()) {
             Job job = iterator.next();
-            ServerWorld world = server.getWorld(job.worldKey);
-            if (world == null || !world.isChunkLoaded(job.accessorPos)) {
+            ServerLevel world = server.getLevel(job.worldKey);
+            if (world == null || !world.hasChunkAt(job.accessorPos)) {
                 iterator.remove();
-                STATUSES.put(job.volumeId, job.status(server.getTicks(), State.STOPPED, "accessor unavailable"));
+                STATUSES.put(job.volumeId, job.status(server.getTickCount(), State.STOPPED, "accessor unavailable"));
                 continue;
             }
             BlockEntity blockEntity = world.getBlockEntity(job.accessorPos);
@@ -125,7 +127,7 @@ public final class TomMigrationManager {
                     || accessor.getVolume() == null
                     || !accessor.getVolume().id().equals(job.volumeId)) {
                 iterator.remove();
-                STATUSES.put(job.volumeId, job.status(server.getTicks(), State.STOPPED, "accessor unavailable"));
+                STATUSES.put(job.volumeId, job.status(server.getTickCount(), State.STOPPED, "accessor unavailable"));
                 continue;
             }
 
@@ -133,17 +135,17 @@ public final class TomMigrationManager {
             if (result != State.RUNNING) {
                 iterator.remove();
             }
-            STATUSES.put(job.volumeId, job.status(server.getTicks(), result, job.task.stopDetail()));
+            STATUSES.put(job.volumeId, job.status(server.getTickCount(), result, job.task.stopDetail()));
         }
 
-        long now = server.getTicks();
+        long now = server.getTickCount();
         STATUSES.entrySet().removeIf(entry -> entry.getValue().state() != State.RUNNING
                 && now - entry.getValue().updatedTick() > FINISHED_STATUS_TICKS);
     }
 
     public static void runSelfTest() {
         MigrationTaskSelfTest.run();
-        ItemVariant stone = ItemVariant.of(net.minecraft.item.Items.STONE);
+        ItemVariant stone = ItemVariant.of(net.minecraft.world.item.Items.STONE);
         FabricDigitalItemStorage source = new FabricDigitalItemStorage(() -> { }, 64);
         FabricDigitalItemStorage target = new FabricDigitalItemStorage(() -> { }, 64);
         source.load(stone, 64);
@@ -191,26 +193,26 @@ public final class TomMigrationManager {
     }
 
     private static void rebuildMigrationSelfTest(int slots) {
-        var connector = new DigitalStorageAccessorBlockEntity(BlockPos.ORIGIN,
-                dev.kehai.digitalstorage.DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR.getDefaultState());
+        var connector = new DigitalStorageAccessorBlockEntity(BlockPos.ZERO,
+                dev.kehai.digitalstorage.DigitalStorageMod.DIGITAL_STORAGE_ACCESSOR.defaultBlockState());
         var inventory = new MigrationInventory(slots);
-        inventory.setStack(0, new net.minecraft.item.ItemStack(net.minecraft.item.Items.STONE, 64));
-        inventory.setStack(slots - 1, new net.minecraft.item.ItemStack(net.minecraft.item.Items.STONE, 32));
+        inventory.setItem(0, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.STONE, 64));
+        inventory.setItem(slots - 1, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.STONE, 32));
         var network = new com.tom.storagemod.util.MergedStorage();
         Storage<ItemVariant> original = net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(
-                inventory, net.minecraft.util.math.Direction.UP);
+                inventory, net.minecraft.core.Direction.UP);
         network.add(original);
         var topology = TomNetworkCache.topology(connector, network);
         var record = dev.kehai.digitalstorage.storage.DigitalStorageRecord.createNew(() -> { });
-        var job = new Job(UUID.randomUUID(), UUID.randomUUID(), World.OVERWORLD, BlockPos.ORIGIN,
-                List.of(ItemKey.of(net.minecraft.item.Items.STONE)), 2, topology.token(), topology.physicalEndpoints());
+        var job = new Job(UUID.randomUUID(), UUID.randomUUID(), Level.OVERWORLD, BlockPos.ZERO,
+                List.of(ItemKey.of(net.minecraft.world.item.Items.STONE)), 2, topology.token(), topology.physicalEndpoints());
         State result = State.RUNNING;
         int ticks = 0;
         try {
             while (result == State.RUNNING && ticks < 300) {
                 if (++ticks % 20 == 0) {
                     var replacement = net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(
-                            inventory, net.minecraft.util.math.Direction.UP);
+                            inventory, net.minecraft.core.Direction.UP);
                     if (replacement == original || !TomStorageIdentity.key(original).equals(TomStorageIdentity.key(replacement))) {
                         throw new IllegalStateException("Sided wrapper churn fixture/identity failed");
                     }
@@ -226,7 +228,7 @@ public final class TomMigrationManager {
             }
             if (result != State.COMPLETE || ticks <= 20 || job.task.scannedViews() != slots
                     || job.task.movedItems() != 96 || !inventory.isEmpty()
-                    || record.storage().amountOf(dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.item.Items.STONE)) != 96) {
+                    || record.storage().amountOf(dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.world.item.Items.STONE)) != 96) {
                 throw new IllegalStateException("Bulk migration rebuild regression failed: " + slots + "/" + result);
             }
             dev.kehai.digitalstorage.DigitalStorage.LOGGER.info(
@@ -234,7 +236,7 @@ public final class TomMigrationManager {
                     slots, ticks, ticks / 20, job.task.movedItems(), result);
             // Same endpoint count but changed side or exposed slot set must invalidate.
             network.clear();
-            network.add(net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(inventory, net.minecraft.util.math.Direction.DOWN));
+            network.add(net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(inventory, net.minecraft.core.Direction.DOWN));
             TomNetworkCache.rebuilt(connector, network);
             if (TomNetworkCache.isCurrent(topology.token()) || job.tick(record, 128) != State.STOPPED) {
                 throw new IllegalStateException("Migration accepted a changed access direction");
@@ -242,7 +244,7 @@ public final class TomMigrationManager {
             var sideTopology = TomNetworkCache.topology(connector, network);
             inventory.limit = slots - 1;
             network.clear();
-            network.add(net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(inventory, net.minecraft.util.math.Direction.DOWN));
+            network.add(net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(inventory, net.minecraft.core.Direction.DOWN));
             TomNetworkCache.rebuilt(connector, network);
             if (TomNetworkCache.isCurrent(sideTopology.token())) {
                 throw new IllegalStateException("Migration accepted changed exposed slots");
@@ -264,15 +266,15 @@ public final class TomMigrationManager {
         }
     }
 
-    private static final class MigrationInventory extends net.minecraft.inventory.SimpleInventory
-            implements net.minecraft.inventory.SidedInventory {
+    private static final class MigrationInventory extends net.minecraft.world.SimpleContainer
+            implements net.minecraft.world.WorldlyContainer {
         private int limit;
         private MigrationInventory(int size) { super(size); limit = size; }
-        @Override public int[] getAvailableSlots(net.minecraft.util.math.Direction side) {
+        @Override public int[] getSlotsForFace(net.minecraft.core.Direction side) {
             return java.util.stream.IntStream.range(0, limit).toArray();
         }
-        @Override public boolean canInsert(int slot, net.minecraft.item.ItemStack stack, net.minecraft.util.math.Direction side) { return true; }
-        @Override public boolean canExtract(int slot, net.minecraft.item.ItemStack stack, net.minecraft.util.math.Direction side) { return true; }
+        @Override public boolean canPlaceItemThroughFace(int slot, net.minecraft.world.item.ItemStack stack, net.minecraft.core.Direction side) { return true; }
+        @Override public boolean canTakeItemThroughFace(int slot, net.minecraft.world.item.ItemStack stack, net.minecraft.core.Direction side) { return true; }
     }
 
     static long benchmarkMoveView(
@@ -286,11 +288,11 @@ public final class TomMigrationManager {
 private static final class Job {
         private final UUID volumeId;
         private final UUID ownerId;
-        private final RegistryKey<World> worldKey;
+        private final ResourceKey<Level> worldKey;
         private final BlockPos accessorPos;
         private final MigrationTask task;
 
-        private Job(UUID volumeId, UUID ownerId, RegistryKey<World> worldKey, BlockPos accessorPos,
+        private Job(UUID volumeId, UUID ownerId, ResourceKey<Level> worldKey, BlockPos accessorPos,
                     List<ItemKey> candidates, int estimatedFreedViews, TopologyToken topology,
                     List<? extends InventoryEndpoint.Reference> sources) {
             this.volumeId = volumeId;

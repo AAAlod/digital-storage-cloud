@@ -14,10 +14,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import net.minecraft.registry.Registries;
-import net.minecraft.resource.Resource;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.util.Identifier;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.server.packs.resources.ResourceManager;
 
 public final class DigitalStorageTierRegistry {
     public static final DigitalStorageTierRegistry INSTANCE = new DigitalStorageTierRegistry();
@@ -30,7 +30,7 @@ public final class DigitalStorageTierRegistry {
 
     public void reload(ResourceManager manager) {
         try {
-            Map<Identifier, Resource> resources = manager.findResources(
+            Map<ResourceLocation, Resource> resources = manager.listResources(
                     RESOURCE_PATH,
                     id -> id.getPath().endsWith(".json")
             );
@@ -59,15 +59,15 @@ public final class DigitalStorageTierRegistry {
         return tiers.get(tiers.size() - 1);
     }
 
-    public Optional<DigitalStorageTier> find(Identifier id) {
+    public Optional<DigitalStorageTier> find(ResourceLocation id) {
         return Optional.ofNullable(snapshot.byId().get(id));
     }
 
-    public DigitalStorageTier require(Identifier id) {
+    public DigitalStorageTier require(ResourceLocation id) {
         return find(id).orElseGet(this::first);
     }
 
-    public Optional<DigitalStorageTier> next(Identifier id) {
+    public Optional<DigitalStorageTier> next(ResourceLocation id) {
         List<DigitalStorageTier> tiers = snapshot.tiers();
         for (int index = 0; index < tiers.size(); index++) {
             if (tiers.get(index).id().equals(id)) {
@@ -90,14 +90,14 @@ public final class DigitalStorageTierRegistry {
         return snapshot.tiers();
     }
 
-    private static void readResource(Identifier resourceId, Resource resource, List<OrderedTier> output) {
-        try (Reader reader = resource.getReader()) {
+    private static void readResource(ResourceLocation resourceId, Resource resource, List<OrderedTier> output) {
+        try (Reader reader = resource.openAsReader()) {
             JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
             JsonArray tiers = requireArray(root, "tiers", resourceId);
             for (JsonElement element : tiers) {
                 JsonObject tierObject = element.getAsJsonObject();
                 int order = requireInt(tierObject, "order", resourceId);
-                Identifier id = requireIdentifier(tierObject, "id", resourceId);
+                ResourceLocation id = requireIdentifier(tierObject, "id", resourceId);
                 int capacity = requireInt(tierObject, "capacity", resourceId);
                 int experienceLevels = tierObject.has("experience_levels")
                         ? tierObject.get("experience_levels").getAsInt()
@@ -110,7 +110,7 @@ public final class DigitalStorageTierRegistry {
         }
     }
 
-    private static List<UpgradeIngredient> parseCost(JsonObject tierObject, Identifier resourceId) {
+    private static List<UpgradeIngredient> parseCost(JsonObject tierObject, ResourceLocation resourceId) {
         if (!tierObject.has("cost")) {
             return List.of();
         }
@@ -125,8 +125,8 @@ public final class DigitalStorageTierRegistry {
             }
 
             int count = requireInt(ingredient, "count", resourceId);
-            Identifier id = requireIdentifier(ingredient, hasItem ? "item" : "tag", resourceId);
-            if (hasItem && !Registries.ITEM.containsId(id)) {
+            ResourceLocation id = requireIdentifier(ingredient, hasItem ? "item" : "tag", resourceId);
+            if (hasItem && !BuiltInRegistries.ITEM.containsKey(id)) {
                 throw new IllegalArgumentException("Unknown item " + id + " in " + resourceId);
             }
             cost.add(hasItem ? UpgradeIngredient.item(id, count) : UpgradeIngredient.tag(id, count));
@@ -141,7 +141,7 @@ public final class DigitalStorageTierRegistry {
 
         definitions.sort(Comparator.comparingInt(OrderedTier::order).thenComparing(entry -> entry.tier().id()));
         List<DigitalStorageTier> tiers = new ArrayList<>();
-        Map<Identifier, DigitalStorageTier> byId = new HashMap<>();
+        Map<ResourceLocation, DigitalStorageTier> byId = new HashMap<>();
         int previousCapacity = 0;
         for (OrderedTier definition : definitions) {
             DigitalStorageTier tier = definition.tier();
@@ -171,39 +171,39 @@ public final class DigitalStorageTierRegistry {
                         DigitalStorage.id("basic"), 64, List.of(), 0)),
                 new OrderedTier(10, new DigitalStorageTier(
                         DigitalStorage.id("advanced"), 128,
-                        List.of(UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 16)), 0)),
+                        List.of(UpgradeIngredient.item(new ResourceLocation("minecraft", "diamond"), 16)), 0)),
                 new OrderedTier(20, new DigitalStorageTier(
                         DigitalStorage.id("elite"), 256,
-                        List.of(UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 32)), 0)),
+                        List.of(UpgradeIngredient.item(new ResourceLocation("minecraft", "diamond"), 32)), 0)),
                 new OrderedTier(30, new DigitalStorageTier(
                         DigitalStorage.id("ultimate"), 512,
-                        List.of(UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 64)), 0)),
+                        List.of(UpgradeIngredient.item(new ResourceLocation("minecraft", "diamond"), 64)), 0)),
                 new OrderedTier(40, new DigitalStorageTier(
                         DigitalStorage.id("maximum"), 1024,
-                        List.of(UpgradeIngredient.item(new Identifier("minecraft", "diamond"), 128)), 0))
+                        List.of(UpgradeIngredient.item(new ResourceLocation("minecraft", "diamond"), 128)), 0))
         );
         return buildSnapshot(new ArrayList<>(defaults));
     }
 
-    private static JsonArray requireArray(JsonObject object, String key, Identifier resourceId) {
+    private static JsonArray requireArray(JsonObject object, String key, ResourceLocation resourceId) {
         if (!object.has(key) || !object.get(key).isJsonArray()) {
             throw new IllegalArgumentException("Missing array " + key + " in " + resourceId);
         }
         return object.getAsJsonArray(key);
     }
 
-    private static int requireInt(JsonObject object, String key, Identifier resourceId) {
+    private static int requireInt(JsonObject object, String key, ResourceLocation resourceId) {
         if (!object.has(key)) {
             throw new IllegalArgumentException("Missing integer " + key + " in " + resourceId);
         }
         return object.get(key).getAsInt();
     }
 
-    private static Identifier requireIdentifier(JsonObject object, String key, Identifier resourceId) {
+    private static ResourceLocation requireIdentifier(JsonObject object, String key, ResourceLocation resourceId) {
         if (!object.has(key)) {
             throw new IllegalArgumentException("Missing identifier " + key + " in " + resourceId);
         }
-        Identifier id = Identifier.tryParse(object.get(key).getAsString());
+        ResourceLocation id = ResourceLocation.tryParse(object.get(key).getAsString());
         if (id == null) {
             throw new IllegalArgumentException("Invalid identifier " + object.get(key) + " in " + resourceId);
         }
@@ -213,6 +213,6 @@ public final class DigitalStorageTierRegistry {
     private record OrderedTier(int order, DigitalStorageTier tier) {
     }
 
-    private record Snapshot(List<DigitalStorageTier> tiers, Map<Identifier, DigitalStorageTier> byId) {
+    private record Snapshot(List<DigitalStorageTier> tiers, Map<ResourceLocation, DigitalStorageTier> byId) {
     }
 }
