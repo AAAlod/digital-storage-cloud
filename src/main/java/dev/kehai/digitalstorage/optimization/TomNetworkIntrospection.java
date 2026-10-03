@@ -1,7 +1,7 @@
 package dev.kehai.digitalstorage.optimization;
 
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
-import dev.kehai.digitalstorage.storage.DigitalItemStorage;
+import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -36,11 +36,11 @@ public final class TomNetworkIntrospection {
     }
 
     /** Resolve a Tom proxy or Accessor to its canonical digital Volume storage. */
-    public static DigitalItemStorage canonicalDigitalEndpoint(Storage<ItemVariant> storage) {
+    public static FabricDigitalItemStorage canonicalDigitalEndpoint(Storage<ItemVariant> storage) {
         Set<Storage<ItemVariant>> visited = Collections.newSetFromMap(new IdentityHashMap<>());
         Storage<ItemVariant> current = storage;
         while (current != null && visited.add(current)) {
-            if (current instanceof DigitalItemStorage digital) {
+            if (current instanceof FabricDigitalItemStorage digital) {
                 return digital;
             }
             if (current instanceof DigitalStorageAccessorBlockEntity accessor) {
@@ -102,13 +102,13 @@ public final class TomNetworkIntrospection {
         List<Storage<ItemVariant>> rawEndpoints = new ArrayList<>();
         Set<Storage<ItemVariant>> path = Collections.newSetFromMap(new IdentityHashMap<>());
         flattenRaw(network, rawEndpoints, path);
-        List<DigitalItemStorage> acceptedDigital = rawEndpoints.stream()
-                .filter(DigitalItemStorage.class::isInstance)
-                .map(DigitalItemStorage.class::cast)
+        List<FabricDigitalItemStorage> acceptedDigital = rawEndpoints.stream()
+                .filter(FabricDigitalItemStorage.class::isInstance)
+                .map(FabricDigitalItemStorage.class::cast)
                 .toList();
-        List<DigitalItemStorage> digital = volumeDistinct(acceptedDigital);
+        List<FabricDigitalItemStorage> digital = volumeDistinct(acceptedDigital);
         List<Storage<ItemVariant>> physical = identityDistinct(rawEndpoints.stream()
-                .filter(storage -> !(storage instanceof DigitalItemStorage))
+                .filter(storage -> !(storage instanceof FabricDigitalItemStorage))
                 .toList());
         return new NetworkParts(
                 physical,
@@ -120,27 +120,27 @@ public final class TomNetworkIntrospection {
 
     record NetworkParts(
             List<Storage<ItemVariant>> physical,
-            List<DigitalItemStorage> digital,
-            List<DigitalItemStorage> rawDigital,
+            List<FabricDigitalItemStorage> digital,
+            List<FabricDigitalItemStorage> rawDigital,
             long digitalEndpointFingerprint
     ) {
     }
 
-    record RawDigitalSnapshot(List<DigitalItemStorage> endpoints, long fingerprint) {
+    record RawDigitalSnapshot(List<FabricDigitalItemStorage> endpoints, long fingerprint) {
     }
 
     static RawDigitalSnapshot rawDigitalSnapshot(Storage<ItemVariant> network) {
         if (network == null) {
             return new RawDigitalSnapshot(List.of(), 0L);
         }
-        List<DigitalItemStorage> endpoints = new ArrayList<>();
+        List<FabricDigitalItemStorage> endpoints = new ArrayList<>();
         Set<Storage<ItemVariant>> path = Collections.newSetFromMap(new IdentityHashMap<>());
         collectRawDigital(network, endpoints, path);
-        List<DigitalItemStorage> snapshot = List.copyOf(endpoints);
+        List<FabricDigitalItemStorage> snapshot = List.copyOf(endpoints);
         return new RawDigitalSnapshot(snapshot, digitalEndpointFingerprint(snapshot));
     }
 
-    static int digitalEndpointCount(List<DigitalItemStorage> endpoints, DigitalItemStorage target) {
+    static int digitalEndpointCount(List<FabricDigitalItemStorage> endpoints, FabricDigitalItemStorage target) {
         if (target == null) {
             return 0;
         }
@@ -154,7 +154,7 @@ public final class TomNetworkIntrospection {
         return (int) endpoints.stream().filter(storage -> storage == target).count();
     }
 
-    static int duplicateDigitalEndpointCount(List<DigitalItemStorage> endpoints) {
+    static int duplicateDigitalEndpointCount(List<FabricDigitalItemStorage> endpoints) {
         EndpointCounts counts = endpointCounts(endpoints);
         return counts.volumeCounts().values().stream().mapToInt(count -> Math.max(0, count - 1)).sum()
                 + counts.anonymousCounts().values().stream().mapToInt(count -> Math.max(0, count - 1)).sum();
@@ -171,7 +171,7 @@ public final class TomNetworkIntrospection {
         }
         try {
             if (storage instanceof DigitalStorageAccessorBlockEntity accessor) {
-                DigitalItemStorage canonical = accessor.getCanonicalStorage();
+                FabricDigitalItemStorage canonical = accessor.getCanonicalStorage();
                 if (canonical != null) {
                     flattenRaw(canonical, output, path);
                     return;
@@ -203,7 +203,7 @@ public final class TomNetworkIntrospection {
     @SuppressWarnings("unchecked")
     private static void collectRawDigital(
             Storage<ItemVariant> storage,
-            List<DigitalItemStorage> output,
+            List<FabricDigitalItemStorage> output,
             Set<Storage<ItemVariant>> path
     ) {
         if (!path.add(storage)) {
@@ -215,13 +215,13 @@ public final class TomNetworkIntrospection {
                 return;
             }
             if (storage instanceof DigitalStorageAccessorBlockEntity accessor) {
-                DigitalItemStorage canonical = accessor.getCanonicalStorage();
+                FabricDigitalItemStorage canonical = accessor.getCanonicalStorage();
                 if (canonical != null) {
                     output.add(canonical);
                 }
                 return;
             }
-            if (storage instanceof DigitalItemStorage digital) {
+            if (storage instanceof FabricDigitalItemStorage digital) {
                 output.add(digital);
                 return;
             }
@@ -247,7 +247,7 @@ public final class TomNetworkIntrospection {
         }
     }
 
-    private static long digitalEndpointFingerprint(List<DigitalItemStorage> endpoints) {
+    private static long digitalEndpointFingerprint(List<FabricDigitalItemStorage> endpoints) {
         EndpointCounts counts = endpointCounts(endpoints);
         long sum = endpoints.size() * 0x9E3779B97F4A7C15L;
         long xor = 0L;
@@ -259,7 +259,7 @@ public final class TomNetworkIntrospection {
             sum += mixed;
             xor ^= mixed;
         }
-        for (Map.Entry<DigitalItemStorage, Integer> entry : counts.anonymousCounts().entrySet()) {
+        for (Map.Entry<FabricDigitalItemStorage, Integer> entry : counts.anonymousCounts().entrySet()) {
             long mixed = mix64(Integer.toUnsignedLong(System.identityHashCode(entry.getKey()))
                     ^ (long) entry.getValue() * 0xA0761D6478BD642FL);
             sum += mixed;
@@ -268,10 +268,10 @@ public final class TomNetworkIntrospection {
         return mix64(sum) ^ Long.rotateLeft(xor, 17);
     }
 
-    private static EndpointCounts endpointCounts(List<DigitalItemStorage> endpoints) {
+    private static EndpointCounts endpointCounts(List<FabricDigitalItemStorage> endpoints) {
         Map<UUID, Integer> volumeCounts = new HashMap<>();
-        Map<DigitalItemStorage, Integer> anonymousCounts = new IdentityHashMap<>();
-        for (DigitalItemStorage storage : endpoints) {
+        Map<FabricDigitalItemStorage, Integer> anonymousCounts = new IdentityHashMap<>();
+        for (FabricDigitalItemStorage storage : endpoints) {
             java.util.Optional<UUID> volumeId = storage.volumeId();
             if (volumeId.isPresent()) {
                 volumeCounts.merge(volumeId.get(), 1, Integer::sum);
@@ -292,7 +292,7 @@ public final class TomNetworkIntrospection {
 
     private record EndpointCounts(
             Map<UUID, Integer> volumeCounts,
-            Map<DigitalItemStorage, Integer> anonymousCounts
+            Map<FabricDigitalItemStorage, Integer> anonymousCounts
     ) {
     }
 
@@ -301,9 +301,9 @@ public final class TomNetworkIntrospection {
         return values.stream().filter(visited::add).toList();
     }
 
-    private static List<DigitalItemStorage> volumeDistinct(List<DigitalItemStorage> values) {
+    private static List<FabricDigitalItemStorage> volumeDistinct(List<FabricDigitalItemStorage> values) {
         Set<UUID> volumeIds = new HashSet<>();
-        Set<DigitalItemStorage> anonymous = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<FabricDigitalItemStorage> anonymous = Collections.newSetFromMap(new IdentityHashMap<>());
         return values.stream().filter(storage -> storage.volumeId()
                 .map(volumeIds::add)
                 .orElseGet(() -> anonymous.add(storage))).toList();

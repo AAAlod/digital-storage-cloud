@@ -1,7 +1,7 @@
 package dev.kehai.digitalstorage.optimization;
 
 import dev.kehai.digitalstorage.hopper.HopperTransferOptimizer;
-import dev.kehai.digitalstorage.storage.DigitalItemStorage;
+import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -39,13 +39,13 @@ public final class TomPerformanceBenchmark {
             Method add = mergedClass.getMethod("add", Storage.class);
             Storage<ItemVariant> physicalNetwork = newMerged(mergedClass);
             Storage<ItemVariant> digitalNetwork = newMerged(mergedClass);
-            DigitalItemStorage digital = new DigitalItemStorage(() -> { }, VARIANTS);
+            FabricDigitalItemStorage digital = new FabricDigitalItemStorage(() -> { }, VARIANTS);
 
             try (Transaction transaction = Transaction.openOuter()) {
                 for (int index = 0; index < VARIANTS; index++) {
                     ItemVariant variant = variant(index);
                     digital.insert(variant, 1, transaction);
-                    DigitalItemStorage single = new DigitalItemStorage(() -> { }, 1);
+                    FabricDigitalItemStorage single = new FabricDigitalItemStorage(() -> { }, 1);
                     single.insert(variant, 1, transaction);
                     add.invoke(physicalNetwork, new OpaqueStorage(single));
                 }
@@ -134,10 +134,10 @@ public final class TomPerformanceBenchmark {
     }
 
     private static MigrationFixture prepareMigrationBatch() {
-        DigitalItemStorage target = new DigitalItemStorage(() -> { }, MIGRATION_VIEW_BUDGET);
+        FabricDigitalItemStorage target = new FabricDigitalItemStorage(() -> { }, MIGRATION_VIEW_BUDGET);
         List<StorageView<ItemVariant>> views = new ArrayList<>(MIGRATION_VIEW_BUDGET);
         for (int index = 0; index < MIGRATION_VIEW_BUDGET; index++) {
-            DigitalItemStorage source = new DigitalItemStorage(() -> { }, 1);
+            FabricDigitalItemStorage source = new FabricDigitalItemStorage(() -> { }, 1);
             source.load(variant(index), 64);
             views.add(source.iterator().next());
         }
@@ -162,10 +162,10 @@ public final class TomPerformanceBenchmark {
             int variants
     ) throws ReflectiveOperationException {
         Storage<ItemVariant> source = newMerged(mergedClass);
-        DigitalItemStorage destination = new DigitalItemStorage(() -> { }, 1);
+        FabricDigitalItemStorage destination = new FabricDigitalItemStorage(() -> { }, 1);
         ItemVariant match = variant(variants - 1);
         for (int index = 0; index < variants; index++) {
-            DigitalItemStorage single = new DigitalItemStorage(() -> { }, 1);
+            FabricDigitalItemStorage single = new FabricDigitalItemStorage(() -> { }, 1);
             single.load(variant(index), index == variants - 1 ? (long) hoppers * 64 : 64);
             add.invoke(source, new OpaqueStorage(single));
         }
@@ -247,7 +247,7 @@ public final class TomPerformanceBenchmark {
 
     private record MigrationFixture(
             List<StorageView<ItemVariant>> views,
-            DigitalItemStorage target
+            FabricDigitalItemStorage target
     ) {
         private long run() {
             long moved = 0;

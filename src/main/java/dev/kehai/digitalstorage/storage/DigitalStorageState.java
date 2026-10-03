@@ -60,7 +60,7 @@ public final class DigitalStorageState {
     private final Set<UUID> dirtyVolumes = new LinkedHashSet<>();
     private final Set<UUID> deletedAccounts = new HashSet<>();
     private final Set<UUID> deletedVolumes = new HashSet<>();
-    private final Map<UUID, DigitalItemStorage.SnapshotCursor> volumeSnapshotCursors = new HashMap<>();
+    private final Map<UUID, VolumeLedger.SnapshotCursor> volumeSnapshotCursors = new HashMap<>();
     private final Map<UUID, Integer> volumeSnapshotRestarts = new HashMap<>();
     private final Map<UUID, Long> dirtyVolumeSinceTicks = new HashMap<>();
     private final Map<UUID, Long> accountDiskBytes = new HashMap<>();
@@ -295,7 +295,7 @@ public final class DigitalStorageState {
                 volume = loadVolume(volumeId).orElse(null);
             }
             if (volume != null) {
-                DigitalItemStorage storage = volume.record().storage();
+                VolumeLedger storage = volume.record().storage();
                 variants = Math.addExact(variants, storage.variantCount());
                 items = items.add(BigInteger.valueOf(storage.totalItemCount()));
                 inspectedVolumes++;
@@ -514,7 +514,7 @@ public final class DigitalStorageState {
             if (dirtyVolumes.contains(id)) {
                 dirtyVolumeInstances.put(id, volume);
             }
-            DigitalItemStorage storage = volume.record().storage();
+            VolumeLedger storage = volume.record().storage();
             recordVolumeFileMetrics(
                     id,
                     nbt.getSizeInBytes(),
@@ -661,12 +661,12 @@ public final class DigitalStorageState {
                 volume = loadedVolume(volumeId);
             }
             if (volume != null) {
-                DigitalItemStorage.SnapshotCursor cursor = volumeSnapshotCursors.get(volumeId);
+                VolumeLedger.SnapshotCursor cursor = volumeSnapshotCursors.get(volumeId);
                 if (cursor == null) {
                     cursor = volume.record().storage().snapshotCursor();
                     volumeSnapshotCursors.put(volumeId, cursor);
                 }
-                DigitalItemStorage.CursorProgress progress = cursor.advance(remainingVariantBudget);
+                VolumeLedger.CursorProgress progress = cursor.advance(remainingVariantBudget);
                 int examinedEntries = progress.examinedEntries();
                 boolean forceSnapshot = false;
                 if (progress.restarted()) {
@@ -677,7 +677,7 @@ public final class DigitalStorageState {
                 long dirtySinceTick = dirtyVolumeSinceTicks.getOrDefault(volumeId, persistenceTicks);
                 if (!progress.complete()
                         && (forceSnapshot || persistenceTicks - dirtySinceTick >= MAX_DIRTY_VOLUME_AGE_TICKS)) {
-                    DigitalItemStorage.CursorProgress forcedProgress = cursor.advance(Integer.MAX_VALUE);
+                    VolumeLedger.CursorProgress forcedProgress = cursor.advance(Integer.MAX_VALUE);
                     examinedEntries += forcedProgress.examinedEntries();
                     progress = forcedProgress;
                     forcedSnapshotCount++;
@@ -860,7 +860,7 @@ public final class DigitalStorageState {
 
     private static long snapshotItemCount(StorageVolume.Snapshot snapshot) {
         long total = 0;
-        for (DigitalItemStorage.StoredEntrySnapshot entry : snapshot.record().items()) {
+        for (VolumeLedger.StoredEntrySnapshot entry : snapshot.record().items()) {
             total = Math.addExact(total, entry.amount());
         }
         return total;

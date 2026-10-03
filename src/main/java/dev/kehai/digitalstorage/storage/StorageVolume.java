@@ -87,7 +87,7 @@ public final class StorageVolume {
         return snapshot(record.storage().snapshotEntries());
     }
 
-    Snapshot snapshot(List<DigitalItemStorage.StoredEntrySnapshot> items) {
+    Snapshot snapshot(List<VolumeLedger.StoredEntrySnapshot> items) {
         return new Snapshot(id, ownerId, name, record.snapshot(items));
     }
 

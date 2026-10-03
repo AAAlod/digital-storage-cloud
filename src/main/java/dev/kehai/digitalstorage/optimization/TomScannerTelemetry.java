@@ -1,6 +1,6 @@
 package dev.kehai.digitalstorage.optimization;
 
-import dev.kehai.digitalstorage.storage.DigitalItemStorage;
+import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -20,11 +20,11 @@ import net.minecraft.block.entity.BlockEntity;
 public final class TomScannerTelemetry {
     private static final long ACTIVE_WINDOW_TICKS = 1_200;
     private static final long PRUNE_INTERVAL_TICKS = 200;
-    private static final Map<TomNetworkCache.NetworkIdentity, Set<DigitalItemStorage>> TARGETS_BY_NETWORK
+    private static final Map<TomNetworkCache.NetworkIdentity, Set<FabricDigitalItemStorage>> TARGETS_BY_NETWORK
             = new IdentityHashMap<>();
-    private static final Map<DigitalItemStorage, List<TomNetworkCache.NetworkIdentity>> NETWORKS_BY_TARGET
+    private static final Map<FabricDigitalItemStorage, List<TomNetworkCache.NetworkIdentity>> NETWORKS_BY_TARGET
             = new WeakHashMap<>();
-    private static final Map<DigitalItemStorage, Map<BlockEntity, Entry>> ENTRIES_BY_TARGET
+    private static final Map<FabricDigitalItemStorage, Map<BlockEntity, Entry>> ENTRIES_BY_TARGET
             = new IdentityHashMap<>();
     private static long lastPruneTick;
 
@@ -32,7 +32,7 @@ public final class TomScannerTelemetry {
     }
 
     static void associate(
-            DigitalItemStorage target,
+            FabricDigitalItemStorage target,
             TomNetworkCache.NetworkIdentity network
     ) {
         List<TomNetworkCache.NetworkIdentity> associated = NETWORKS_BY_TARGET.computeIfAbsent(
@@ -42,7 +42,7 @@ public final class TomScannerTelemetry {
         if (associated.contains(network)) {
             return;
         }
-        Set<DigitalItemStorage> targets = TARGETS_BY_NETWORK.computeIfAbsent(
+        Set<FabricDigitalItemStorage> targets = TARGETS_BY_NETWORK.computeIfAbsent(
                 network,
                 ignored -> Collections.newSetFromMap(new IdentityHashMap<>())
         );
@@ -60,20 +60,20 @@ public final class TomScannerTelemetry {
             return;
         }
         long tick = hopper.getWorld().getTime();
-        Set<DigitalItemStorage> sourceTargets = targetsFor(source);
-        Set<DigitalItemStorage> destinationTargets = targetsFor(destination);
+        Set<FabricDigitalItemStorage> sourceTargets = targetsFor(source);
+        Set<FabricDigitalItemStorage> destinationTargets = targetsFor(destination);
         updateTargets(sourceTargets, null, hopper, tick, consecutiveFailures);
         updateTargets(destinationTargets, sourceTargets, hopper, tick, consecutiveFailures);
     }
 
-    private static Set<DigitalItemStorage> targetsFor(Storage<ItemVariant> storage) {
+    private static Set<FabricDigitalItemStorage> targetsFor(Storage<ItemVariant> storage) {
         TomNetworkCache.NetworkIdentity network = TomNetworkCache.networkFor(storage);
         return network == null ? null : TARGETS_BY_NETWORK.get(network);
     }
 
     private static void updateTargets(
-            Set<DigitalItemStorage> targets,
-            Set<DigitalItemStorage> alreadyUpdated,
+            Set<FabricDigitalItemStorage> targets,
+            Set<FabricDigitalItemStorage> alreadyUpdated,
             BlockEntity hopper,
             long tick,
             int consecutiveFailures
@@ -81,7 +81,7 @@ public final class TomScannerTelemetry {
         if (targets == null) {
             return;
         }
-        for (DigitalItemStorage target : targets) {
+        for (FabricDigitalItemStorage target : targets) {
             if (alreadyUpdated != null && alreadyUpdated.contains(target)) {
                 continue;
             }
@@ -99,7 +99,7 @@ public final class TomScannerTelemetry {
         }
     }
 
-    static Snapshot snapshot(DigitalItemStorage target, long currentTick) {
+    static Snapshot snapshot(FabricDigitalItemStorage target, long currentTick) {
         Map<BlockEntity, Entry> entries = ENTRIES_BY_TARGET.get(target);
         if (entries == null || entries.isEmpty()) {
             return new Snapshot(0, 0, 0);

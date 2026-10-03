@@ -28,7 +28,7 @@ public final class DigitalStorageRecord {
     private static final String LAST_ACCESS_TIME_KEY = "LastAccessTime";
     private static final String ACCEPT_UNSTACKABLE_ITEMS_KEY = "AcceptUnstackableItems";
     private final Runnable dirtyCallback;
-    private final DigitalItemStorage storage;
+    private final VolumeLedger storage;
     private Identifier tierId;
     private int lastKnownVariantCapacity;
     private boolean acceptUnstackableItems;
@@ -51,7 +51,7 @@ public final class DigitalStorageRecord {
         this.acceptUnstackableItems = acceptUnstackableItems;
         this.createdTime = createdTime;
         this.lastAccessTime = lastAccessTime;
-        this.storage = new DigitalItemStorage(
+        this.storage = new VolumeLedger(
                 volumeId,
                 this::onStorageMutationCommitted,
                 this::variantCapacity,
@@ -149,7 +149,7 @@ public final class DigitalStorageRecord {
         return record;
     }
 
-    public DigitalItemStorage storage() {
+    public VolumeLedger storage() {
         return storage;
     }
 
@@ -242,7 +242,7 @@ public final class DigitalStorageRecord {
         return snapshot(storage.snapshotEntries());
     }
 
-    Snapshot snapshot(List<DigitalItemStorage.StoredEntrySnapshot> items) {
+    Snapshot snapshot(List<VolumeLedger.StoredEntrySnapshot> items) {
         return new Snapshot(
                 tierId(),
                 lastKnownVariantCapacity,
@@ -267,7 +267,7 @@ public final class DigitalStorageRecord {
             boolean acceptUnstackableItems,
             long createdTime,
             long lastAccessTime,
-            List<DigitalItemStorage.StoredEntrySnapshot> items
+            List<VolumeLedger.StoredEntrySnapshot> items
     ) {
         Snapshot {
             items = List.copyOf(items);
@@ -281,7 +281,7 @@ public final class DigitalStorageRecord {
             nbt.putLong(LAST_ACCESS_TIME_KEY, lastAccessTime);
 
             NbtList items = new NbtList();
-            for (DigitalItemStorage.StoredEntrySnapshot entry : this.items) {
+            for (VolumeLedger.StoredEntrySnapshot entry : this.items) {
                 NbtCompound itemNbt = new NbtCompound();
                 itemNbt.put(VARIANT_KEY, entry.serializedVariant());
                 itemNbt.putLong(AMOUNT_KEY, entry.amount());

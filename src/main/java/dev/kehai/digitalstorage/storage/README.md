@@ -3,9 +3,16 @@
 `DigitalStorageState` owns the server's player accounts and volumes.
 `StorageVolume` owns item contents and capacity; accessor blocks only retain
 controller and volume IDs. Accessors bound to the same volume expose the same
-canonical `DigitalItemStorage` object so network aggregation can deduplicate it.
+canonical platform storage adapter so network aggregation can deduplicate it.
 
-`DigitalItemStorage` implements Fabric Transfer API transactions. Provisional
+`VolumeLedger` owns quantities, policy, metrics and incremental snapshots without
+loader APIs. `ItemKey` and `ItemKeyCodec` preserve the existing variant identity
+and stored encoding. `MutationScope` enlists per-entry and metric snapshots;
+`LedgerTransaction` provides local nested transactions for shared ledger work.
+It does not make arbitrary external inventories transactional.
+
+The Fabric adapter is `platform/fabric/FabricDigitalItemStorage`; its bridges
+participate in external Fabric transactions and notify only on final commit. Provisional
 mutation and rollback must invalidate incremental snapshot iteration even when
 committed content has not changed. Keep extraction possible for existing items
 when insertion policy becomes more restrictive.

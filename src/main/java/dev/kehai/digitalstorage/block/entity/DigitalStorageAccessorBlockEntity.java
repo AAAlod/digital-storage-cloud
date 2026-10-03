@@ -3,7 +3,7 @@ package dev.kehai.digitalstorage.block.entity;
 import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenHandler;
 import dev.kehai.digitalstorage.security.DigitalStorageMountTracker;
-import dev.kehai.digitalstorage.storage.DigitalItemStorage;
+import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
 import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import dev.kehai.digitalstorage.storage.StorageVolume;
@@ -88,9 +88,9 @@ public final class DigitalStorageAccessorBlockEntity extends BlockEntity
         return true;
     }
 
-    public DigitalItemStorage getCanonicalStorage() {
+    public FabricDigitalItemStorage getCanonicalStorage() {
         DigitalStorageRecord record = getRecord();
-        return record == null ? null : record.storage();
+        return record == null ? null : FabricDigitalItemStorage.of(record.storage());
     }
 
     public BindResult bind(ServerPlayerEntity player, UUID requestedVolumeId) {
@@ -165,19 +165,19 @@ public final class DigitalStorageAccessorBlockEntity extends BlockEntity
 
     @Override
     public long insert(ItemVariant resource, long maxAmount, TransactionContext transaction) {
-        DigitalItemStorage storage = getCanonicalStorage();
+        FabricDigitalItemStorage storage = getCanonicalStorage();
         return storage == null ? 0 : storage.insert(resource, maxAmount, transaction);
     }
 
     @Override
     public long extract(ItemVariant resource, long maxAmount, TransactionContext transaction) {
-        DigitalItemStorage storage = getCanonicalStorage();
+        FabricDigitalItemStorage storage = getCanonicalStorage();
         return storage == null ? 0 : storage.extract(resource, maxAmount, transaction);
     }
 
     @Override
     public Iterator<StorageView<ItemVariant>> iterator() {
-        DigitalItemStorage storage = getCanonicalStorage();
+        FabricDigitalItemStorage storage = getCanonicalStorage();
         return storage == null ? Collections.emptyIterator() : storage.iterator();
     }
 

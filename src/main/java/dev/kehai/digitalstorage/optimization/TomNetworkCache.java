@@ -1,7 +1,7 @@
 package dev.kehai.digitalstorage.optimization;
 
 import com.google.common.collect.MapMaker;
-import dev.kehai.digitalstorage.storage.DigitalItemStorage;
+import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,8 +42,8 @@ public final class TomNetworkCache {
                 invalidateEntry(entry, "digital endpoint topology changed");
             } else {
                 List<Storage<ItemVariant>> physical = resolve(cached.physicalReferences());
-                List<DigitalItemStorage> digital = resolveDigital(cached.digitalReferences());
-                List<DigitalItemStorage> rawDigital = resolveDigital(cached.rawDigitalReferences());
+                List<FabricDigitalItemStorage> digital = resolveDigital(cached.digitalReferences());
+                List<FabricDigitalItemStorage> rawDigital = resolveDigital(cached.rawDigitalReferences());
                 if (physical != null && digital != null && rawDigital != null) {
                     return cached.withResolved(physical, digital, rawDigital);
                 }
@@ -53,8 +53,8 @@ public final class TomNetworkCache {
         TomNetworkIntrospection.NetworkParts parts = TomNetworkIntrospection.parts(network, rawDigitalSnapshot);
         entry.structure = structure(parts);
         List<WeakReference<Storage<ItemVariant>>> physicalReferences = weakReferences(parts.physical());
-        List<WeakReference<DigitalItemStorage>> digitalReferences = weakDigitalReferences(parts.digital());
-        List<WeakReference<DigitalItemStorage>> rawDigitalReferences = weakDigitalReferences(parts.rawDigital());
+        List<WeakReference<FabricDigitalItemStorage>> digitalReferences = weakDigitalReferences(parts.digital());
+        List<WeakReference<FabricDigitalItemStorage>> rawDigitalReferences = weakDigitalReferences(parts.rawDigital());
         List<Endpoint> physicalEndpoints = new ArrayList<>(physicalReferences.size());
         for (int index = 0; index < physicalReferences.size(); index++) {
             physicalEndpoints.add(new Endpoint(entry.identity, entry.version, index, physicalReferences.get(index)));
@@ -101,7 +101,7 @@ public final class TomNetworkCache {
         for (Storage<ItemVariant> storage : parts.physical()) {
             keys.merge(TomStorageIdentity.key(storage), 1, Integer::sum);
         }
-        for (DigitalItemStorage storage : parts.rawDigital()) {
+        for (FabricDigitalItemStorage storage : parts.rawDigital()) {
             keys.merge(TomStorageIdentity.key(storage), 1, Integer::sum);
         }
         return keys;
@@ -209,8 +209,8 @@ public final class TomNetworkCache {
 
             com.tom.storagemod.util.MergedStorage trackedNetwork = new com.tom.storagemod.util.MergedStorage();
             java.util.UUID volumeId = java.util.UUID.randomUUID();
-            DigitalItemStorage canonical = new DigitalItemStorage(volumeId, () -> { }, 64);
-            DigitalItemStorage alias = new DigitalItemStorage(volumeId, () -> { }, 64);
+            FabricDigitalItemStorage canonical = new FabricDigitalItemStorage(volumeId, () -> { }, 64);
+            FabricDigitalItemStorage alias = new FabricDigitalItemStorage(volumeId, () -> { }, 64);
             trackedNetwork.add(canonical);
             Token singleEndpointToken = topology(connector, trackedNetwork).token();
             trackedNetwork.add(alias);
@@ -362,7 +362,7 @@ public final class TomNetworkCache {
         return storages.stream().map(WeakReference::new).toList();
     }
 
-    private static List<WeakReference<DigitalItemStorage>> weakDigitalReferences(List<DigitalItemStorage> storages) {
+    private static List<WeakReference<FabricDigitalItemStorage>> weakDigitalReferences(List<FabricDigitalItemStorage> storages) {
         return storages.stream().map(WeakReference::new).toList();
     }
 
@@ -380,12 +380,12 @@ public final class TomNetworkCache {
         return List.copyOf(resolved);
     }
 
-    private static List<DigitalItemStorage> resolveDigital(
-            List<WeakReference<DigitalItemStorage>> references
+    private static List<FabricDigitalItemStorage> resolveDigital(
+            List<WeakReference<FabricDigitalItemStorage>> references
     ) {
-        List<DigitalItemStorage> resolved = new ArrayList<>(references.size());
-        for (WeakReference<DigitalItemStorage> reference : references) {
-            DigitalItemStorage storage = reference.get();
+        List<FabricDigitalItemStorage> resolved = new ArrayList<>(references.size());
+        for (WeakReference<FabricDigitalItemStorage> reference : references) {
+            FabricDigitalItemStorage storage = reference.get();
             if (storage == null) {
                 return null;
             }
@@ -429,12 +429,12 @@ public final class TomNetworkCache {
             WeakReference<Storage<ItemVariant>> network,
             long digitalEndpointFingerprint,
             List<WeakReference<Storage<ItemVariant>>> physicalReferences,
-            List<WeakReference<DigitalItemStorage>> digitalReferences,
-            List<WeakReference<DigitalItemStorage>> rawDigitalReferences,
+            List<WeakReference<FabricDigitalItemStorage>> digitalReferences,
+            List<WeakReference<FabricDigitalItemStorage>> rawDigitalReferences,
             List<Endpoint> physicalEndpoints,
             List<Storage<ItemVariant>> physical,
-            List<DigitalItemStorage> digital,
-            List<DigitalItemStorage> rawDigital
+            List<FabricDigitalItemStorage> digital,
+            List<FabricDigitalItemStorage> rawDigital
     ) {
         Token token() {
             return new Token(identity, version);
@@ -442,8 +442,8 @@ public final class TomNetworkCache {
 
         private Topology withResolved(
                 List<Storage<ItemVariant>> resolvedPhysical,
-                List<DigitalItemStorage> resolvedDigital,
-                List<DigitalItemStorage> resolvedRawDigital
+                List<FabricDigitalItemStorage> resolvedDigital,
+                List<FabricDigitalItemStorage> resolvedRawDigital
         ) {
             return new Topology(
                     identity,
@@ -460,7 +460,7 @@ public final class TomNetworkCache {
             );
         }
 
-        int digitalEndpointCount(DigitalItemStorage target) {
+        int digitalEndpointCount(FabricDigitalItemStorage target) {
             return TomNetworkIntrospection.digitalEndpointCount(rawDigital, target);
         }
 

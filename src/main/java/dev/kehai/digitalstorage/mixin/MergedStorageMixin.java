@@ -4,7 +4,7 @@ import com.tom.storagemod.util.MergedStorage;
 import dev.kehai.digitalstorage.optimization.TomNetworkIntrospection;
 import dev.kehai.digitalstorage.optimization.TomDigitalEndpointTracker;
 import dev.kehai.digitalstorage.hopper.HopperTransferOptimizer;
-import dev.kehai.digitalstorage.storage.DigitalItemStorage;
+import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -23,7 +23,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(MergedStorage.class)
 public abstract class MergedStorageMixin implements TomDigitalEndpointTracker {
     @Unique
-    private final Set<DigitalItemStorage> digitalstorage$digitalEndpoints =
+    private final Set<FabricDigitalItemStorage> digitalstorage$digitalEndpoints =
             Collections.newSetFromMap(new IdentityHashMap<>());
 
     @Unique
@@ -34,14 +34,14 @@ public abstract class MergedStorageMixin implements TomDigitalEndpointTracker {
             Collections.newSetFromMap(new IdentityHashMap<>());
 
     @Unique
-    private final List<DigitalItemStorage> digitalstorage$rawDigitalEndpoints = new ArrayList<>();
+    private final List<FabricDigitalItemStorage> digitalstorage$rawDigitalEndpoints = new ArrayList<>();
 
     @Inject(method = "add", at = @At("HEAD"), cancellable = true, remap = false)
     private void digitalstorage$deduplicateDigitalEndpoint(
             Storage<ItemVariant> storage,
             CallbackInfo callbackInfo
     ) {
-        DigitalItemStorage canonical = TomNetworkIntrospection.canonicalDigitalEndpoint(storage);
+        FabricDigitalItemStorage canonical = TomNetworkIntrospection.canonicalDigitalEndpoint(storage);
         if (canonical != null) {
             if (digitalstorage$rawEndpointSources.add(storage)) {
                 digitalstorage$rawDigitalEndpoints.add(canonical);
@@ -73,7 +73,7 @@ public abstract class MergedStorageMixin implements TomDigitalEndpointTracker {
     }
 
     @Override
-    public List<DigitalItemStorage> digitalstorage$rawDigitalEndpoints() {
+    public List<FabricDigitalItemStorage> digitalstorage$rawDigitalEndpoints() {
         return List.copyOf(digitalstorage$rawDigitalEndpoints);
     }
 }

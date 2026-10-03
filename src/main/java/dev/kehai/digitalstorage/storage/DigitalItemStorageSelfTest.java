@@ -1,5 +1,7 @@
 package dev.kehai.digitalstorage.storage;
 
+import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
+
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.hopper.HopperTransferOptimizer;
 import dev.kehai.digitalstorage.screen.DigitalStorageScreenState;
@@ -28,6 +30,8 @@ public final class DigitalItemStorageSelfTest {
     public static String run() {
         ItemVariant stone = ItemVariant.of(Items.STONE);
         ItemKeySelfTest.run();
+        VolumeLedgerSelfTest.run();
+        dev.kehai.digitalstorage.platform.fabric.FabricLedgerSelfTest.run();
         dev.kehai.digitalstorage.platform.fabric.FabricItemKeySelfTest.run();
         committedInsertPersistsAndMarksDirtyOnce(stone);
         abortedInsertRemovesTheProvisionalEntry(stone);
@@ -76,12 +80,12 @@ public final class DigitalItemStorageSelfTest {
         filteredHopperTransferMovesOneBatch(stone);
         fullDestinationDoesNotTouchTheSource(stone);
         changingDestinationCapacityRollsBackTheSource(stone);
-        return "Digital Storage self-test passed: transactions, content versions, cached metrics, immutable snapshots, persistence restart/fairness/liveness, limits, dynamic Volume unstackable policy/config migration/persistence, per-insert policy, filtering, NBT guard, stress, canonical aliasing, Tom raw endpoint detection/duplicate-count prevention/dedup/fallback/cursor invalidation, device-scoped hopper tiers, network scoring/recommendations, budgeted atomic migration/rollback/lifecycle invalidation, sharded file round-trip/deletion, storage size telemetry, force-clear, orphan binding self-heal, mount statistics semantics, schema guard, file quarantine, tier migration, payment reservation, screen codec, atomic hopper paths";
+        return "Digital Storage self-test passed: shared ledger/nested transactions, Fabric bridge/vanilla conservation/cache cleanup, content versions, cached metrics, immutable snapshots, persistence restart/fairness/liveness, limits, dynamic Volume unstackable policy/config migration/persistence, per-insert policy, filtering, NBT guard, stress, canonical aliasing, Tom raw endpoint detection/duplicate-count prevention/dedup/fallback/cursor invalidation, device-scoped hopper tiers, network scoring/recommendations, budgeted atomic migration/rollback/lifecycle invalidation, sharded file round-trip/deletion, storage size telemetry, force-clear, orphan binding self-heal, mount statistics semantics, schema guard, file quarantine, tier migration, payment reservation, screen codec, atomic hopper paths";
     }
 
     private static void committedInsertPersistsAndMarksDirtyOnce(ItemVariant stone) {
         AtomicInteger dirtyCalls = new AtomicInteger();
-        DigitalItemStorage storage = new DigitalItemStorage(dirtyCalls::incrementAndGet, 64);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(dirtyCalls::incrementAndGet, 64);
 
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(64, storage.insert(stone, 64, transaction), "inserted amount");
@@ -97,7 +101,7 @@ public final class DigitalItemStorageSelfTest {
 
     private static void abortedInsertRemovesTheProvisionalEntry(ItemVariant stone) {
         AtomicInteger dirtyCalls = new AtomicInteger();
-        DigitalItemStorage storage = new DigitalItemStorage(dirtyCalls::incrementAndGet, 64);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(dirtyCalls::incrementAndGet, 64);
 
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(64, storage.insert(stone, 64, transaction), "insert before abort");
@@ -111,7 +115,7 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void abortedExtractRestoresThePreviousAmount(ItemVariant stone) {
-        DigitalItemStorage storage = storageWith(stone, 100);
+        FabricDigitalItemStorage storage = storageWith(stone, 100);
 
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(40, storage.extract(stone, 40, transaction), "extracted amount before abort");
@@ -123,7 +127,7 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void extractingTheLastItemsRemovesTheViewAfterCommit(ItemVariant stone) {
-        DigitalItemStorage storage = storageWith(stone, 32);
+        FabricDigitalItemStorage storage = storageWith(stone, 32);
 
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(32, storage.extract(stone, Long.MAX_VALUE, transaction), "last extraction");
@@ -138,16 +142,16 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void insertSaturatesAtConfiguredLimitWithoutOverflowing(ItemVariant stone) {
-        expectEquals(2_147_483_647L, DigitalItemStorage.MAX_AMOUNT_PER_VARIANT,
+        expectEquals(2_147_483_647L, FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT,
                 "intentional per-variant safety ceiling");
-        DigitalItemStorage storage = storageWith(stone, DigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 1);
+        FabricDigitalItemStorage storage = storageWith(stone, FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 1);
 
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(1, storage.insert(stone, 64, transaction), "saturating insert");
             transaction.commit();
         }
 
-        expectEquals(DigitalItemStorage.MAX_AMOUNT_PER_VARIANT, onlyView(storage).getAmount(), "amount at configured limit");
+        expectEquals(FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT, onlyView(storage).getAmount(), "amount at configured limit");
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(0, storage.insert(stone, 1, transaction), "insert beyond configured limit");
             transaction.commit();
@@ -155,19 +159,19 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void storedOverLimitDataRemainsExtractable(ItemVariant stone) {
-        DigitalItemStorage storage = storageWith(stone, DigitalItemStorage.MAX_AMOUNT_PER_VARIANT + 1);
+        FabricDigitalItemStorage storage = storageWith(stone, FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT + 1);
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(0, storage.insert(stone, 1, transaction), "insert into stored over-limit variant");
             expectEquals(1, storage.extract(stone, 1, transaction), "extract from stored over-limit variant");
             transaction.commit();
         }
-        expectEquals(DigitalItemStorage.MAX_AMOUNT_PER_VARIANT, onlyView(storage).getAmount(),
+        expectEquals(FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT, onlyView(storage).getAmount(),
                 "stored over-limit amount after extraction");
     }
 
     private static void fullVariantCapacityRejectsOnlyNewVariants(ItemVariant stone) {
         ItemVariant dirt = ItemVariant.of(Items.DIRT);
-        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, 1);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, 1);
         storage.load(stone, 10);
 
         try (Transaction transaction = Transaction.openOuter()) {
@@ -182,7 +186,7 @@ public final class DigitalItemStorageSelfTest {
 
     private static void replacingTheLastVariantInOneTransactionIsSafe(ItemVariant stone) {
         ItemVariant dirt = ItemVariant.of(Items.DIRT);
-        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, 1);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, 1);
         storage.load(stone, 1);
 
         try (Transaction transaction = Transaction.openOuter()) {
@@ -197,7 +201,7 @@ public final class DigitalItemStorageSelfTest {
 
     private static void abortedNewVariantReleasesCapacity(ItemVariant stone) {
         ItemVariant dirt = ItemVariant.of(Items.DIRT);
-        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, 1);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, 1);
 
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(1, storage.insert(stone, 1, transaction), "provisional variant insert");
@@ -213,7 +217,7 @@ public final class DigitalItemStorageSelfTest {
 
     private static void cachedMetricsFollowCommitAndRollback(ItemVariant stone) {
         ItemVariant dirt = ItemVariant.of(Items.DIRT);
-        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, 2);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, 2);
         storage.load(stone, 10);
 
         try (Transaction transaction = Transaction.openOuter()) {
@@ -231,28 +235,28 @@ public final class DigitalItemStorageSelfTest {
     private static void capturedSnapshotIsStableAfterLaterMutation(ItemVariant stone) {
         DigitalStorageRecord record = DigitalStorageRecord.createNew(() -> { });
         try (Transaction transaction = Transaction.openOuter()) {
-            expectEquals(5, record.storage().insert(stone, 5, transaction), "snapshot seed insert");
+            expectEquals(5, FabricDigitalItemStorage.of(record.storage()).insert(stone, 5, transaction), "snapshot seed insert");
             transaction.commit();
         }
         DigitalStorageRecord.Snapshot snapshot = record.snapshot();
 
         try (Transaction transaction = Transaction.openOuter()) {
-            expectEquals(4, record.storage().insert(stone, 4, transaction), "post-snapshot insert");
+            expectEquals(4, FabricDigitalItemStorage.of(record.storage()).insert(stone, 4, transaction), "post-snapshot insert");
             transaction.commit();
         }
 
         net.minecraft.nbt.NbtCompound capturedNbt = new net.minecraft.nbt.NbtCompound();
         snapshot.writeNbt(capturedNbt);
         DigitalStorageRecord captured = DigitalStorageRecord.fromNbt(capturedNbt, () -> { });
-        expectEquals(5, onlyView(captured.storage()).getAmount(), "captured snapshot changed after mutation");
-        expectEquals(5L, captured.storage().totalItemCount(),
+        expectEquals(5, onlyView(FabricDigitalItemStorage.of(captured.storage())).getAmount(), "captured snapshot changed after mutation");
+        expectEquals(5L, FabricDigitalItemStorage.of(captured.storage()).totalItemCount(),
                 "captured snapshot cached total");
-        expectEquals(9, onlyView(record.storage()).getAmount(), "live record amount after snapshot mutation");
+        expectEquals(9, onlyView(FabricDigitalItemStorage.of(record.storage())).getAmount(), "live record amount after snapshot mutation");
     }
 
     private static void filterAppliesOnlyWhenCreatingANewVariant(ItemVariant stone) {
         AtomicBoolean allowNewVariants = new AtomicBoolean(true);
-        DigitalItemStorage storage = new DigitalItemStorage(
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(
                 () -> { },
                 () -> 64,
                 variant -> allowNewVariants.get()
@@ -273,7 +277,7 @@ public final class DigitalItemStorageSelfTest {
 
     private static void insertionPolicyAppliesToExistingVariantsButNeverExtraction(ItemVariant stone) {
         AtomicBoolean allowInsert = new AtomicBoolean(true);
-        DigitalItemStorage storage = new DigitalItemStorage(
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(
                 () -> { },
                 () -> 64,
                 variant -> allowInsert.get(),
@@ -311,27 +315,27 @@ public final class DigitalItemStorageSelfTest {
             expectFalse(record.acceptsUnstackableItems(), "new volume did not default to Reject");
             expectFalse(record.canInsert(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(pickaxe)), "Tom-facing policy accepted a tool in Reject mode");
             try (Transaction transaction = Transaction.openOuter()) {
-                expectEquals(0, record.storage().insert(pickaxe, 1, transaction),
+                expectEquals(0, FabricDigitalItemStorage.of(record.storage()).insert(pickaxe, 1, transaction),
                         "Reject volume accepted a new unstackable item");
             }
 
             expectTrue(record.setAcceptUnstackableItems(true), "Accept setting did not change");
             expectTrue(record.canInsert(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(pickaxe)), "Tom-facing policy rejected a tool in Accept mode");
             try (Transaction transaction = Transaction.openOuter()) {
-                expectEquals(1, record.storage().insert(pickaxe, 1, transaction),
+                expectEquals(1, FabricDigitalItemStorage.of(record.storage()).insert(pickaxe, 1, transaction),
                         "Accept volume rejected an unstackable item");
                 transaction.commit();
             }
 
             expectTrue(record.setAcceptUnstackableItems(false), "Reject setting did not change");
             try (Transaction transaction = Transaction.openOuter()) {
-                expectEquals(0, record.storage().insert(pickaxe, 1, transaction),
+                expectEquals(0, FabricDigitalItemStorage.of(record.storage()).insert(pickaxe, 1, transaction),
                         "tightened policy accepted another unstackable item");
-                expectEquals(1, record.storage().extract(pickaxe, 1, transaction),
+                expectEquals(1, FabricDigitalItemStorage.of(record.storage()).extract(pickaxe, 1, transaction),
                         "tightened policy stranded an existing unstackable item");
                 transaction.commit();
             }
-            expectEquals(0L, record.storage().amountOf(pickaxe),
+            expectEquals(0L, FabricDigitalItemStorage.of(record.storage()).amountOf(pickaxe),
                     "extracted unstackable item remained in storage");
         } finally {
             config.allowUnstackableItems = originalServerPolicy;
@@ -390,7 +394,7 @@ public final class DigitalItemStorageSelfTest {
         int stoneBytes = stone.toNbt().getSizeInBytes();
         int dirtBytes = dirt.toNbt().getSizeInBytes();
         long budget = stoneBytes + dirtBytes - 1L;
-        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, () -> 2, () -> budget);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, () -> 2, () -> budget);
 
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(1, storage.insert(stone, 1, transaction), "first aggregate-NBT variant");
@@ -419,7 +423,7 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void incrementalSnapshotRestartsAfterMutation() {
-        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, 4);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, 4);
         ItemVariant stone = ItemVariant.of(Items.STONE);
         ItemVariant dirt = ItemVariant.of(Items.DIRT);
         ItemVariant gravel = ItemVariant.of(Items.GRAVEL);
@@ -430,8 +434,8 @@ public final class DigitalItemStorageSelfTest {
             transaction.commit();
         }
 
-        DigitalItemStorage.SnapshotCursor cursor = storage.snapshotCursor();
-        DigitalItemStorage.CursorProgress first = cursor.advance(1);
+        VolumeLedger.SnapshotCursor cursor = storage.snapshotCursor();
+        VolumeLedger.CursorProgress first = cursor.advance(1);
         expectFalse(first.complete(), "incremental snapshot ignored variant budget");
         expectFalse(first.restarted(), "initial snapshot was reported as a restart");
         expectEquals(1, first.examinedEntries(), "incremental snapshot first-tick work");
@@ -440,7 +444,7 @@ public final class DigitalItemStorageSelfTest {
             transaction.commit();
         }
 
-        DigitalItemStorage.CursorProgress progress = cursor.advance(1);
+        VolumeLedger.CursorProgress progress = cursor.advance(1);
         expectTrue(progress.restarted(), "mutation restart was not reported to the scheduler");
         do {
             expectTrue(progress.examinedEntries() <= 1, "incremental snapshot exceeded per-tick budget");
@@ -448,13 +452,13 @@ public final class DigitalItemStorageSelfTest {
                 progress = cursor.advance(1);
             }
         } while (!progress.complete());
-        long snapshotTotal = progress.snapshots().stream().mapToLong(DigitalItemStorage.StoredEntrySnapshot::amount).sum();
+        long snapshotTotal = progress.snapshots().stream().mapToLong(VolumeLedger.StoredEntrySnapshot::amount).sum();
         expectEquals(10, snapshotTotal, "incremental snapshot did not restart after mutation");
     }
 
     private static void incrementalSnapshotRestartsAfterProvisionalVariantRollback() {
         AtomicInteger dirtyCalls = new AtomicInteger();
-        DigitalItemStorage storage = new DigitalItemStorage(dirtyCalls::incrementAndGet, 8);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(dirtyCalls::incrementAndGet, 8);
         try (Transaction transaction = Transaction.openOuter()) {
             storage.insert(ItemVariant.of(Items.STONE), 1, transaction);
             storage.insert(ItemVariant.of(Items.DIRT), 2, transaction);
@@ -464,8 +468,8 @@ public final class DigitalItemStorageSelfTest {
         long version = storage.contentVersion();
         int dirty = dirtyCalls.get();
         long nbtBytes = storage.totalVariantNbtBytes();
-        DigitalItemStorage.SnapshotCursor cursor = storage.snapshotCursor();
-        DigitalItemStorage.CursorProgress first = cursor.advance(1);
+        VolumeLedger.SnapshotCursor cursor = storage.snapshotCursor();
+        VolumeLedger.CursorProgress first = cursor.advance(1);
         expectFalse(first.complete(), "rollback regression requires a retained iterator");
         expectFalse(first.restarted(), "initial rollback snapshot reported a restart");
         expectEquals(1, first.examinedEntries(), "rollback snapshot initial budget");
@@ -479,16 +483,16 @@ public final class DigitalItemStorageSelfTest {
         expectEquals(6, storage.totalItemCount(), "rollback restored item count");
         expectEquals(nbtBytes, storage.totalVariantNbtBytes(), "rollback restored NBT bytes");
         expectEquals(0, storage.amountOf(provisional), "rollback retained provisional variant");
-        DigitalItemStorage.CursorProgress progress = cursor.advance(1);
+        VolumeLedger.CursorProgress progress = cursor.advance(1);
         expectTrue(progress.restarted(), "provisional rollback did not restart invalidated iterator");
         expectEquals(1, progress.examinedEntries(), "rollback must invalidate before next(), not just catch CME");
         expectSnapshotMatches(storage, cursor, progress);
     }
 
     private static void expectSnapshotMatches(
-            DigitalItemStorage storage,
-            DigitalItemStorage.SnapshotCursor cursor,
-            DigitalItemStorage.CursorProgress progress
+            FabricDigitalItemStorage storage,
+            VolumeLedger.SnapshotCursor cursor,
+            VolumeLedger.CursorProgress progress
     ) {
         for (int step = 0; step < 32; step++) {
             expectTrue(progress.examinedEntries() <= 1, "snapshot exceeded per-call variant budget");
@@ -496,7 +500,7 @@ public final class DigitalItemStorageSelfTest {
                 Map<ItemVariant, Long> expected = new HashMap<>();
                 storage.forEach(expected::put);
                 Map<ItemVariant, Long> actual = new HashMap<>();
-                for (DigitalItemStorage.StoredEntrySnapshot entry : progress.snapshots()) {
+                for (VolumeLedger.StoredEntrySnapshot entry : progress.snapshots()) {
                     ItemVariant variant = ItemVariant.fromNbt(entry.serializedVariant());
                     expectFalse(actual.containsKey(variant), "snapshot duplicated a variant");
                     actual.put(variant, entry.amount());
@@ -510,7 +514,7 @@ public final class DigitalItemStorageSelfTest {
         throw new IllegalStateException("Snapshot did not finish within bounded regression steps");
     }
 
-    private static void seedSnapshotStorage(DigitalItemStorage storage) {
+    private static void seedSnapshotStorage(FabricDigitalItemStorage storage) {
         try (Transaction transaction = Transaction.openOuter()) {
             storage.insert(ItemVariant.of(Items.STONE), 1, transaction);
             storage.insert(ItemVariant.of(Items.DIRT), 2, transaction);
@@ -524,7 +528,7 @@ public final class DigitalItemStorageSelfTest {
         SIMULATE_INSERT, HOPPER_ROLLBACK, NESTED_COMMIT_OUTER_ABORT, LOAD_NEW_ENTRY
     }
 
-    private static void mutateSnapshotStorage(DigitalItemStorage storage, SnapshotMutation mutation) {
+    private static void mutateSnapshotStorage(FabricDigitalItemStorage storage, SnapshotMutation mutation) {
         ItemVariant diamond = ItemVariant.of(Items.DIAMOND);
         ItemVariant stone = ItemVariant.of(Items.STONE);
         try (Transaction transaction = Transaction.openOuter()) {
@@ -547,7 +551,7 @@ public final class DigitalItemStorageSelfTest {
                     transaction.commit();
                 }
                 case HOPPER_ROLLBACK -> {
-                    DigitalItemStorage source = storageWith(diamond, 2);
+                    FabricDigitalItemStorage source = storageWith(diamond, 2);
                     NoIterationStorage wrappedSource = new NoIterationStorage(source);
                     expectEquals(0, HopperTransferOptimizer.moveExact(wrappedSource, storage, diamond, 7, transaction),
                             "insufficient hopper source must abort nested insert");
@@ -570,11 +574,11 @@ public final class DigitalItemStorageSelfTest {
     private static void incrementalSnapshotTransactionMatrix() {
         for (SnapshotMutation mutation : SnapshotMutation.values()) {
             AtomicInteger dirtyCalls = new AtomicInteger();
-            DigitalItemStorage storage = new DigitalItemStorage(dirtyCalls::incrementAndGet, 8);
+            FabricDigitalItemStorage storage = new FabricDigitalItemStorage(dirtyCalls::incrementAndGet, 8);
             seedSnapshotStorage(storage);
             long version = storage.contentVersion();
             int dirty = dirtyCalls.get();
-            DigitalItemStorage.SnapshotCursor cursor = storage.snapshotCursor();
+            VolumeLedger.SnapshotCursor cursor = storage.snapshotCursor();
             expectFalse(cursor.advance(1).complete(), "matrix requires partial scan: " + mutation);
             mutateSnapshotStorage(storage, mutation);
             boolean committed = mutation == SnapshotMutation.COMMIT_INSERT || mutation == SnapshotMutation.COMMIT_REMOVE;
@@ -590,10 +594,10 @@ public final class DigitalItemStorageSelfTest {
                 expected.remove(ItemVariant.of(Items.STONE));
             }
             expectStorageMatches(expected, storage, "matrix " + mutation);
-            DigitalItemStorage.CursorProgress zeroBudget = cursor.advance(0);
+            VolumeLedger.CursorProgress zeroBudget = cursor.advance(0);
             expectEquals(0, zeroBudget.examinedEntries(), "zero budget performed work");
             expectFalse(zeroBudget.restarted(), "zero budget consumed invalidation");
-            DigitalItemStorage.CursorProgress progress = cursor.advance(1);
+            VolumeLedger.CursorProgress progress = cursor.advance(1);
             expectEquals(mutation != SnapshotMutation.ABORT_EXTRACT, progress.restarted(),
                     "matrix restart semantics: " + mutation);
             expectEquals(1, progress.examinedEntries(), "matrix must detect invalidation before iteration: " + mutation);
@@ -607,7 +611,7 @@ public final class DigitalItemStorageSelfTest {
         }
     }
 
-    private static void expectStorageMatches(Map<ItemVariant, Long> expected, DigitalItemStorage storage, String label) {
+    private static void expectStorageMatches(Map<ItemVariant, Long> expected, FabricDigitalItemStorage storage, String label) {
         Map<ItemVariant, Long> actual = new HashMap<>();
         storage.forEach(actual::put);
         expectEquals(expected, actual, label + " item ledger");
@@ -619,9 +623,9 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void incrementalSnapshotDiscardsPartialDataAfterUnexpectedIteratorFailure() {
-        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, 8);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, 8);
         seedSnapshotStorage(storage);
-        DigitalItemStorage.SnapshotCursor cursor = storage.snapshotCursor();
+        VolumeLedger.SnapshotCursor cursor = storage.snapshotCursor();
         cursor.advance(1);
         try {
             // Inject an untracked iterator failure after one more entry was copied.
@@ -648,7 +652,7 @@ public final class DigitalItemStorageSelfTest {
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Could not inject iterator failure", exception);
         }
-        DigitalItemStorage.CursorProgress failed = cursor.advance(2);
+        VolumeLedger.CursorProgress failed = cursor.advance(2);
         expectTrue(failed.restarted(), "defensive failure was not reported to scheduler");
         expectFalse(failed.complete(), "defensive failure published an incomplete snapshot");
         expectTrue(failed.snapshots().isEmpty(), "defensive failure exposed partial data");
@@ -667,7 +671,7 @@ public final class DigitalItemStorageSelfTest {
                 boolean closed = false;
                 try {
                     StorageVolume volume = state.createVolume(java.util.UUID.randomUUID(), "Rollback", 1).orElseThrow();
-                    DigitalItemStorage storage = volume.record().storage();
+                    FabricDigitalItemStorage storage = FabricDigitalItemStorage.of(volume.record().storage());
                     seedSnapshotStorage(storage);
                     // Persist account metadata before the test-only drain discards its batch.
                     state.flushAndWaitForTest();
@@ -688,7 +692,7 @@ public final class DigitalItemStorageSelfTest {
                     closed = true;
                     DigitalStorageState restored = DigitalStorageState.openForTest(root);
                     try {
-                        expectStorageMatches(expected, restored.volume(volume.id()).orElseThrow().record().storage(),
+                        expectStorageMatches(expected, FabricDigitalItemStorage.of(restored.volume(volume.id()).orElseThrow().record().storage()),
                                 "final flush round-trip " + mutation + "/close=" + closeDirectly);
                     } finally {
                         restored.closeForTest();
@@ -720,14 +724,14 @@ public final class DigitalItemStorageSelfTest {
                     hotVariant = variant;
                 }
                 try (Transaction transaction = Transaction.openOuter()) {
-                    expectEquals(1, hot.record().storage().insert(variant, 1, transaction),
+                    expectEquals(1, FabricDigitalItemStorage.of(hot.record().storage()).insert(variant, 1, transaction),
                             "hot-volume liveness seed " + index);
                     transaction.commit();
                 }
             }
             try (Transaction transaction = Transaction.openOuter()) {
-                coldOne.record().storage().insert(ItemVariant.of(Items.DIRT), 1, transaction);
-                coldTwo.record().storage().insert(ItemVariant.of(Items.GRAVEL), 1, transaction);
+                FabricDigitalItemStorage.of(coldOne.record().storage()).insert(ItemVariant.of(Items.DIRT), 1, transaction);
+                FabricDigitalItemStorage.of(coldTwo.record().storage()).insert(ItemVariant.of(Items.GRAVEL), 1, transaction);
                 transaction.commit();
             }
 
@@ -742,7 +746,7 @@ public final class DigitalItemStorageSelfTest {
                 hotCompleted |= completed.contains(hot.id());
                 if (!hotCompleted) {
                     try (Transaction transaction = Transaction.openOuter()) {
-                        hot.record().storage().insert(hotVariant, 1, transaction);
+                        FabricDigitalItemStorage.of(hot.record().storage()).insert(hotVariant, 1, transaction);
                         transaction.commit();
                     }
                 }
@@ -769,7 +773,7 @@ public final class DigitalItemStorageSelfTest {
                 net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
                 nbt.putInt("SnapshotDirtyAge", index);
                 try (Transaction transaction = Transaction.openOuter()) {
-                    volume.record().storage().insert(ItemVariant.of(Items.PAPER, nbt), 1, transaction);
+                    FabricDigitalItemStorage.of(volume.record().storage()).insert(ItemVariant.of(Items.PAPER, nbt), 1, transaction);
                     transaction.commit();
                 }
             }
@@ -785,7 +789,7 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void stressVariantCapacityAtHardLimit() {
-        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, DigitalStorageRecord.ABSOLUTE_MAX_VARIANTS);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, DigitalStorageRecord.ABSOLUTE_MAX_VARIANTS);
         for (int index = 0; index < DigitalStorageRecord.ABSOLUTE_MAX_VARIANTS; index++) {
             net.minecraft.nbt.NbtCompound nbt = new net.minecraft.nbt.NbtCompound();
             nbt.putInt("StressVariant", index);
@@ -813,7 +817,7 @@ public final class DigitalItemStorageSelfTest {
                 ItemVariant.of(Items.COBBLESTONE),
                 ItemVariant.of(Items.DIAMOND)
         };
-        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, variants.length);
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, variants.length);
         Map<ItemVariant, Long> expected = new HashMap<>();
         Random random = new Random(0xD15EA5EL);
         for (int operation = 0; operation < 5_000; operation++) {
@@ -865,8 +869,8 @@ public final class DigitalItemStorageSelfTest {
                 expectFalse(state.ownsVolume(java.util.UUID.randomUUID(), volumeId),
                         "foreign volume ownership lookup");
 
-                DigitalItemStorage first = volume.record().storage();
-                DigitalItemStorage second = state.volume(volumeId).orElseThrow().record().storage();
+                FabricDigitalItemStorage first = FabricDigitalItemStorage.of(volume.record().storage());
+                FabricDigitalItemStorage second = FabricDigitalItemStorage.of(state.volume(volumeId).orElseThrow().record().storage());
                 expectTrue(first == second, "same volume UUID did not return the canonical Storage object");
                 try (Transaction transaction = Transaction.openOuter()) {
                     expectEquals(42, first.insert(ItemVariant.of(Items.STONE), 42, transaction),
@@ -933,11 +937,11 @@ public final class DigitalItemStorageSelfTest {
                         "lazy volume was not retained while referenced");
                 expectEquals(owner, reloadedVolume.ownerId(), "volume owner after file round trip");
                 expectEquals("Primary", reloadedVolume.name(), "volume name after file round trip");
-                expectEquals(42, onlyView(reloadedVolume.record().storage()).getAmount(),
+                expectEquals(42, onlyView(FabricDigitalItemStorage.of(reloadedVolume.record().storage())).getAmount(),
                         "volume items after file round trip");
                 expectEquals(1, reloaded.accountCount(), "account file round trip");
                 try (Transaction transaction = Transaction.openOuter()) {
-                    expectEquals(42, reloadedVolume.record().storage().extract(
+                    expectEquals(42, FabricDigitalItemStorage.of(reloadedVolume.record().storage()).extract(
                             ItemVariant.of(Items.STONE),
                             42,
                             transaction
@@ -1036,8 +1040,8 @@ public final class DigitalItemStorageSelfTest {
             );
 
             java.util.UUID volumeId = java.util.UUID.randomUUID();
-            DigitalItemStorage canonical = new DigitalItemStorage(volumeId, () -> { }, 64);
-            DigitalItemStorage alias = new DigitalItemStorage(volumeId, () -> { }, 64);
+            FabricDigitalItemStorage canonical = new FabricDigitalItemStorage(volumeId, () -> { }, 64);
+            FabricDigitalItemStorage alias = new FabricDigitalItemStorage(volumeId, () -> { }, 64);
             add.invoke(mergedStorage, canonical);
             add.invoke(mergedStorage, alias);
             java.util.Collection<?> parts = (java.util.Collection<?>) getStorages.invoke(mergedStorage);
@@ -1049,7 +1053,7 @@ public final class DigitalItemStorageSelfTest {
 
             Object fallbackMerged = mergedStorageClass.getConstructor().newInstance();
             RejectingStorage rejecting = new RejectingStorage();
-            DigitalItemStorage fallback = new DigitalItemStorage(() -> { }, 64);
+            FabricDigitalItemStorage fallback = new FabricDigitalItemStorage(() -> { }, 64);
             add.invoke(fallbackMerged, rejecting);
             add.invoke(fallbackMerged, fallback);
             try (Transaction transaction = Transaction.openOuter()) {
@@ -1062,9 +1066,9 @@ public final class DigitalItemStorageSelfTest {
 
             Object cursorMerged = mergedStorageClass.getConstructor().newInstance();
             java.lang.reflect.Method clear = mergedStorageClass.getMethod("clear");
-            DigitalItemStorage oldSource = storageWith(stone, 128);
-            DigitalItemStorage rebuiltSource = storageWith(stone, 64);
-            DigitalItemStorage cursorDestination = new DigitalItemStorage(() -> { }, 1);
+            FabricDigitalItemStorage oldSource = storageWith(stone, 128);
+            FabricDigitalItemStorage rebuiltSource = storageWith(stone, 64);
+            FabricDigitalItemStorage cursorDestination = new FabricDigitalItemStorage(() -> { }, 1);
             add.invoke(cursorMerged, oldSource);
             try (Transaction transaction = Transaction.openOuter()) {
                 expectEquals(64, HopperTransferOptimizer.moveFiltered(
@@ -1139,7 +1143,7 @@ public final class DigitalItemStorageSelfTest {
     private static void duplicateStoredVariantsAreMergedWithoutLoss(ItemVariant stone) {
         net.minecraft.nbt.NbtCompound recordNbt = recordWithItems(stone, 10, 20);
         DigitalStorageRecord record = DigitalStorageRecord.fromNbt(recordNbt, () -> { });
-        expectEquals(30, onlyView(record.storage()).getAmount(), "duplicate stored variant merge");
+        expectEquals(30, onlyView(FabricDigitalItemStorage.of(record.storage())).getAmount(), "duplicate stored variant merge");
     }
 
     private static void futureStorageSchemaIsRejected() {
@@ -1247,7 +1251,7 @@ public final class DigitalItemStorageSelfTest {
 
     private static void exactHopperTransferMovesOneBatchWithoutIteration(ItemVariant stone) {
         NoIterationStorage source = new NoIterationStorage(storageWith(stone, 128));
-        DigitalItemStorage destination = new DigitalItemStorage(() -> { }, 64);
+        FabricDigitalItemStorage destination = new FabricDigitalItemStorage(() -> { }, 64);
 
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(
@@ -1299,8 +1303,8 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void filteredHopperTransferMovesOneBatch(ItemVariant stone) {
-        DigitalItemStorage source = storageWith(stone, 128);
-        DigitalItemStorage destination = new DigitalItemStorage(() -> { }, 64);
+        FabricDigitalItemStorage source = storageWith(stone, 128);
+        FabricDigitalItemStorage destination = new FabricDigitalItemStorage(() -> { }, 64);
 
         try (Transaction transaction = Transaction.openOuter()) {
             expectEquals(
@@ -1315,13 +1319,13 @@ public final class DigitalItemStorageSelfTest {
         expectEquals(64, onlyView(destination).getAmount(), "filtered destination amount after hopper batch");
     }
 
-    private static DigitalItemStorage storageWith(ItemVariant variant, long amount) {
-        DigitalItemStorage storage = new DigitalItemStorage(() -> { }, 64);
+    private static FabricDigitalItemStorage storageWith(ItemVariant variant, long amount) {
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, 64);
         storage.load(variant, amount);
         return storage;
     }
 
-    private static StorageView<ItemVariant> onlyView(DigitalItemStorage storage) {
+    private static StorageView<ItemVariant> onlyView(FabricDigitalItemStorage storage) {
         var iterator = storage.iterator();
         expectTrue(iterator.hasNext(), "expected one storage view");
         StorageView<ItemVariant> view = iterator.next();
@@ -1352,10 +1356,10 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static final class NoIterationStorage implements Storage<ItemVariant> {
-        private final DigitalItemStorage delegate;
+        private final FabricDigitalItemStorage delegate;
         private int extractCalls;
 
-        private NoIterationStorage(DigitalItemStorage delegate) {
+        private NoIterationStorage(FabricDigitalItemStorage delegate) {
             this.delegate = delegate;
         }
 

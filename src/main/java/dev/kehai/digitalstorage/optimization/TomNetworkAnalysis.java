@@ -2,7 +2,7 @@ package dev.kehai.digitalstorage.optimization;
 
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import dev.kehai.digitalstorage.storage.DigitalItemStorage;
+import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -27,7 +27,7 @@ public final class TomNetworkAnalysis {
     }
 
     public static Report analyze(DigitalStorageAccessorBlockEntity accessor) {
-        DigitalItemStorage target = accessor.getCanonicalStorage();
+        FabricDigitalItemStorage target = accessor.getCanonicalStorage();
         TomNetworkIntrospection.Discovery discovery = TomNetworkIntrospection.discoverContext(accessor);
         if (target == null || discovery == null) {
             return Report.unavailable();
@@ -35,7 +35,7 @@ public final class TomNetworkAnalysis {
         Storage<ItemVariant> network = discovery.storage();
         TomNetworkCache.Topology topology = TomNetworkCache.topology(discovery.connector(), network);
         List<Storage<ItemVariant>> sources = topology.physical();
-        int digitalViews = topology.digital().stream().mapToInt(DigitalItemStorage::variantCount).sum();
+        int digitalViews = topology.digital().stream().mapToInt(FabricDigitalItemStorage::variantCount).sum();
         int duplicateDigitalEndpoints = topology.duplicateDigitalEndpointCount();
         int targetEndpointCount = topology.digitalEndpointCount(target);
         TomScannerTelemetry.associate(target, topology.identity());
@@ -64,7 +64,7 @@ public final class TomNetworkAnalysis {
             if (!accessor.getRecord().canInsert(dev.kehai.digitalstorage.platform.fabric.FabricItemKeys.fromVariant(candidate.variant))) {
                 continue;
             }
-            long available = DigitalItemStorage.MAX_AMOUNT_PER_VARIANT - target.amountOf(candidate.variant);
+            long available = FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT - target.amountOf(candidate.variant);
             if (candidate.amount > available) {
                 continue;
             }
@@ -206,8 +206,8 @@ public final class TomNetworkAnalysis {
             Class<?> mergedClass = Class.forName("com.tom.storagemod.util.MergedStorage");
             Object merged = mergedClass.getConstructor().newInstance();
             java.lang.reflect.Method add = mergedClass.getMethod("add", Storage.class);
-            DigitalItemStorage target = new DigitalItemStorage(() -> { }, 64);
-            DigitalItemStorage physicalDelegate = new DigitalItemStorage(() -> { }, 64);
+            FabricDigitalItemStorage target = new FabricDigitalItemStorage(() -> { }, 64);
+            FabricDigitalItemStorage physicalDelegate = new FabricDigitalItemStorage(() -> { }, 64);
             Storage<ItemVariant> physical = new Storage<>() {
                 @Override
                 public long insert(ItemVariant resource, long maxAmount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext transaction) {
@@ -370,7 +370,7 @@ public final class TomNetworkAnalysis {
         }
 
         private void add(long addedAmount) {
-            long rejectionThreshold = DigitalItemStorage.MAX_AMOUNT_PER_VARIANT + 1;
+            long rejectionThreshold = FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT + 1;
             amount = addedAmount >= rejectionThreshold - amount
                     ? rejectionThreshold
                     : amount + addedAmount;

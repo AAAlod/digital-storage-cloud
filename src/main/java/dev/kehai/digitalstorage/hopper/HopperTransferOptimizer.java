@@ -2,7 +2,7 @@ package dev.kehai.digitalstorage.hopper;
 
 import dev.kehai.digitalstorage.DigitalStorageMod;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import dev.kehai.digitalstorage.storage.DigitalItemStorage;
+import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import java.lang.ref.WeakReference;
 import java.util.Collections;
 import java.util.Iterator;
@@ -115,10 +115,10 @@ public final class HopperTransferOptimizer {
             return 0;
         }
 
-        if (destination instanceof DigitalItemStorage) {
+        if (destination instanceof FabricDigitalItemStorage) {
             return moveIntoDigital(source, destination, resource, maximum, transaction);
         }
-        if (source instanceof DigitalItemStorage) {
+        if (source instanceof FabricDigitalItemStorage) {
             return moveOutOfDigital(source, destination, resource, maximum, transaction);
         }
 

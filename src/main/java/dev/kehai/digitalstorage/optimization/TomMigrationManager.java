@@ -2,7 +2,7 @@ package dev.kehai.digitalstorage.optimization;
 
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import dev.kehai.digitalstorage.storage.DigitalItemStorage;
+import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 import dev.kehai.digitalstorage.storage.StorageVolume;
 import java.util.Collections;
 import java.util.HashMap;
@@ -134,8 +134,8 @@ public final class TomMigrationManager {
 
     public static void runSelfTest() {
         ItemVariant stone = ItemVariant.of(net.minecraft.item.Items.STONE);
-        DigitalItemStorage source = new DigitalItemStorage(() -> { }, 64);
-        DigitalItemStorage target = new DigitalItemStorage(() -> { }, 64);
+        FabricDigitalItemStorage source = new FabricDigitalItemStorage(() -> { }, 64);
+        FabricDigitalItemStorage target = new FabricDigitalItemStorage(() -> { }, 64);
         source.load(stone, 64);
         StorageView<ItemVariant> sourceView = source.iterator().next();
         MoveResult moved = Job.moveView(sourceView, target, stone, 64);
@@ -144,7 +144,7 @@ public final class TomMigrationManager {
             throw new IllegalStateException("Tom migration atomic move self-test failed");
         }
 
-        DigitalItemStorage rollbackSource = new DigitalItemStorage(() -> { }, 64);
+        FabricDigitalItemStorage rollbackSource = new FabricDigitalItemStorage(() -> { }, 64);
         rollbackSource.load(stone, 32);
         Storage<ItemVariant> rejectingTarget = new Storage<>() {
             @Override
@@ -167,11 +167,11 @@ public final class TomMigrationManager {
         if (rejected.moved != 0 || rejected.operations != 2 || rollbackSource.amountOf(stone) != 32) {
             throw new IllegalStateException("Tom migration rollback self-test failed");
         }
-        DigitalItemStorage partialTarget = new DigitalItemStorage(() -> { }, 64);
-        partialTarget.load(stone, DigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 10);
+        FabricDigitalItemStorage partialTarget = new FabricDigitalItemStorage(() -> { }, 64);
+        partialTarget.load(stone, FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 10);
         MoveResult partial = Job.moveView(rollbackView, partialTarget, stone, 32);
         if (partial.moved != 0 || rollbackSource.amountOf(stone) != 32
-                || partialTarget.amountOf(stone) != DigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 10) {
+                || partialTarget.amountOf(stone) != FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT - 10) {
             throw new IllegalStateException("Tom migration partial insertion did not roll back both sides");
         }
         TomNetworkCache.runSelfTest();
@@ -216,7 +216,7 @@ public final class TomMigrationManager {
             }
             if (result != State.COMPLETE || ticks <= 20 || job.scannedViews != slots
                     || job.movedItems != 96 || !inventory.isEmpty()
-                    || record.storage().amountOf(ItemVariant.of(net.minecraft.item.Items.STONE)) != 96) {
+                    || record.storage().amountOf(dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.item.Items.STONE)) != 96) {
                 throw new IllegalStateException("Bulk migration rebuild regression failed: " + slots + "/" + result);
             }
             dev.kehai.digitalstorage.DigitalStorage.LOGGER.info(
@@ -270,7 +270,7 @@ public final class TomMigrationManager {
             Storage<ItemVariant> target,
             ItemVariant variant
     ) {
-        return Job.moveView(view, target, variant, DigitalItemStorage.MAX_AMOUNT_PER_VARIANT).moved;
+        return Job.moveView(view, target, variant, FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT).moved;
     }
 
     public enum StartResult {
@@ -360,7 +360,7 @@ public final class TomMigrationManager {
         }
 
         private State tick(dev.kehai.digitalstorage.storage.DigitalStorageRecord record, int viewBudget) {
-            DigitalItemStorage target = record == null ? null : record.storage();
+            FabricDigitalItemStorage target = record == null ? null : FabricDigitalItemStorage.of(record.storage());
             if (target == null) {
                 stopDetail = "target unavailable";
                 return State.STOPPED;
@@ -402,7 +402,7 @@ public final class TomMigrationManager {
                     blocked = true;
                     continue;
                 }
-                long available = DigitalItemStorage.MAX_AMOUNT_PER_VARIANT - target.amountOf(variant);
+                long available = FabricDigitalItemStorage.MAX_AMOUNT_PER_VARIANT - target.amountOf(variant);
                 if (available <= 0) {
                     blocked = true;
                     continue;
