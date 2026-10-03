@@ -6,3 +6,4 @@ pluginManagement {
 }
 
 rootProject.name = 'digital-storage-cloud'
+include 'common'

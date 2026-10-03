@@ -118,6 +118,11 @@ Development sources use official Mojang mappings for Minecraft 1.20.1. Loom
 remaps the Fabric release JAR to intermediary; keep platform inventory and Tom
 integration inside `platform/fabric` when changing shared code.
 
+The `common` subproject compiles the shared source subset independently. The
+root project builds the Fabric distribution and includes shared classes and
+sources in its JARs. `build` checks the complete common dependency boundary and
+ensures each Java source belongs to exactly one module.
+
 From the repository root on Windows PowerShell:
 
 ```powershell

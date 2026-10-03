@@ -2,6 +2,8 @@
 
 ## 1.2.0 - Unreleased
 
+- 共享业务独立为 common 构建子项目，Fabric 发行合入共享产物；构建检查共享源码/字节码的平台依赖及源码归属。
+
 - 开发源码统一使用 Minecraft 1.20.1 官方 Mojang 映射，为共用 Fabric/Forge 源码建立映射基线；Fabric 发行 JAR 继续 remap 为 intermediary。
 
 - 接入器绑定和菜单业务改用平台注入的内容句柄/创建工厂，Fabric 库存接口与扩展开屏数据由独立适配实体提供。

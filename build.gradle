@@ -84,6 +84,7 @@ configurations {
 }
 
 dependencies {
+    implementation project(path: ':common', configuration: 'namedElements')
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
@@ -121,13 +122,45 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+// The root project is the Fabric distribution; shared code is compiled by common.
+sourceSets.main.java {
+    include 'dev/kehai/digitalstorage/platform/fabric/**/*.java'
+    include 'dev/kehai/digitalstorage/DigitalStorageMod.java'
+    include 'dev/kehai/digitalstorage/DigitalStorageClient.java'
+    include 'dev/kehai/digitalstorage/command/**/*.java'
+    include 'dev/kehai/digitalstorage/block/AdvancedInventoryHopperBlock.java'
+    include 'dev/kehai/digitalstorage/integration/TomIntegrationStatus.java'
+    include 'dev/kehai/digitalstorage/storage/DigitalItemStorageSelfTest.java'
+}
+evaluationDependsOn(':common')
+def commonOutput = project(':common').sourceSets.main.output
+
+tasks.named('check') { dependsOn ':common:check' }
+tasks.named('sourcesJar') { from project(':common').sourceSets.main.allSource }
+
+tasks.register('verifySourcePartition') {
+    inputs.files(sourceSets.main.java, project(':common').sourceSets.main.java)
+    doLast {
+        def all = fileTree('src/main/java') { include '**/*.java' }.files
+        def fabric = sourceSets.main.java.files
+        def shared = project(':common').sourceSets.main.java.files
+        if (!(fabric.intersect(shared)).isEmpty() || fabric + shared != all) {
+            throw new GradleException('Every Java source must belong to exactly one of common and Fabric')
+        }
+        logger.lifecycle("Source partition passed: ${shared.size()} common, ${fabric.size()} Fabric")
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifySourcePartition') }
+
 jar {
+    from commonOutput
     from('LICENSE') {
         rename { "${it}_${project.base.archivesName.get()}" }
     }
 }
 
 shadowJar {
+    from commonOutput
     configurations = [project.configurations.nightConfig]
     archiveClassifier = 'dev-shadow'
     relocate 'com.electronwill.nightconfig', 'dev.kehai.digitalstorage.internal.nightconfig'

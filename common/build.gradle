@@ -1,0 +1,63 @@
+plugins {
+    id 'fabric-loom'
+}
+
+version = rootProject.mod_version
+group = rootProject.maven_group
+base { archivesName = 'digital-storage-cloud-common' }
+
+repositories { mavenCentral() }
+
+// Common has no mixin targets or loader classes; do not attach Fabric's Mixin AP.
+loom { mixin { useLegacyMixinAp = false } }
+
+dependencies {
+    minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+    mappings loom.officialMojangMappings()
+    compileOnly "com.electronwill.night-config:core:${rootProject.night_config_version}"
+    compileOnly "com.electronwill.night-config:toml:${rootProject.night_config_version}"
+    compileOnly 'org.jetbrains:annotations:23.0.0'
+}
+
+// Keep one authoritative source tree while compiling the shared subset independently.
+sourceSets.main.java {
+    setSrcDirs(['../src/main/java'])
+    exclude 'dev/kehai/digitalstorage/platform/**'
+    exclude 'dev/kehai/digitalstorage/DigitalStorageMod.java'
+    exclude 'dev/kehai/digitalstorage/DigitalStorageClient.java'
+    exclude 'dev/kehai/digitalstorage/command/**'
+    exclude 'dev/kehai/digitalstorage/block/AdvancedInventoryHopperBlock.java'
+    exclude 'dev/kehai/digitalstorage/integration/TomIntegrationStatus.java'
+    exclude 'dev/kehai/digitalstorage/storage/DigitalItemStorageSelfTest.java'
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+tasks.withType(JavaCompile).configureEach { options.release = 17 }
+
+tasks.register('verifySharedBoundary') {
+    dependsOn tasks.named('compileJava')
+    inputs.files(sourceSets.main.java)
+    inputs.files(sourceSets.main.output.classesDirs)
+    doLast {
+        def forbidden = ~/net[.\/]fabricmc|net[.\/]minecraftforge|com[.\/]tom|dev[.\/]kehai[.\/]digitalstorage[.\/]platform|DigitalStorageMod|DigitalStorageClient|DigitalItemStorageSelfTest|TomIntegrationStatus/
+        sourceSets.main.java.files.each { source ->
+            if (source.getText('UTF-8') =~ forbidden) {
+                throw new GradleException("Platform reference in common source: ${source.name}")
+            }
+        }
+        def classes = sourceSets.main.output.classesDirs.asFileTree.matching { include '**/*.class' }
+        classes.each { compiled ->
+            // Class names and reflection strings are ASCII constant-pool entries.
+            if (new String(compiled.bytes, java.nio.charset.StandardCharsets.ISO_8859_1) =~ forbidden) {
+                throw new GradleException("Platform reference in common bytecode: ${compiled.name}")
+            }
+        }
+        if (classes.isEmpty()) throw new GradleException('No common classes inspected')
+        logger.lifecycle("Common boundary passed: ${sourceSets.main.java.files.size()} sources, ${classes.files.size()} classes")
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifySharedBoundary') }
