@@ -185,6 +185,86 @@ public final class ForgeHopperHandoffSelfTest {
                     && ForgeHopperCommands.observed(retiredDisk.entries().stream()
                             .filter(entry -> entry.id().equals(opaqueRetired)).findFirst().orElseThrow()).equals("未知"),
                     "Unknown retirement does not invent zero observation or alter opaque evidence");
+            var partialRoot = root.resolve("partial-reconciliation");
+            var partial = new ForgeHopperCustody(partialRoot.resolve("custody"));
+            var partialRecovery = new ForgeTransferRecovery(partialRoot.resolve("recovery"));
+            UUID partialId = UUID.randomUUID();
+            var partialSource = new ItemStackHandler(1);
+            partialSource.setStackInSlot(0, new ItemStack(Items.STONE, 10));
+            var partialReceiver = new ItemStackHandler(1) {
+                @Override public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
+                    if (simulate) return ItemStack.EMPTY;
+                    var accepted = stack.copy(); accepted.setCount(5);
+                    super.insertItem(slot, accepted, false);
+                    throw new IllegalStateException("Accepted five before callback failure");
+                }
+            };
+            var partialEngine = new ForgeHopperTransfer(); partialEngine.move(partialSource, 0, partialReceiver, 8);
+            expect(partialEngine.uncertain() && partialEngine.heldCount() == 8
+                    && partialSource.getStackInSlot(0).getCount() == 2 && partialReceiver.getStackInSlot(0).getCount() == 5,
+                    "Actual partial acceptance leaves uncertain candidate eight and real destination five");
+            partial.retain(partialId, "minecraft:overworld", BlockPos.ZERO, partialEngine, partialEngine::saveState);
+            var partialStale = new ForgeHopperCustody(partialRoot.resolve("custody"));
+            boolean badTotal = false;
+            try { partial.reconcileHandoff(partialId, owner, volume, admin, 3, 4, "incomplete accounting", partialRecovery); }
+            catch (IllegalArgumentException expected) { badTotal = true; }
+            expect(badTotal && partialEngine.heldCount() == 8 && partialRecovery.entry(partialId) == null,
+                    "Partial reconciliation must account for every observed candidate item");
+            Path partialTemp = partialRoot.resolve("recovery").resolve(partialId + ".tmp");
+            Files.createDirectory(partialTemp);
+            boolean partialWriteFailed = false;
+            try { partial.reconcileHandoff(partialId, owner, volume, admin, 3, 5, "External destination contains five; three remain owned", partialRecovery); }
+            catch (IllegalStateException expected) { partialWriteFailed = true; }
+            expect(partialWriteFailed && partialEngine.heldCount() == 8 && partialRecovery.unsavedCount() == 1,
+                    "Reconciled recovery write failure retains original candidate source");
+            var partialDisk = new ForgeHopperCustody(partialRoot.resolve("custody"));
+            var partialSummary = partialDisk.entries().get(0);
+            expect(partialSummary.reconciled() && partialSummary.observedAmount() == 8
+                    && partialSummary.confirmedAmount() == 3 && partialSummary.externalAmount() == 5
+                    && ((net.minecraft.nbt.CompoundTag) partialDisk.state(partialId)).getInt("Amount") == 8,
+                    "Durable reconciliation separates original observation, confirmed ownership and external settlement");
+            boolean changedSplitRejected = false;
+            try { partial.reconcileHandoff(partialId, owner, volume, admin, 4, 4, "changed split", partialRecovery); }
+            catch (IllegalArgumentException expected) { changedSplitRejected = true; }
+            expect(changedSplitRejected, "Reconciliation split cannot change on retry");
+            Files.delete(partialTemp); partialRecovery.flushUnsaved();
+            partial.reconcileHandoff(partialId, owner, volume, admin, 3, 5, "retry unchanged split", partialRecovery);
+            expect(partialEngine.heldCount() == 0 && partialRecovery.ownedEntry(partialId, owner).amount() == 3,
+                    "Only reconciled positive remainder enters recovery");
+            var partialLedger = new VolumeLedger(volume, () -> { }, 32);
+            ForgeRecoveryDelivery.deliver(partialRecovery, partialRecovery.ownedEntry(partialId, owner), owner,
+                    Long.MAX_VALUE, partialLedger, () -> { });
+            new ForgeHopperCustody(partialRoot.resolve("custody")).reconcileHandoff(partialId, owner, volume, admin,
+                    3, 5, "after owner delivery", partialRecovery);
+            expect(partialLedger.amountOf(ItemKey.of(Items.STONE)) == 3 && partialRecovery.pendingCount() == 0,
+                    "Reconciled remainder delivers exactly three without replaying externally settled five");
+            expect(partialSource.getStackInSlot(0).getCount() + partialReceiver.getStackInSlot(0).getCount()
+                    + partialLedger.amountOf(ItemKey.of(Items.STONE)) == 10,
+                    "Actual source, destination and reconciled ledger conserve original total");
+            var validReceipt = net.minecraft.nbt.NbtIo.readCompressed(partialRoot.resolve("custody").resolve(partialId + ".dat").toFile());
+            for (int fault = 0; fault < 4; fault++) {
+                var invalid = validReceipt.copy();
+                if (fault == 0) invalid.remove("Reconciliation");
+                else if (fault == 1) invalid.getCompound("Reconciliation").remove("External");
+                else if (fault == 2) invalid.getCompound("Reconciliation").putLong("External", 4);
+                else invalid.getCompound("Reconciliation").putLong("Observed", 9);
+                Path invalidRoot = partialRoot.resolve("invalid-" + fault); Files.createDirectories(invalidRoot);
+                Path invalidFile = invalidRoot.resolve(partialId + ".dat");
+                net.minecraft.nbt.NbtIo.writeCompressed(invalid, invalidFile.toFile());
+                byte[] evidenceBytes = Files.readAllBytes(invalidFile);
+                var invalidStore = new ForgeHopperCustody(invalidRoot);
+                expect(invalidStore.unreadableFiles() == 1 && !invalidStore.available()
+                        && invalidStore.flush() && java.util.Arrays.equals(evidenceBytes, Files.readAllBytes(invalidFile)),
+                        "Malformed reconciliation remains untouched and blocks new transfers");
+            }
+            boolean staleSplitRejected = false;
+            try { partialStale.reconcileHandoff(partialId, owner, volume, admin, 3, 5, "stale writer", partialRecovery); }
+            catch (IllegalStateException expected) { staleSplitRejected = true; }
+            expect(staleSplitRejected, "Stale reconciliation cannot overwrite completion receipt");
+            boolean phantomRejected = false;
+            try { rejected.reconcileHandoff(unknownId, owner, volume, admin, 1, 0, "cannot infer a returned stack", partialRecovery); }
+            catch (IllegalStateException expected) { phantomRejected = true; }
+            expect(phantomRejected && partialRecovery.pendingCount() == 0, "Unknown observation cannot manufacture a positive remainder");
             DigitalStorage.LOGGER.info("Forge hopper handoff self-test passed: stable recovery identity, target guard, permanent receipt, stale writer rejection, old mirror retirement, exact ledger delivery, recovery/receipt failures, explicit restart retry and administrator zero-remainder retirement; administrator commands covered separately");
         } catch (IOException failure) { throw new IllegalStateException("Hopper handoff fixture failed", failure); }
         finally {
@@ -226,7 +306,8 @@ public final class ForgeHopperHandoffSelfTest {
             var custody = new ForgeHopperCustody(root.resolve("custody"));
             var recovery = new ForgeTransferRecovery(root.resolve("recovery"));
             custody.retain(id, "minecraft:overworld", BlockPos.ZERO, engine, engine::saveState);
-            custody.export(id, owner, volume, UUID.randomUUID(), "Inspected energy capability", recovery);
+            engine.markUncertain("External capability outcome inspected");
+            custody.reconcileHandoff(id, owner, volume, UUID.randomUUID(), 1, 0, "Inspected energy capability and full ownership", recovery);
             var diskRecovery = new ForgeTransferRecovery(root.resolve("recovery"));
             var entry = diskRecovery.ownedEntry(id, owner);
             expect(entry.key().hasAttachments() && entry.key().toStack(1)

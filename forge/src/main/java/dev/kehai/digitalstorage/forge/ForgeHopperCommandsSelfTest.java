@@ -77,6 +77,26 @@ public final class ForgeHopperCommandsSelfTest {
             expect(dispatcher.execute(retire, adminSource) == 1 && dispatcher.execute(retire, adminSource) == 1
                     && session.hoppers().state(unknownId).equals(opaque) && session.recovery().entry(unknownId) == null,
                     "Administrator retirement is durable, repeatable and creates no items");
+            UUID partialId = UUID.randomUUID();
+            source.setStackInSlot(0, new ItemStack(Items.STONE, 10));
+            var partialEngine = new ForgeHopperTransfer(); partialEngine.move(source, 0, target, 8);
+            partialEngine.markUncertain("External destination outcome requires accounting");
+            session.hoppers().retain(partialId, "minecraft:overworld", net.minecraft.core.BlockPos.ZERO, partialEngine, partialEngine::saveState);
+            String reconcile = "dsc hopperrecovery reconcile-handoff " + partialId + " " + volume.id() + " 3 5 Confirmed three owned and five externally settled";
+            forbidden = false;
+            try { dispatcher.execute(reconcile, ownerSource); }
+            catch (com.mojang.brigadier.exceptions.CommandSyntaxException expected) { forbidden = true; }
+            expect(forbidden && partialEngine.heldCount() == 8, "Player cannot assert positive reconciliation");
+            expect(dispatcher.execute("dsc hopperrecovery reconcile-handoff " + partialId + " " + volume.id() + " 3 4 Incomplete accounting", adminSource) == 0
+                    && session.recovery().entry(partialId) == null, "Command rejects incomplete quantity accounting");
+            expect(dispatcher.execute(reconcile, adminSource) == 1 && partialEngine.heldCount() == 0
+                    && session.recovery().ownedEntry(partialId, owner).amount() == 3, "Administrator split adopts only three");
+            expect(dispatcher.execute("dsc recovery deliver " + partialId, foreignSource) == 0
+                    && dispatcher.execute("dsc recovery deliver " + partialId, ownerSource) == 1
+                    && ledger.amountOf(ItemKey.of(Items.STONE)) == 11,
+                    "Only owner receives exactly reconciled remainder");
+            expect(dispatcher.execute(reconcile, adminSource) == 1 && ledger.amountOf(ItemKey.of(Items.STONE)) == 11,
+                    "Repeated quantity reconciliation cannot replay external or delivered items");
             expect(session.hoppers().pendingCount() == pending && session.recovery().pendingCount() == recoveryPending,
                     "Only settled audit receipts remain");
         } catch (com.mojang.brigadier.exceptions.CommandSyntaxException failure) {
