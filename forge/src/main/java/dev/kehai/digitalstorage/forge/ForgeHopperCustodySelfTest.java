@@ -49,6 +49,26 @@ public final class ForgeHopperCustodySelfTest {
             expect(reopened.pendingCount() == 2 && ((CompoundTag) reopened.state(id)).getInt("Amount") == 8,
                     "Repeated conflict retains one distinct record");
             expect(new ForgeHopperCustody(root).pendingCount() == 2, "Conflict survives restart");
+            expect(reopened.entries().stream().noneMatch(ForgeHopperCustody.Summary::confirmed),
+                    "Both sides of a conflict remain unconfirmed");
+
+            var identityRoot = directory.resolve("identity-retry");
+            var identityStore = new ForgeHopperCustody(identityRoot);
+            UUID identityId = UUID.randomUUID();
+            boolean[] evidenceFails = {true};
+            var rawIdentity = StringTag.valueOf("original invalid identity");
+            expect(!identityStore.retain(identityId, "minecraft:overworld", pos, engine, engine::saveState, () -> {
+                if (evidenceFails[0]) throw new IllegalStateException("injected identity encoding failure");
+                return rawIdentity;
+            }) && identityStore.unsavedCount() == 1 && identityStore.retainsIdentity(identityId, engine),
+                    "Identity encoder failure retains original ownership and retry supplier");
+            evidenceFails[0] = false;
+            expect(identityStore.flush() && new ForgeHopperCustody(identityRoot).identityEvidence(identityId).equals(rawIdentity),
+                    "Identity encoding retry persists original evidence");
+            expect(identityStore.retain(identityId, "minecraft:overworld", pos, engine, engine::saveState,
+                    () -> StringTag.valueOf("later guessed identity"))
+                    && new ForgeHopperCustody(identityRoot).identityEvidence(identityId).equals(rawIdentity),
+                    "Later retain cannot replace original identity evidence");
 
             UUID raw = UUID.randomUUID();
             var original = engine.heldStack();

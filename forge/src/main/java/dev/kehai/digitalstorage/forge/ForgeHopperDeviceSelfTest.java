@@ -49,10 +49,12 @@ public final class ForgeHopperDeviceSelfTest {
             expect(unidentified != null && transfer(unidentified).uncertain() && transfer(unidentified).heldCount() == 8
                     && unidentified.saveWithFullMetadata().get(ForgeHopperState.ID_KEY).equals(invalidIdentity.get(ForgeHopperState.ID_KEY)),
                     "Invalid identity preserves items and evidence but cannot authorize handoff");
+            evidence(unidentified, true, StringTag.valueOf("future identity"), false);
             var missingIdentity = saved.copy(); missingIdentity.remove(ForgeHopperState.ID_KEY);
             unidentified = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, missingIdentity);
             expect(unidentified != null && transfer(unidentified).uncertain() && transfer(unidentified).heldCount() == 8,
                     "Stopped legacy mirror without identity requires reconciliation");
+            evidence(unidentified, false, null, false);
             var original = transfer(restored);
             restored.load(legacy);
             expect(transfer(restored) == original && transfer(restored).heldCount() == 8,
@@ -71,6 +73,9 @@ public final class ForgeHopperDeviceSelfTest {
             expect(restored != null && transfer(restored).blocked() && restored.saveWithFullMetadata()
                     .get(ForgeHopperState.NBT_KEY).equals(malformed.get(ForgeHopperState.NBT_KEY)),
                     "Wrong typed device tag is preserved, not coerced to empty compound");
+            malformed.put(ForgeHopperState.ID_KEY, StringTag.valueOf("opaque identity"));
+            restored = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, malformed);
+            evidence(restored, true, StringTag.valueOf("opaque identity"), true);
         }
 
         var source = new ItemStackHandler(1); source.setStackInSlot(0, new ItemStack(Items.STONE, 10));
@@ -89,6 +94,35 @@ public final class ForgeHopperDeviceSelfTest {
 
     private static ForgeHopperTransfer transfer(BasicInventoryHopperBlockEntity entity) {
         return ((ForgeHopperState) entity).digitalstorage$transferState();
+    }
+    private static void evidence(BasicInventoryHopperBlockEntity entity, boolean present,
+                                 net.minecraft.nbt.Tag raw, boolean unknown) {
+        java.nio.file.Path directory = null;
+        try {
+            directory = java.nio.file.Files.createTempDirectory("digitalstorage-hopper-identity-");
+            var custody = new ForgeHopperCustody(directory);
+            ((ForgeHopperState) entity).digitalstorage$retain(custody, "minecraft:overworld", BlockPos.ZERO);
+            expect(custody.unsavedCount() == 0 && custody.pendingCount() == 1, "Identity evidence saved independently");
+            var reopened = new ForgeHopperCustody(directory);
+            var entry = reopened.entries().get(0);
+            var identity = (CompoundTag) reopened.identityEvidence(entry.id());
+            expect(identity != null && identity.getBoolean("PresentAtLoad") == present
+                    && (raw == null ? !identity.contains("RawIdentity") : raw.equals(identity.get("RawIdentity"))),
+                    "Original missing or wrong typed identity survives external reopen");
+            identity.putString("RawIdentity", "mutated");
+            expect(!identity.equals(reopened.identityEvidence(entry.id())), "Identity evidence is a defensive copy");
+            expect(!entry.confirmed() && entry.observedKnown() != unknown
+                    && ForgeHopperCommands.observed(entry).equals(unknown ? "未知" : "8"),
+                    "Uncertain observed quantity is distinct from unknown quantity");
+            if (unknown) expect(reopened.state(entry.id()).equals(StringTag.valueOf("unknown typed data")),
+                    "Opaque transfer state is not wrapped or replaced by identity evidence");
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("Hopper identity evidence fixture failed", failure);
+        } finally {
+            if (directory != null) try (var files = java.nio.file.Files.walk(directory)) {
+                for (var path : files.sorted(java.util.Comparator.reverseOrder()).toList()) java.nio.file.Files.delete(path);
+            } catch (java.io.IOException failure) { throw new IllegalStateException("Identity fixture cleanup failed", failure); }
+        }
     }
     private static void expect(boolean value, String detail) {
         if (!value) throw new IllegalStateException("Forge hopper device: " + detail);

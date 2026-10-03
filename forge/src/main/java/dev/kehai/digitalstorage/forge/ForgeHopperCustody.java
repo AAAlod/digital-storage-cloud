@@ -45,6 +45,7 @@ public final class ForgeHopperCustody {
                         var record = new Record(id, saved.getString("Dimension"),
                                 BlockPos.of(saved.getLong("Position")), null, saved.get("State").copy(), true);
                         record.diskEvidence = saved.copy();
+                        if (saved.contains("IdentityEvidence")) record.identityEvidence = saved.get("IdentityEvidence").copy();
                         if (saved.getInt("Version") == 2) {
                             if (!saved.contains("Phase", Tag.TAG_STRING)) throw new IllegalArgumentException("Missing custody phase");
                             record.phase = Phase.valueOf(saved.getString("Phase"));
@@ -75,6 +76,9 @@ public final class ForgeHopperCustody {
 
     /** The identity token must be the actual retained device/engine, not a transient snapshot. */
     public boolean retain(UUID id, String dimension, BlockPos position, Object identity, Supplier<Tag> snapshot) {
+        return retain(id, dimension, position, identity, snapshot, null);
+    }
+    public boolean retain(UUID id, String dimension, BlockPos position, Object identity, Supplier<Tag> snapshot, Supplier<Tag> evidence) {
         java.util.Objects.requireNonNull(id);
         java.util.Objects.requireNonNull(identity);
         java.util.Objects.requireNonNull(snapshot);
@@ -94,6 +98,7 @@ public final class ForgeHopperCustody {
                 if (id.equals(record.conflictsWith) && record.identity == identity
                         && record.dimension.equals(dimension) && record.position.equals(position)) {
                     record.snapshot = snapshot;
+                    if (record.identityEvidence == null && record.evidenceSnapshot == null) record.evidenceSnapshot = evidence;
                     record.durable = false;
                     persist(record);
                     return false;
@@ -102,6 +107,7 @@ public final class ForgeHopperCustody {
             UUID conflict = UUID.randomUUID();
             Record record = new Record(conflict, dimension, position.immutable(), identity, null, false);
             record.snapshot = snapshot;
+            record.evidenceSnapshot = evidence;
             record.conflictsWith = id;
             records.put(conflict, record);
             persist(record);
@@ -113,6 +119,7 @@ public final class ForgeHopperCustody {
             records.put(id, record);
         }
         record.snapshot = snapshot;
+        if (record.identityEvidence == null && record.evidenceSnapshot == null) record.evidenceSnapshot = evidence;
         record.durable = false;
         return persist(record);
     }
@@ -124,9 +131,13 @@ public final class ForgeHopperCustody {
     }
     /** A matching chunk snapshot is a mirror of the record, not another item source. */
     public Binding bind(UUID id, String dimension, BlockPos position, ForgeHopperTransfer incoming, Supplier<Tag> snapshot) {
+        return bind(id, dimension, position, incoming, snapshot, null);
+    }
+    public Binding bind(UUID id, String dimension, BlockPos position, ForgeHopperTransfer incoming,
+                        Supplier<Tag> snapshot, Supplier<Tag> evidence) {
         Record record = records.get(id);
         if (record == null) {
-            if (incoming.blocked()) retain(id, dimension, position, incoming, snapshot);
+            if (incoming.blocked()) retain(id, dimension, position, incoming, snapshot, evidence);
             return new Binding(id, incoming, null);
         }
         if (record.phase == Phase.EXPORTED && record.durable) {
@@ -169,7 +180,7 @@ public final class ForgeHopperCustody {
             return new Binding(id, engine, canonical.copy());
         }
         incoming.halt("hopper chunk mirror conflicts with custody record");
-        retain(id, dimension, position, incoming, snapshot);
+        retain(id, dimension, position, incoming, snapshot, evidence);
         for (var conflict : records.values()) {
             if (id.equals(conflict.conflictsWith) && conflict.identity == incoming
                     && conflict.dimension.equals(dimension) && conflict.position.equals(position)) {
@@ -184,22 +195,30 @@ public final class ForgeHopperCustody {
     public int unreadableFiles() { return unreadable; }
     public boolean available() { return pendingCount() == 0 && unreadable == 0; }
     public java.util.List<Summary> entries() {
+        var conflicts = new java.util.HashSet<UUID>();
+        for (var record : records.values()) if (record.conflictsWith != null) conflicts.add(record.conflictsWith);
         return records.values().stream().map(record -> {
             var engine = record.identity instanceof ForgeHopperTransfer live ? live
                     : record.encoded instanceof CompoundTag compound ? ForgeHopperTransfer.restore(compound) : null;
-            boolean confirmed = record.phase != Phase.PENDING || (engine != null && !engine.uncertain() && engine.heldCount() > 0);
+            boolean observedKnown = record.phase != Phase.PENDING || (engine != null && engine.heldCount() > 0);
+            boolean confirmed = record.phase != Phase.PENDING || (observedKnown && !engine.uncertain()
+                    && record.conflictsWith == null && !conflicts.contains(record.id));
             long amount = record.phase != Phase.PENDING ? record.exportAmount : engine == null ? 0 : engine.heldCount();
             String item = record.exportKey != null ? net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(record.exportKey.item()).toString()
                     : engine == null || engine.heldStack().isEmpty() ? "unknown"
                     : net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(engine.heldStack().getItem()).toString();
             return new Summary(record.id, record.dimension, record.position, record.phase.name(), record.conflictsWith,
-                    record.owner, record.volume, record.administrator, item, amount, confirmed, record.durable,
+                    record.owner, record.volume, record.administrator, item, amount, observedKnown, confirmed, record.durable,
                     record.explanation == null ? "" : record.explanation, record.failure);
         }).toList();
     }
     public record Summary(UUID id, String dimension, BlockPos position, String phase, UUID conflictsWith,
                           UUID owner, UUID volume, UUID administrator, String item, long observedAmount,
-                          boolean confirmed, boolean durable, String explanation, String failure) { }
+                          boolean observedKnown, boolean confirmed, boolean durable, String explanation, String failure) { }
+    public Tag identityEvidence(UUID id) {
+        var record = records.get(id);
+        return record == null || record.identityEvidence == null ? null : record.identityEvidence.copy();
+    }
 
     /** Administrator-directed custody handoff; delivery still uses the owner's existing recovery flow. */
     public UUID export(UUID id, UUID owner, UUID volume, UUID administrator, String explanation, ForgeTransferRecovery recovery) {
@@ -266,6 +285,10 @@ public final class ForgeHopperCustody {
             requireFresh(record);
             Tag encoded = (record.phase == Phase.PENDING
                     ? java.util.Objects.requireNonNull(record.snapshot.get(), "Missing hopper state") : record.encoded).copy();
+            Tag evidence = record.identityEvidence;
+            if (evidence == null && record.evidenceSnapshot != null) {
+                evidence = java.util.Objects.requireNonNull(record.evidenceSnapshot.get(), "Missing identity evidence").copy();
+            }
             var saved = new CompoundTag();
             saved.putInt("Version", 2);
             saved.putString("Phase", record.phase.name());
@@ -273,6 +296,7 @@ public final class ForgeHopperCustody {
             saved.putString("Dimension", record.dimension);
             saved.putLong("Position", record.position.asLong());
             saved.put("State", encoded);
+            if (evidence != null) saved.put("IdentityEvidence", evidence.copy());
             if (record.conflictsWith != null) saved.putUUID("ConflictsWith", record.conflictsWith);
             if (record.phase != Phase.PENDING) {
                 saved.putUUID("Owner", record.owner); saved.putUUID("Volume", record.volume);
@@ -282,12 +306,13 @@ public final class ForgeHopperCustody {
             }
             ForgeTransferFiles.write(root.resolve(record.id + ".dat"), saved);
             record.encoded = encoded;
+            record.identityEvidence = evidence;
             record.durable = true;
             record.failure = "";
             record.diskEvidence = saved.copy();
             if (record.phase == Phase.EXPORTED) {
                 if (record.identity instanceof ForgeHopperTransfer live) live.releaseExported();
-                record.identity = null; record.snapshot = null;
+                record.identity = null; record.snapshot = null; record.evidenceSnapshot = null;
             }
             return true;
         } catch (RuntimeException failure) {
@@ -306,6 +331,8 @@ public final class ForgeHopperCustody {
         private Object identity;
         private Supplier<Tag> snapshot;
         private Tag encoded;
+        private Tag identityEvidence;
+        private Supplier<Tag> evidenceSnapshot;
         private boolean durable;
         private UUID conflictsWith;
         private String failure = "";

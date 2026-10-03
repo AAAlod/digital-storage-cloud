@@ -20,6 +20,7 @@ public abstract class BasicInventoryHopperStateMixin implements ForgeHopperState
     @Unique private Tag digitalstorage$unreadableTag;
     @Unique private java.util.UUID digitalstorage$id = java.util.UUID.randomUUID();
     @Unique private Tag digitalstorage$unreadableIdentity;
+    @Unique private boolean digitalstorage$missingIdentity;
     @Unique private boolean digitalstorage$resolved;
     @Unique private boolean digitalstorage$journaled;
 
@@ -27,8 +28,17 @@ public abstract class BasicInventoryHopperStateMixin implements ForgeHopperState
     @Unique private Tag digitalstorage$snapshot() {
         return digitalstorage$unreadableTag == null ? digitalstorage$transfer.saveState() : digitalstorage$unreadableTag.copy();
     }
+    @Unique private Tag digitalstorage$identityEvidence() {
+        var evidence = new CompoundTag();
+        evidence.putBoolean("PresentAtLoad", !digitalstorage$missingIdentity);
+        if (digitalstorage$unreadableIdentity != null) evidence.put("RawIdentity", digitalstorage$unreadableIdentity.copy());
+        else if (!digitalstorage$missingIdentity) evidence.putUUID("RawIdentity", digitalstorage$id);
+        return evidence;
+    }
     @Override public void digitalstorage$reconcile(ForgeHopperCustody custody, String dimension, net.minecraft.core.BlockPos position) {
-        var binding = custody.bind(digitalstorage$id, dimension, position, digitalstorage$transfer, this::digitalstorage$snapshot);
+        var evidence = digitalstorage$identityEvidence();
+        var binding = custody.bind(digitalstorage$id, dimension, position, digitalstorage$transfer,
+                this::digitalstorage$snapshot, evidence::copy);
         digitalstorage$id = binding.id();
         digitalstorage$transfer = binding.engine();
         if (binding.state() != null) digitalstorage$unreadableTag = binding.state() instanceof CompoundTag ? null : binding.state().copy();
@@ -36,7 +46,9 @@ public abstract class BasicInventoryHopperStateMixin implements ForgeHopperState
         digitalstorage$journaled = digitalstorage$transfer.blocked();
     }
     @Override public void digitalstorage$retain(ForgeHopperCustody custody, String dimension, net.minecraft.core.BlockPos position) {
-        custody.retain(digitalstorage$id, dimension, position, digitalstorage$transfer, this::digitalstorage$snapshot);
+        var evidence = digitalstorage$identityEvidence();
+        custody.retain(digitalstorage$id, dimension, position, digitalstorage$transfer,
+                this::digitalstorage$snapshot, evidence::copy);
     }
 
     @Inject(method = {"saveAdditional", "m_183515_"}, at = @At("RETURN"), remap = false)
@@ -55,6 +67,7 @@ public abstract class BasicInventoryHopperStateMixin implements ForgeHopperState
         digitalstorage$resolved = false;
         digitalstorage$journaled = false;
         digitalstorage$unreadableIdentity = null;
+        digitalstorage$missingIdentity = !tag.contains(ID_KEY);
         if (tag.hasUUID(ID_KEY)) digitalstorage$id = tag.getUUID(ID_KEY);
         else if (tag.contains(ID_KEY)) digitalstorage$unreadableIdentity = tag.get(ID_KEY).copy();
         digitalstorage$unreadableTag = null;

@@ -18,7 +18,7 @@ public final class ForgeHopperCommands {
                     var entries = ForgeTransferSessions.get(context.getSource().getServer()).hoppers().entries();
                     for (var entry : entries) context.getSource().sendSuccess(() -> Component.literal(
                             entry.id() + " " + entry.phase() + " " + entry.dimension() + " " + entry.position()
-                                    + " 物品=" + entry.item() + " 原观察数量=" + entry.observedAmount()
+                                    + " 物品=" + entry.item() + " 原观察数量=" + observed(entry)
                                     + " 已确认=" + entry.confirmed() + " 已保存=" + entry.durable()), false);
                     return entries.size();
                 }))
@@ -29,7 +29,7 @@ public final class ForgeHopperCommands {
                     if (entry == null) { context.getSource().sendFailure(Component.literal("漏斗托管条目不存在。")); return 0; }
                     context.getSource().sendSuccess(() -> Component.literal(entry.id() + " " + entry.phase()
                             + " " + entry.dimension() + " " + entry.position() + " 物品=" + entry.item()
-                            + " 原观察数量=" + entry.observedAmount() + " 已确认=" + entry.confirmed()
+                            + " 原观察数量=" + observed(entry) + " 已确认=" + entry.confirmed()
                             + " 冲突来源=" + entry.conflictsWith() + " 卷主=" + entry.owner() + " 卷=" + entry.volume()
                             + " 管理员=" + entry.administrator() + " " + entry.explanation() + " " + entry.failure()), false);
                     return 1;
@@ -54,5 +54,8 @@ public final class ForgeHopperCommands {
                                         return 0;
                                     }
                                 })))))));
+    }
+    static String observed(ForgeHopperCustody.Summary entry) {
+        return entry.observedKnown() ? Long.toString(entry.observedAmount()) : "未知";
     }
 }
