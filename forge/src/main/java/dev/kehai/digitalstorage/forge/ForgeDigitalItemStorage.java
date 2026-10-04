@@ -21,6 +21,7 @@ public final class ForgeDigitalItemStorage implements IItemHandler {
     private final ItemKey[] slots = new ItemKey[SLOTS];
     private final Map<ItemKey, Integer> positions = new HashMap<>();
     private long structureVersion = Long.MIN_VALUE;
+    private int occupiedExtent;
 
     private ForgeDigitalItemStorage(VolumeLedger ledger) { this.ledger = ledger; }
 
@@ -62,6 +63,8 @@ public final class ForgeDigitalItemStorage implements IItemHandler {
             }
         }
         structureVersion = current;
+        occupiedExtent = SLOTS;
+        while (occupiedExtent > 0 && slots[occupiedExtent - 1] == null) occupiedExtent--;
     }
 
     private ItemKey keyAt(int slot) {
@@ -74,7 +77,11 @@ public final class ForgeDigitalItemStorage implements IItemHandler {
         if (slot < 0 || slot >= SLOTS) throw new IndexOutOfBoundsException("Invalid digital slot " + slot);
     }
 
-    @Override public int getSlots() { return SLOTS; }
+    @Override public int getSlots() {
+        refreshSlots();
+        // A tier/data-pack reduction must not hide already stored high-slot items.
+        return Math.max(occupiedExtent, Math.max(0, Math.min(SLOTS, ledger.variantCapacity())));
+    }
 
     @Override
     public ItemStack getStackInSlot(int slot) {
@@ -86,6 +93,7 @@ public final class ForgeDigitalItemStorage implements IItemHandler {
     public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
         ItemKey current = keyAt(slot);
         if (stack.isEmpty()) return ItemStack.EMPTY;
+        if (slot >= getSlots()) return stack;
         ItemKey key = ItemKey.of(stack);
         // Inserting into an empty slot must not secretly change another slot.
         if (current != null && !current.equals(key) || current == null && positions.containsKey(key)) return stack;
@@ -101,6 +109,7 @@ public final class ForgeDigitalItemStorage implements IItemHandler {
         if (!simulate && inserted > 0 && current == null) {
             slots[slot] = key;
             positions.put(key, slot);
+            occupiedExtent = Math.max(occupiedExtent, slot + 1);
         }
         int remainder = stack.getCount() - (int) inserted;
         if (remainder == 0) return ItemStack.EMPTY;
@@ -124,14 +133,14 @@ public final class ForgeDigitalItemStorage implements IItemHandler {
         return sample;
     }
 
-    @Override public int getSlotLimit(int slot) { validateSlot(slot); return Integer.MAX_VALUE; }
+    @Override public int getSlotLimit(int slot) { validateSlot(slot); return slot < getSlots() ? Integer.MAX_VALUE : 0; }
 
     @Override
     public boolean isItemValid(int slot, ItemStack stack) {
         validateSlot(slot);
         // Any item type can occupy a virtual slot. Fullness and runtime policy
         // are state-dependent and must be checked by simulated insertion.
-        return !stack.isEmpty();
+        return slot < getSlots() && !stack.isEmpty();
     }
 
     private static final class BoundHandler implements IItemHandler {

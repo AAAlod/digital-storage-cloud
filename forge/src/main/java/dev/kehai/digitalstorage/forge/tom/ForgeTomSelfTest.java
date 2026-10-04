@@ -32,12 +32,12 @@ public final class ForgeTomSelfTest {
         network.refresh();
         expect(network.getHandlers().size() == 1 && network.getSlots() == digital.getSlots()
                         && raw(network).size() == 2, "Empty aliases exposed duplicate slots or lost raw endpoints");
-        expect(network.insertItem(17, new ItemStack(Items.STONE, 32), false).isEmpty(), "Tom could not insert into DSC");
+        expect(network.insertItem(3, new ItemStack(Items.STONE, 32), false).isEmpty(), "Tom could not insert into DSC");
         network.clear();
         network.add(first);
         network.add(alias);
         network.refresh();
-        expect(network.getHandlers().size() == 1 && network.getStackInSlot(17).getCount() == 32,
+        expect(network.getHandlers().size() == 1 && network.getStackInSlot(3).getCount() == 32,
                 "Populated aliases were counted twice");
         // Two adapters with one volume UUID must not defeat volume identity even
         // if a faulty caller supplies a second ledger for the same volume.
@@ -72,8 +72,8 @@ public final class ForgeTomSelfTest {
                 "Filtered/raw aliases lost duplicate-risk metadata or filter semantics");
         expect(filtered.insertItem(0, new ItemStack(Items.DIRT, 1), true).getCount() == 1,
                 "Tom filter no longer rejected a mismatched item");
-        expect(filtered.extractItem(17, 64, true).getCount() == 31
-                        && digital.getStackInSlot(17).getCount() == 32, "Tom keep-last or simulation was bypassed");
+        expect(filtered.extractItem(3, 64, true).getCount() == 31
+                        && digital.getStackInSlot(3).getCount() == 32, "Tom keep-last or simulation was bypassed");
         var physical = new ItemStackHandler(2);
         physical.setStackInSlot(0, new ItemStack(Items.DIRT, 5));
         var physicalCapability = LazyOptional.<IItemHandler>of(() -> physical);
@@ -85,7 +85,7 @@ public final class ForgeTomSelfTest {
         first.invalidate();
         network.add(alias);
         network.refresh();
-        expect(network.getSlots() == digital.getSlots() + 2 && network.getStackInSlot(19).getCount() == 32,
+        expect(network.getSlots() == digital.getSlots() + 2 && network.getStackInSlot(5).getCount() == 32,
                 "Invalid first lease prevented a surviving alias from joining");
         network.clear();
         expect(raw(network).isEmpty(), "Tom clear retained raw digital endpoints");
@@ -93,6 +93,41 @@ public final class ForgeTomSelfTest {
         network.refresh();
         expect(network.getHandlers().size() == 1 && raw(network).size() == 1,
                 "Tom rebuild retained stale deduplication state");
+        dynamicCapacity();
+    }
+
+    private static void dynamicCapacity() {
+        var capacity = new java.util.concurrent.atomic.AtomicInteger(64);
+        var digital = ForgeDigitalItemStorage.of(new VolumeLedger(() -> { }, capacity::get));
+        var physical = new ItemStackHandler(1);
+        physical.setStackInSlot(0, new ItemStack(Items.DIRT, 9));
+        var network = new MultiItemHandler();
+        network.add(LazyOptional.of(() -> digital));
+        network.add(LazyOptional.of(() -> physical));
+        network.refresh();
+        expect(network.getSlots() == 65 && network.getStackInSlot(64).getCount() == 9,
+                "Tom reported maximum instead of actual initial capacity");
+        capacity.set(128);
+        expect(network.getStackInSlot(128).getCount() == 9 && network.getSlots() == 129,
+                "Upgrade did not refresh cached physical inventory offsets before access");
+        expect(network.insertItem(127, new ItemStack(Items.STONE, 8), false).isEmpty(),
+                "Tom could not use the upgraded slot");
+        capacity.set(64);
+        expect(network.getSlots() == 129 && network.extractItem(127, 8, false).getCount() == 8,
+                "Tier reduction hid high-slot stored items");
+        expect(network.getStackInSlot(64).getCount() == 9 && network.getSlots() == 65,
+                "Removing overflow failed to restore the actual slot count and physical offsets");
+        var filtered = new FilteredInventoryHandler(digital, stack -> true, false);
+        var filteredNetwork = new MultiItemHandler();
+        filteredNetwork.add(LazyOptional.of(() -> filtered));
+        filteredNetwork.refresh();
+        var nested = new MultiItemHandler();
+        nested.add(LazyOptional.of(() -> filteredNetwork));
+        nested.refresh();
+        capacity.set(256);
+        expect(nested.getSlots() == 256 && filteredNetwork.getSlots() == 256,
+                "Filtered/nested Tom aggregates did not follow the live tier capacity");
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Forge dynamic capacity fixture passed: actual Tom counts/offsets, upgrade insertion, reduction extraction, filtered and nested aggregates");
     }
 
     private static java.util.List<IItemHandler> raw(MultiItemHandler network) {

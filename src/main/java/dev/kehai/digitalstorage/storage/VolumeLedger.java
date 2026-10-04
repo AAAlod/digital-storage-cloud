@@ -267,6 +267,11 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
         return structureVersion;
     }
 
+    /** Live configured type capacity, independent of the number of stored identities. */
+    public int variantCapacity() {
+        return variantCapacitySupplier.getAsInt();
+    }
+
     public long totalVariantNbtBytes() {
         return totalVariantNbtBytes;
     }
