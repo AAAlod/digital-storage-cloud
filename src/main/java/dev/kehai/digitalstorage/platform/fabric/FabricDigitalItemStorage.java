@@ -93,9 +93,14 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
 
     @Override
     public long insert(ItemVariant resource, long maxAmount, TransactionContext transaction) {
+        return insertKey(FabricItemKeys.fromVariant(resource), maxAmount, transaction);
+    }
+
+    /** Only callers that already checked the source variant's exact identity may reuse its key. */
+    long insertKey(ItemKey resource, long maxAmount, TransactionContext transaction) {
         FabricMutationScope scope = acquireScope(transaction);
         try {
-            return ledger.insert(FabricItemKeys.fromVariant(resource), maxAmount, scope);
+            return ledger.insert(resource, maxAmount, scope);
         } finally {
             releaseScope(scope);
         }

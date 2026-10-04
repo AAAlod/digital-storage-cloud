@@ -34,6 +34,7 @@ public final class FabricLedgerSelfTest {
         removalCallbackCanRebuildViews();
         partialScanDoesNotAdaptUnvisitedEntries();
         viewExtractionPreservesIdentityAndNestedRollback();
+        plannedMigrationPreservesIdentityAndAtomicity();
     }
 
     private static void repeatedCanonicalLookupsShareNestedSnapshots() {
@@ -362,6 +363,62 @@ public final class FabricLedgerSelfTest {
                                 && dirty.get() == (committed ? 1 : 0),
                         "Known-key view extraction changed nested rollback or notifications");
             }
+        }
+    }
+
+    private static void plannedMigrationPreservesIdentityAndAtomicity() {
+        CompoundTag tag = new CompoundTag();
+        tag.putInt("PlannedIdentity", 7);
+        ItemKey key = ItemKey.of(Items.PAPER, tag);
+        for (int mode = 0; mode < 7; mode++) {
+            SimpleContainer physical = new SimpleContainer(ItemVariant.of(Items.PAPER, tag).toStack(64));
+            var view = new FabricInventoryEndpoint.View(InventoryStorage.of(physical, null).iterator().next());
+            AtomicInteger dirty = new AtomicInteger();
+            RuntimeException sentinel = new RuntimeException("Expected planned insertion rejection");
+            VolumeLedger target = switch (mode) {
+                case 1 -> new VolumeLedger(dirty::incrementAndGet, 0);
+                case 2 -> new VolumeLedger(dirty::incrementAndGet, () -> 1, () -> 1L);
+                case 3 -> new VolumeLedger(dirty::incrementAndGet, () -> 1, candidate -> false, candidate -> true);
+                case 4 -> new VolumeLedger(dirty::incrementAndGet, () -> 1, candidate -> { throw sentinel; }, candidate -> true);
+                default -> new VolumeLedger(dirty::incrementAndGet, 1);
+            };
+            if (mode == 5) target.load(key, VolumeLedger.MAX_AMOUNT_PER_VARIANT - 4);
+            long initial = target.totalItemCount();
+            long version = target.contentVersion();
+            ItemKey selected = mode == 6 ? ItemKey.of(Items.STONE, tag) : ItemKey.of(Items.PAPER, tag.copy());
+            try {
+                var result = FabricTransferExecutor.INSTANCE.move(view, target, selected, 16);
+                expect(mode != 4 && result.moved() == (mode == 0 ? 16 : 0),
+                        "Planned migration ignored policy, capacity, partial insertion or exact identity");
+            } catch (RuntimeException exception) {
+                if (mode != 4 || exception != sentinel) throw exception;
+            }
+            boolean committed = mode == 0;
+            expect(physical.getItem(0).getCount() == (committed ? 48 : 64)
+                            && target.totalItemCount() == initial + (committed ? 16 : 0)
+                            && target.amountOf(key) == initial + (committed ? 16 : 0)
+                            && dirty.get() == (committed ? 1 : 0)
+                            && target.contentVersion() == version + (committed ? 1 : 0),
+                    "Planned migration failed source/target conservation or committed a rejected operation");
+            if (mode == 0) {
+                CompoundTag otherTag = tag.copy();
+                otherTag.putInt("PlannedIdentity", 8);
+                expect(FabricTransferExecutor.INSTANCE.move(view, target, ItemKey.of(Items.PAPER, otherTag), 16).moved() == 0
+                                && FabricTransferExecutor.INSTANCE.move(view, target, ItemKey.of(Items.PAPER), 16).moved() == 0,
+                        "Planned migration matched a different or missing NBT tag");
+            }
+        }
+        SimpleContainer physical = new SimpleContainer(new ItemStack(Items.PAPER, 8));
+        var view = new FabricInventoryEndpoint.View(InventoryStorage.of(physical, null).iterator().next());
+        CompoundTag attachment = new CompoundTag();
+        attachment.putInt("Opaque", 1);
+        VolumeLedger target = new VolumeLedger(() -> {}, 1);
+        try {
+            FabricTransferExecutor.INSTANCE.move(view, target, ItemKey.of(Items.PAPER, null, attachment), 8);
+            throw new IllegalStateException("Planned Fabric migration silently dropped platform attachments");
+        } catch (IllegalArgumentException expected) {
+            expect(physical.getItem(0).getCount() == 8 && target.totalItemCount() == 0,
+                    "Unsupported platform attachment rejection mutated inventories");
         }
     }
 

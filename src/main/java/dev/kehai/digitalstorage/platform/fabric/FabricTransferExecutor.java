@@ -21,11 +21,22 @@ public final class FabricTransferExecutor implements InventoryTransferExecutor {
         if (!(source instanceof FabricInventoryEndpoint.View view)) {
             throw new IllegalArgumentException("Expected a Fabric inventory view");
         }
-        return moveView(view.storageView(), FabricDigitalItemStorage.of(target), FabricItemKeys.toVariant(resource), maximum);
+        if (resource.hasAttachments()) {
+            throw new IllegalArgumentException("Fabric ItemVariant cannot represent platform stack attachments");
+        }
+        StorageView<ItemVariant> storageView = view.storageView();
+        ItemVariant variant = storageView.getResource();
+        if (!resource.equals(FabricItemKeys.fromVariant(variant))) return new MoveResult(0, 0);
+        return moveView(storageView, FabricDigitalItemStorage.of(target), variant, maximum, resource);
     }
 
     public static MoveResult moveView(StorageView<ItemVariant> view, Storage<ItemVariant> target,
                                       ItemVariant resource, long maximum) {
+        return moveView(view, target, resource, maximum, null);
+    }
+
+    private static MoveResult moveView(StorageView<ItemVariant> view, Storage<ItemVariant> target,
+                                       ItemVariant resource, long maximum, ItemKey knownKey) {
         if (view.isResourceBlank() || !resource.equals(view.getResource()) || view.getAmount() <= 0) {
             return new MoveResult(0, 0);
         }
@@ -33,7 +44,8 @@ public final class FabricTransferExecutor implements InventoryTransferExecutor {
         try (Transaction transaction = Transaction.openOuter()) {
             long extracted = view.extract(resource, requested, transaction);
             if (extracted <= 0) return new MoveResult(0, 1);
-            long inserted = target.insert(resource, extracted, transaction);
+            long inserted = knownKey == null ? target.insert(resource, extracted, transaction)
+                    : ((FabricDigitalItemStorage) target).insertKey(knownKey, extracted, transaction);
             if (inserted != extracted) return new MoveResult(0, 2);
             transaction.commit();
             return new MoveResult(inserted, 2);
