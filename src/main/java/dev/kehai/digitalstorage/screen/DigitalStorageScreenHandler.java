@@ -85,7 +85,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         var bound = accessor == null ? null : accessor.getVolume();
         boolean target = accessor != null && (!accessor.isBound() || bound != null && bound.id().equals(request.volumeId()));
         var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(request.itemId()).orElse(null);
-        boolean possessed = request.itemId().equals(StorageVolume.DEFAULT_ICON);
+        boolean possessed = StorageVolume.PRESET_ICONS.contains(request.itemId());
         if (item != null && !possessed) {
             possessed = getCarried().is(item);
             for (int slot = 0; slot < player.getInventory().getContainerSize() && !possessed; slot++)
@@ -649,6 +649,11 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
             handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(207, volume.id(), StorageVolume.DEFAULT_ICON));
             expectResponse(handler.state.statusSuccessful() && volume.icon().equals(StorageVolume.DEFAULT_ICON),
                     "Default icon reset requires no chest item");
+            for (var preset : StorageVolume.PRESET_ICONS) {
+                handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(207, volume.id(), preset));
+                expectResponse(handler.state.statusSuccessful() && volume.icon().equals(preset),
+                        "Preset icon requires no inventory item: " + preset);
+            }
             handler.setCarried(new ItemStack(net.minecraft.world.item.Items.PAPER));
             handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(207, volume.id(),
                     new net.minecraft.resources.ResourceLocation("minecraft", "paper")));

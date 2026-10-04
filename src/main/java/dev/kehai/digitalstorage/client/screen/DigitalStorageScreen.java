@@ -54,9 +54,11 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private Button upgrade, clearBinding, network, toggle, create, back, confirm, secondary;
     private Button volumeGlyph;
     private final List<Button> iconChoices = new ArrayList<>();
+    private final List<Button> presetChoices = new ArrayList<>();
     private final Inventory inventory;
     private View iconReturn = View.HOME;
     private boolean togglePending;
+    private int pendingButtonId = -1;
     private DigitalStorageScreenState requestedFrom;
     private int pendingTicks;
     private boolean responseTimedOut;
@@ -112,10 +114,16 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         nameField.setValue(draft);
         iconChoices.clear();
         for (int slot = 0; slot < 36; slot++) {
-            ItemStack sample = inventory.getItem(slot);
+            ItemStack sample = inventory.getItem(slot < 27 ? slot + 9 : slot - 27);
             ItemStack display = sample.isEmpty() ? ItemStack.EMPTY : new ItemStack(sample.getItem());
             iconChoices.add(addRenderableWidget(new ItemIconButton(leftPos + (imageWidth - 198) / 2 + slot % 9 * 22,
-                    topPos + 65 + slot / 9 * 22, display, ignored -> setIcon(display))));
+                    topPos + 65 + slot / 9 * 22 + (slot >= 27 ? 4 : 0), display, ignored -> setIcon(display), true)));
+        }
+        presetChoices.clear();
+        for (int i = 0; i < StorageVolume.PRESET_ICONS.size(); i++) {
+            ItemStack display = iconStack(StorageVolume.PRESET_ICONS.get(i));
+            presetChoices.add(addRenderableWidget(new ItemIconButton(leftPos + imageWidth - MARGIN - 120 + i * 20,
+                    topPos + imageHeight - 44, display, ignored -> setIcon(display), true)));
         }
         volumeGlyph = addRenderableWidget(new ItemIconButton(leftPos + MARGIN, topPos + 32,
                 ItemStack.EMPTY, ignored -> chooseIcon()));
@@ -195,7 +203,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             case CREATE, RENAME -> 160;
             case CLEAR, DELETE -> 190;
             case VOLUME -> 180;
-            case ICONS -> 210;
+            case ICONS -> 224;
         };
     }
 
@@ -212,6 +220,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     private void beginRequest() {
         togglePending = false;
+        pendingButtonId = -1;
         requestedFrom = menu.state();
         pendingTicks = 0;
         localStatus = Component.empty();
@@ -221,6 +230,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private void sendButton(int id) {
         if (!canRequest() || minecraft == null || minecraft.gameMode == null) return;
         beginRequest();
+        pendingButtonId = id;
         togglePending = id == DigitalStorageScreenHandler.SET_UNSTACKABLE_ACCEPT_BUTTON_ID
                 || id == DigitalStorageScreenHandler.SET_UNSTACKABLE_REJECT_BUTTON_ID;
         minecraft.gameMode.handleInventoryButtonClick(menu.containerId, id);
@@ -332,7 +342,9 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         String policyTip = !state.unstackableItemsAllowedByServer() ? "server_disabled"
                 : diagnostic.migrationActive() ? "migration_active"
                 : !state.unstackableItemsConfigurable() ? "not_owner" : accept ? "accept" : "reject";
-        toggle.setTooltip(toggle.active ? null : Tooltip.create(tr("unstackables.tooltip." + policyTip)));
+        boolean policyUnavailable = !state.unstackableItemsAllowedByServer()
+                || diagnostic.migrationActive() || !state.unstackableItemsConfigurable();
+        toggle.setTooltip(policyUnavailable ? Tooltip.create(tr("unstackables.tooltip." + policyTip)) : null);
         create.visible = unboundHome && state.accessorConfigurable();
         create.active = canRequest() && state.accessorConfigurable();
         firstVolume = Math.max(0, Math.min(firstVolume,
@@ -349,7 +361,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         nameField.setEditable(editing && canRequest());
         back.visible = !home;
         back.active = true;
-        confirm.visible = !home;
+        confirm.visible = !home && view != View.ICONS;
         confirm.active = canRequest();
         confirm.setTooltip(null);
         secondary.visible = view == View.NETWORK || view == View.VOLUME;
@@ -369,6 +381,10 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         for (Button choice : iconChoices) {
             choice.visible = view == View.ICONS;
             choice.active = canRequest() && !((ItemIconButton) choice).item.isEmpty();
+        }
+        for (Button choice : presetChoices) {
+            choice.visible = view == View.ICONS;
+            choice.active = canRequest();
         }
         switch (view) {
             case ICONS -> confirm.setMessage(tr("gui.reset_icon"));
@@ -407,6 +423,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                     confirm.setTooltip(Tooltip.create(tr(!state.accessorConfigurable() ? "gui.read_only" : "unaffordable")));
             }
             case NETWORK -> {
+                // Refreshing the report must not restyle an unrelated migration control.
+                confirm.active = !responseTimedOut;
                 confirm.setMessage(tr(diagnostic.migrationActive() ? "migration.cancel" : "gui.optimize"));
                 confirm.active &= state.accessorBound() && state.accessorConfigurable()
                         && (diagnostic.migrationActive() || diagnostic.available()
@@ -416,7 +434,9 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             }
             default -> { }
         }
-        if (pending() && confirm.visible) confirm.setMessage(tr("gui.pending"));
+        if (pending() && confirm.visible && !(view == View.NETWORK
+                && pendingButtonId == DigitalStorageScreenHandler.NETWORK_ANALYSIS_BUTTON_ID))
+            confirm.setMessage(tr("gui.pending"));
     }
 
     @Override
@@ -627,6 +647,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         detailLines = 0;
         if (view == View.ICONS) {
             text(graphics, tr("gui.icon_inventory"), MARGIN, 51, imageWidth - 24, MUTED);
+            text(graphics, tr("gui.icon_presets"), imageWidth - MARGIN - 120, imageHeight - 58, 120, MUTED);
             return;
         }
         if (view == View.NETWORK) {
@@ -648,48 +669,40 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         String health = !d.available() ? "gui.network_disconnected"
                 : d.hasDuplicateTargetEndpoints() ? "gui.network_duplicates"
                 : d.failingScanners() > 0 ? "gui.network_scanner_fault" : "gui.network_healthy";
-        panel(graphics, MARGIN, 52, imageWidth - 24, 33);
+        panel(graphics, MARGIN, 52, imageWidth - 24, 43);
         graphics.renderItem(new ItemStack(Items.COMPARATOR), MARGIN + 6, 60);
-        text(graphics, tr(health), MARGIN + 28, 60, imageWidth - 135, color);
-        Component healthHint = !d.available() ? tr("network.unavailable")
-                : d.hasDuplicateTargetEndpoints() ? tr("network.duplicate_warning", d.targetEndpointCount())
-                : d.failingScanners() > 0 ? tr("network.hopper_warning", d.failingScanners()) : tr("network.no_action");
-        if (d.hasDuplicateTargetEndpoints()) healthHint = Component.empty().append(healthHint)
-                .append("\n").append(tr("network.keep_one_endpoint"));
-        hints.add(new Hint(healthHint, MARGIN, 52, imageWidth - 120, 33));
-        int scoreX = imageWidth - 99;
-        text(graphics, Component.literal(d.available() ? d.healthScore() + "/100 · " + d.grade() : "—"),
-                scoreX, 58, 78, TEXT);
-        progress(graphics, scoreX, 73, 78, 4, d.available() ? d.healthScore() / 100.0 : 0, GREEN);
+        text(graphics, d.failingScanners() > 0 && !d.hasDuplicateTargetEndpoints() && d.available()
+                ? tr("gui.network_stalled", d.failingScanners()) : tr(health),
+                MARGIN + 28, 60, imageWidth - 65, color);
+        String nextStep = !d.available() ? "gui.network_connect"
+                : d.hasDuplicateTargetEndpoints() ? "gui.network_remove_duplicate"
+                : d.failingScanners() > 0 ? "gui.network_check_hoppers" : "gui.network_no_action";
+        text(graphics, tr(nextStep), MARGIN + 28, 78, imageWidth - 65, MUTED);
         int columnWidth = (imageWidth - 32) / 2;
-        metric(graphics, MARGIN, 94, columnWidth, "gui.metric_inventories", d.available() ? "" + d.physicalInventories() : "—", TEXT);
-        metric(graphics, MARGIN + columnWidth + 8, 94, columnWidth, "gui.metric_slots",
+        metric(graphics, MARGIN, 103, columnWidth, "gui.metric_inventories", d.available() ? "" + d.physicalInventories() : "—", TEXT);
+        metric(graphics, MARGIN + columnWidth + 8, 103, columnWidth, "gui.metric_slots",
                 d.available() ? d.nonEmptyViews() + "/" + d.totalViews() : "—", TEXT);
-        metric(graphics, MARGIN, 108, columnWidth, "gui.metric_scanners", d.available() ? "" + d.activeScanners() : "—", TEXT);
-        metric(graphics, MARGIN + columnWidth + 8, 108, columnWidth, "gui.metric_failures",
-                d.available() ? "" + d.failingScanners() : "—", d.failingScanners() > 0 ? YELLOW : MUTED);
-        metric(graphics, MARGIN, 122, columnWidth, "gui.metric_interval",
-                d.available() ? tr("gui.ticks", d.averageScanIntervalTicks()).getString() : "—", TEXT);
-        metric(graphics, MARGIN + columnWidth + 8, 122, columnWidth, "gui.metric_freed",
-                d.available() ? "" + d.estimatedFreedViews() : "—", TEXT);
-        int y = 140;
-        panel(graphics, MARGIN, y, imageWidth - 24, 34);
-        graphics.renderItem(new ItemStack(Items.HOPPER), MARGIN + 6, y + 8);
+        int y = 122;
+        panel(graphics, MARGIN, y, imageWidth - 24, 53);
         if (d.migrationActive()) {
+            graphics.renderItem(new ItemStack(Items.HOPPER), MARGIN + 6, y + 8);
             text(graphics, tr("migration.progress_short", d.completedCandidates(), d.totalCandidates()),
                     MARGIN + 28, y + 5, imageWidth - 65, GREEN);
             progress(graphics, MARGIN + 28, y + 21, imageWidth - 65, 5,
                     d.totalCandidates() <= 0 ? 0 : (double) d.completedCandidates() / d.totalCandidates(), GREEN);
-            hints.add(new Hint(tr("migration.progress", d.movedItems(), d.completedCandidates(),
-                    d.totalCandidates(), d.scannedViews()), MARGIN, y, imageWidth - 24, 34));
+            text(graphics, tr("gui.moved_items", d.movedItems()), MARGIN + 28, y + 36, imageWidth - 65, MUTED);
         } else {
-            text(graphics, tr("gui.opportunity", d.recommendedVariants()), MARGIN + 28, y + 5,
-                    imageWidth - 65, d.recommendedVariants() > 0 ? YELLOW : MUTED);
-            var candidateId = ResourceLocation.tryParse(d.topCandidateId());
+            boolean hasCandidate = d.available() && d.recommendedVariants() > 0;
+            text(graphics, hasCandidate ? tr("gui.migration_benefit", d.recommendedVariants(), d.estimatedFreedViews())
+                    : tr("gui.no_opportunity"), MARGIN + 28, y + 5, imageWidth - 65, hasCandidate ? GREEN : MUTED);
+            var candidateId = hasCandidate ? ResourceLocation.tryParse(d.topCandidateId()) : null;
+            var candidateItem = candidateId == null ? Items.HOPPER : BuiltInRegistries.ITEM.getOptional(candidateId).orElse(Items.HOPPER);
+            graphics.renderItem(new ItemStack(candidateItem), MARGIN + 6, y + 8);
             Component candidate = candidateId == null ? tr("gui.no_opportunity")
                     : BuiltInRegistries.ITEM.getOptional(candidateId).<Component>map(item -> item.getDescription())
                             .orElse(Component.literal(d.topCandidateId()));
-            text(graphics, candidate, MARGIN + 28, y + 20, imageWidth - 65, MUTED);
+            if (hasCandidate) text(graphics, candidate, MARGIN + 28, y + 21, imageWidth - 65, TEXT);
+            text(graphics, tr("gui.migration_target", menu.state().volumeName()), MARGIN + 28, y + 36, imageWidth - 65, MUTED);
         }
     }
 
@@ -750,12 +763,21 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     private static final class ItemIconButton extends Button {
         private ItemStack item;
+        private final boolean cell;
         ItemIconButton(int x, int y, ItemStack item, OnPress action) {
+            this(x, y, item, action, false);
+        }
+        ItemIconButton(int x, int y, ItemStack item, OnPress action, boolean cell) {
             super(x, y, 20, 20, Component.translatable("screen.digitalstorage.gui.choose_icon"), action, DEFAULT_NARRATION);
             this.item = item;
+            this.cell = cell;
             if (!item.isEmpty()) setTooltip(Tooltip.create(item.getHoverName()));
         }
         @Override protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
+            if (cell) {
+                graphics.fill(getX(), getY(), getX() + 20, getY() + 20, 0xFFB0B0B0);
+                graphics.renderOutline(getX(), getY(), 20, 20, LINE);
+            }
             if (active && isHoveredOrFocused()) graphics.renderOutline(getX(), getY(), 20, 20, TEXT);
             graphics.renderItem(item, getX() + 2, getY() + 2);
         }

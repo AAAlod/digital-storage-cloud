@@ -7,6 +7,9 @@ import net.minecraft.resources.ResourceLocation;
 
 public final class StorageVolume {
     public static final int MAX_NAME_LENGTH = 48;
+    public static final List<ResourceLocation> PRESET_ICONS = List.of("chest", "diamond_sword", "redstone_block",
+            "iron_ingot", "wheat", "cobblestone").stream()
+            .map(path -> new ResourceLocation("minecraft", path)).toList();
 
     private static final String ID_KEY = "Id";
     private static final String OWNER_KEY = "Owner";
