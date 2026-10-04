@@ -36,4 +36,8 @@ Forge 1.20.1 / 47.4.10 使用独立 Gradle 构建，复用上级工程的 wrappe
 
 最终 Forge 工作 JAR 为 `build/libs/digital-storage-cloud-forge-<version>.jar`。NightConfig 单独 relocation；Tom 是外部依赖，不嵌入发行 JAR。`build` 同时检查共享源码/字节码平台边界、元数据版本、重复 ZIP entry 和禁止依赖载荷。
 
+管理员可使用 `digitalstorage probe <pos>`（或 `/dsc probe`）只读检查已加载方块的无方向 IItemHandler，报告总槽位、扫描槽位、非空槽位及是否截断；最多扫描65536槽，缺少无方向能力不代表没有其他方向的库存。异常能力提供者返回失败信息，探针不提取物品。
+
+`digitalstorage benchmark` 显式运行最长30秒的隔离微基准，使用私有内存库存和临时恢复目录，不挂载玩家世界或卷。覆盖512变种的物理/数字Tom扫描、256槽实际迁移以及1/10/50/100漏斗 × 64/256/1024槽的冷过滤拒收更新。每场景至少128次且250毫秒预热，采集64样本；返回关键延迟，日志保留全部场景的均值、p95、p99/最大值、CPU时间、线程分配量和实际预热次数。准备夹具不在计时内；冷场景每次通过过滤设置重置槽位缓存/唤醒，并不代表自然退避后的调用频率。CPU/分配计数不可用时为-1；短操作CPU读数为0不能当作没有CPU成本。物理扫描512槽、数字固定1024槽，且Forge与Fabric基准实现不同，不能直接比较绝对延迟或宣称TPS收益。
+
 `libs/toms_storage-1.20-1.7.1.jar` 是 MIT 许可的精确 Tom 编译依赖（SHA-256 `08552be86f960111e501227707dc089c91b8a55f6c1be09baee188338576ff9b`），由 ForgeGradle 重映射用于开发，运行环境仍需单独安装 Tom；许可见上级 `licenses/Toms-Storage-LICENSE`。聚合 Mixin 只补充明确的 DSC 卷身份，过滤和未知包装器保留原接口。

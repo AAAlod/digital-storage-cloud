@@ -7,6 +7,7 @@ public final class ForgeSharedSelfTest {
     private ForgeSharedSelfTest() { }
 
     public static void run(net.minecraft.server.MinecraftServer server) {
+        ForgePerformanceCommandsSelfTest.run(server);
         dev.kehai.digitalstorage.storage.ItemKeySelfTest.run();
         ForgeItemKeySelfTest.run();
         ForgeRecoverySelfTest.run();

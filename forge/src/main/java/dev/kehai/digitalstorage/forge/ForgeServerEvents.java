@@ -70,6 +70,21 @@ public final class ForgeServerEvents {
     }
     @SubscribeEvent public static void commands(RegisterCommandsEvent event) {
         event.getDispatcher().register(dev.kehai.digitalstorage.command.ManagementCommands.root("digitalstorage")
+                .then(Commands.literal("benchmark").requires(source -> source.hasPermission(2)).executes(context -> {
+                    try {
+                        String result = ForgePerformanceBenchmark.run();
+                        context.getSource().sendSuccess(() -> Component.literal(result), false);
+                        return 1;
+                    } catch (RuntimeException failure) {
+                        DigitalStorage.LOGGER.error("Forge benchmark failed", failure);
+                        context.getSource().sendFailure(Component.literal("Forge benchmark failed: " + failure));
+                        return 0;
+                    }
+                }))
+                .then(Commands.literal("probe").requires(source -> source.hasPermission(2))
+                        .then(Commands.argument("pos", net.minecraft.commands.arguments.coordinates.BlockPosArgument.blockPos())
+                                .executes(context -> probe(context.getSource(),
+                                        net.minecraft.commands.arguments.coordinates.BlockPosArgument.getLoadedBlockPos(context, "pos")))))
                 .then(Commands.literal("selftest").requires(source -> source.hasPermission(2)).executes(context -> {
                     try {
                         ForgeSharedSelfTest.run(context.getSource().getServer());
@@ -99,5 +114,24 @@ public final class ForgeServerEvents {
         ForgeHopperCommands.register(event.getDispatcher());
         event.getDispatcher().register(Commands.literal("dsc")
                 .redirect(event.getDispatcher().getRoot().getChild("digitalstorage")));
+    }
+    private static int probe(net.minecraft.commands.CommandSourceStack source, net.minecraft.core.BlockPos pos) {
+        try {
+            var entity = source.getLevel().getBlockEntity(pos);
+            var handler = entity == null ? null : entity.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ITEM_HANDLER)
+                    .orElse(null);
+            if (handler == null) {
+                source.sendFailure(Component.literal("No unsided Forge item handler found at " + pos.toShortString())); return 0;
+            }
+            int slots = handler.getSlots(), scanned = Math.min(slots, 65536), nonEmpty = 0;
+            if (slots < 0) throw new IllegalStateException("Negative inventory slot count");
+            for (int slot = 0; slot < scanned; slot++) if (!handler.getStackInSlot(slot).isEmpty()) nonEmpty++;
+            final int populated = nonEmpty;
+            source.sendSuccess(() -> Component.literal("Forge unsided item handler at " + pos.toShortString()
+                    + ": slots=" + slots + ", scanned=" + scanned + ", nonEmpty=" + populated + ", truncated=" + (scanned < slots)), false);
+            return 1;
+        } catch (RuntimeException failure) {
+            source.sendFailure(Component.literal("Forge inventory probe failed: " + failure.getClass().getSimpleName())); return 0;
+        }
     }
 }
