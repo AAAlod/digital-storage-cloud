@@ -21,6 +21,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 /** Shared device UI. Navigation is local; every mutation remains server validated. */
 public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalStorageScreenHandler> {
@@ -68,7 +69,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     protected void init() {
         String draft = nameField == null ? "" : nameField.getValue();
         imageWidth = Math.min(360, width - 16);
-        imageHeight = Math.min(250, height - 16);
+        imageHeight = Math.min(desiredHeight(), height - 16);
         super.init();
         homeButtons.clear();
         bindButtons.clear();
@@ -124,7 +125,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         detailScroll = 0;
         detailLines = 0;
         draggingScroll = false;
-        updateWidgets();
+        clearWidgets();
+        init();
         setFocused(next == View.HOME ? null : next == View.CREATE || next == View.RENAME ? nameField : back);
         nameField.setFocused(next == View.CREATE || next == View.RENAME);
     }
@@ -152,7 +154,21 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             lastBound = menu.state().accessorBound();
             open(View.HOME);
         }
+        if (imageHeight != Math.min(desiredHeight(), height - 16)) {
+            clearWidgets();
+            init();
+        }
         updateWidgets();
+    }
+
+    private int desiredHeight() {
+        return switch (view) {
+            case HOME, NETWORK -> 250;
+            case UPGRADE -> menu.state().hasNextTier() ? 250 : 174;
+            case CREATE, RENAME -> 160;
+            case MORE, CLEAR, DELETE -> 190;
+            case VOLUME -> 210;
+        };
     }
 
     private boolean pending() { return requestedFrom != null; }
@@ -422,9 +438,12 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     @Override
     protected void renderBg(GuiGraphics graphics, float delta, int mouseX, int mouseY) {
-        graphics.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xFF292929);
+        graphics.fillGradient(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xFF303236, 0xFF202226);
         graphics.renderOutline(leftPos, topPos, imageWidth, imageHeight, 0xFF858585);
         graphics.fill(leftPos + 1, topPos + 1, leftPos + imageWidth - 1, topPos + 26, 0xFF3B3B3B);
+        graphics.fill(leftPos + 1, topPos + 26, leftPos + imageWidth - 1, topPos + 27, 0xFF997344);
+        graphics.fill(leftPos + 1, topPos + imageHeight - 23, leftPos + imageWidth - 1,
+                topPos + imageHeight - 1, 0xFF181A1D);
     }
 
     @Override
@@ -510,6 +529,10 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             default -> "gui.manage_volume";
         };
         text(graphics, tr(heading), MARGIN, 35, imageWidth - 24, TEXT);
+        if (upgradeLayout()) {
+            drawUpgrade(graphics);
+            return;
+        }
         if (view == View.CREATE || view == View.RENAME) {
             text(graphics, view == View.RENAME && selectedChoice() != null
                     ? tr("gui.target", selectedChoice().name()) : tr("gui.name"), MARGIN, 62, imageWidth - 24, MUTED);
@@ -518,19 +541,88 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         }
         List<FormattedCharSequence> lines = new ArrayList<>();
         for (Component paragraph : detailText()) {
-            lines.addAll(font.split(paragraph, imageWidth - 32));
+            lines.addAll(font.split(paragraph, imageWidth - 42));
             lines.add(FormattedCharSequence.EMPTY);
         }
         detailLines = lines.size();
         detailScroll = Math.max(0, Math.min(detailScroll, maxDetailScroll()));
+        panel(graphics, MARGIN - 2, 53, imageWidth - MARGIN * 2 + 2, detailViewport() + 8);
         graphics.enableScissor(leftPos + MARGIN, topPos + 57, leftPos + imageWidth - 14, topPos + 57 + detailViewport());
         for (int i = detailScroll; i < lines.size(); i++) {
             int y = 57 + (i - detailScroll) * (font.lineHeight + 2);
             if (y >= 57 + detailViewport()) break;
-            graphics.drawString(font, lines.get(i), MARGIN, y, MUTED, false);
+            graphics.drawString(font, lines.get(i), MARGIN + 5, y, i == 0 ? TEXT : MUTED, false);
         }
         graphics.disableScissor();
     }
+
+    private void panel(GuiGraphics graphics, int x, int y, int w, int h) {
+        graphics.fill(x, y, x + w, y + h, 0xFF25282C);
+        graphics.hLine(x, x + w - 1, y, 0xFF55595E);
+        graphics.hLine(x, x + w - 1, y + h - 1, 0xFF15171A);
+    }
+
+    private void drawUpgrade(GuiGraphics graphics) {
+        var state = menu.state();
+        text(graphics, tr("gui.target", state.volumeName()), MARGIN, 53, imageWidth - 24, MUTED);
+        if (!state.hasNextTier()) {
+            panel(graphics, MARGIN, 71, imageWidth - 24, 48);
+            graphics.renderItem(new ItemStack(Items.NETHER_STAR), MARGIN + 9, 85);
+            text(graphics, tr("maximum"), MARGIN + 34, 81, imageWidth - 68, GREEN);
+            text(graphics, tr("gui.tier_capacity", tierName(state.tierId()), state.variantCapacity()),
+                    MARGIN + 34, 99, imageWidth - 68, MUTED);
+            detailLines = 0;
+            return;
+        }
+        int cardWidth = (imageWidth - 48) / 2;
+        tierPanel(graphics, MARGIN, 72, cardWidth, tr("gui.current_tier"), state.tierId(), state.variantCapacity(), MUTED);
+        tierPanel(graphics, imageWidth - MARGIN - cardWidth, 72, cardWidth,
+                tr("gui.next_tier"), state.nextTierId(), state.nextVariantCapacity(), GREEN);
+        text(graphics, Component.literal("→"), imageWidth / 2 - 4, 91, 12, YELLOW);
+        text(graphics, tr("cost"), MARGIN, 128, imageWidth - 24, TEXT);
+        List<Component> costs = new ArrayList<>();
+        List<ItemStack> icons = new ArrayList<>();
+        for (UpgradeIngredient ingredient : state.upgradeCost()) {
+            costs.add(ingredient.displayComponent());
+            icons.add(ingredient.kind() == UpgradeIngredient.Kind.ITEM
+                    ? BuiltInRegistries.ITEM.getOptional(ingredient.id()).map(ItemStack::new).orElse(ItemStack.EMPTY)
+                    : new ItemStack(Items.PAPER));
+        }
+        if (state.experienceLevels() > 0) {
+            costs.add(tr("cost_xp", state.experienceLevels()));
+            icons.add(new ItemStack(Items.EXPERIENCE_BOTTLE));
+        }
+        if (costs.isEmpty()) { costs.add(tr("cost_free")); icons.add(ItemStack.EMPTY); }
+        detailLines = costs.size();
+        detailScroll = Math.max(0, Math.min(detailScroll, maxDetailScroll()));
+        panel(graphics, MARGIN, 140, imageWidth - 24, upgradeCostViewport());
+        graphics.enableScissor(leftPos + MARGIN, topPos + 140, leftPos + imageWidth - 14,
+                topPos + 140 + upgradeCostViewport());
+        for (int i = detailScroll; i < Math.min(costs.size(), detailScroll + upgradeCostViewport() / 20); i++) {
+            int y = 142 + (i - detailScroll) * 20;
+            if (y >= 140 + upgradeCostViewport()) break;
+            graphics.renderItem(icons.get(i), MARGIN + 5, y);
+            text(graphics, costs.get(i), MARGIN + 27, y + 4, imageWidth - 56, TEXT);
+        }
+        graphics.disableScissor();
+        text(graphics, tr(!state.accessorConfigurable() ? "gui.read_only"
+                : state.canAfford() ? "affordable" : "unaffordable"), MARGIN, imageHeight - 59,
+                imageWidth - 24, !state.accessorConfigurable() ? YELLOW : state.canAfford() ? GREEN : RED);
+    }
+
+    private void tierPanel(GuiGraphics graphics, int x, int y, int w, Component label,
+                           ResourceLocation tier, int capacity, int color) {
+        panel(graphics, x, y, w, 47);
+        text(graphics, label, x + 7, y + 5, w - 14, MUTED);
+        text(graphics, tierName(tier), x + 7, y + 18, w - 14, color);
+        text(graphics, tr("gui.type_capacity", capacity), x + 7, y + 33, w - 14, TEXT);
+    }
+
+    private boolean upgradeLayout() {
+        return view == View.UPGRADE && imageHeight >= (menu.state().hasNextTier() ? 230 : 160);
+    }
+
+    private int upgradeCostViewport() { return Math.max(20, (imageHeight - 205) / 20 * 20); }
 
     private List<Component> detailText() {
         var state = menu.state();
@@ -602,10 +694,14 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private int maxHomeScroll() { return Math.max(0, 231 - imageHeight); }
     private int detailViewport() { return Math.max(11, imageHeight - (secondary.visible ? 132 : 106)); }
     private int maxDetailScroll() {
+        if (upgradeLayout()) return menu.state().hasNextTier()
+                ? Math.max(0, detailLines - Math.max(1, upgradeCostViewport() / 20)) : 0;
         return Math.max(0, detailLines - Math.max(1, detailViewport() / (font.lineHeight + 2)));
     }
-    private int scrollTop() { return view == View.HOME ? menu.state().accessorBound() ? 30 : 62 : 57; }
-    private int scrollHeight() { return view == View.HOME ? imageHeight - 24 - scrollTop() : detailViewport(); }
+    private int scrollTop() { return view == View.HOME ? menu.state().accessorBound() ? 30 : 62
+            : upgradeLayout() ? 140 : 57; }
+    private int scrollHeight() { return view == View.HOME ? imageHeight - 24 - scrollTop()
+            : upgradeLayout() ? upgradeCostViewport() : detailViewport(); }
     private boolean hasScroll() {
         return view == View.HOME ? menu.state().accessorBound() ? maxHomeScroll() > 0
                 : menu.state().ownedVolumes().size() > bindButtons.size() : maxDetailScroll() > 0;
@@ -641,7 +737,6 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     }
 
     private Component tierName(ResourceLocation id) {
-        return Component.translatableWithFallback("tier.digitalstorage." + id.getNamespace() + "."
-                + id.getPath().replace('/', '.'), id.toString());
+        return dev.kehai.digitalstorage.tier.DigitalStorageTier.displayName(id);
     }
 }
