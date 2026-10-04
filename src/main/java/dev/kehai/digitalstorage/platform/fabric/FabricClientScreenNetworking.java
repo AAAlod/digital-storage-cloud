@@ -41,4 +41,11 @@ public final class FabricClientScreenNetworking implements DigitalStorageScreenP
         request.write(buf);
         ClientPlayNetworking.send(DigitalStorageScreenProtocol.MANAGE_VOLUME_PACKET_ID, buf);
     }
+
+    @Override
+    public void send(DigitalStorageScreenProtocol.VolumeIcon request) {
+        FriendlyByteBuf buf = PacketByteBufs.create();
+        request.write(buf);
+        ClientPlayNetworking.send(DigitalStorageScreenProtocol.VOLUME_ICON_PACKET_ID, buf);
+    }
 }

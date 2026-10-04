@@ -33,7 +33,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private static final int YELLOW = 0xFF825500;
     private static final int RED = 0xFFA32C2C;
     private static final ItemStack ICON = new ItemStack(DigitalStorageContent.accessorItem());
-    private enum View { HOME, UPGRADE, NETWORK, VOLUME, CREATE, RENAME, DELETE, CLEAR }
+    private enum View { HOME, UPGRADE, NETWORK, VOLUME, CREATE, RENAME, DELETE, CLEAR, ICONS }
     private record Hint(Component text, int x, int y, int width, int height) {}
 
     private final DigitalStorageScreenProtocol.RequestSender requestSender;
@@ -52,6 +52,11 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private boolean drawingHomeContent;
     private EditBox nameField;
     private Button upgrade, clearBinding, network, toggle, create, back, confirm, secondary;
+    private Button volumeGlyph;
+    private final List<Button> iconChoices = new ArrayList<>();
+    private final Inventory inventory;
+    private View iconReturn = View.HOME;
+    private boolean togglePending;
     private DigitalStorageScreenState requestedFrom;
     private int pendingTicks;
     private boolean responseTimedOut;
@@ -61,6 +66,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                                 DigitalStorageScreenProtocol.RequestSender requestSender) {
         super(handler, inventory, title);
         this.requestSender = java.util.Objects.requireNonNull(requestSender, "requestSender");
+        this.inventory = inventory;
         inventoryLabelY = 10000;
     }
 
@@ -78,7 +84,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         upgrade = button("upgrade", MARGIN, 113, 98, ignored -> open(View.UPGRADE));
         clearBinding = button("clear_binding", imageWidth - 102, 113, 90, ignored -> open(View.CLEAR));
         network = button("gui.details", imageWidth - 90, 149, 78, ignored -> open(View.NETWORK));
-        toggle = button("gui.off", imageWidth - 76, 187, 64, ignored -> requestToggle());
+        toggle = addRenderableWidget(new SwitchButton(leftPos + imageWidth - 76, topPos + 187, ignored -> requestToggle()));
         homeButtons.addAll(List.of(upgrade, clearBinding, network, toggle));
         create = button("gui.create", MARGIN, 34, 122, ignored -> {
             nameField.setValue("");
@@ -104,6 +110,15 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         nameField.setBordered(true);
         nameField.setHint(tr("gui.name_placeholder"));
         nameField.setValue(draft);
+        iconChoices.clear();
+        for (int slot = 0; slot < 36; slot++) {
+            ItemStack sample = inventory.getItem(slot);
+            ItemStack display = sample.isEmpty() ? ItemStack.EMPTY : new ItemStack(sample.getItem());
+            iconChoices.add(addRenderableWidget(new ItemIconButton(leftPos + (imageWidth - 198) / 2 + slot % 9 * 22,
+                    topPos + 65 + slot / 9 * 22, display, ignored -> setIcon(display))));
+        }
+        volumeGlyph = addRenderableWidget(new ItemIconButton(leftPos + MARGIN, topPos + 32,
+                ItemStack.EMPTY, ignored -> chooseIcon()));
         back = button("gui.back", MARGIN, imageHeight - 44, 92, ignored -> goBack());
         confirm = button("gui.confirm", imageWidth - 118, imageHeight - 44, 106, ignored -> confirm());
         secondary = button("gui.refresh", imageWidth - 118, imageHeight - 70, 106,
@@ -142,7 +157,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     }
 
     private void goBack() {
-        open(view == View.RENAME || view == View.DELETE ? View.VOLUME
+        open(view == View.ICONS ? iconReturn : view == View.RENAME || view == View.DELETE ? View.VOLUME
                 : View.HOME);
     }
 
@@ -154,6 +169,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                 requestedFrom = null;
                 if (successful && (view == View.CREATE || view == View.RENAME || view == View.DELETE
                         || view == View.CLEAR)) open(View.HOME);
+                else if (successful && view == View.ICONS) open(iconReturn);
             } else if (++pendingTicks >= 200) {
                 requestedFrom = null;
                 responseTimedOut = true;
@@ -179,6 +195,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             case CREATE, RENAME -> 160;
             case CLEAR, DELETE -> 190;
             case VOLUME -> 180;
+            case ICONS -> 210;
         };
     }
 
@@ -194,6 +211,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private boolean canRequest() { return !pending() && !responseTimedOut; }
 
     private void beginRequest() {
+        togglePending = false;
         requestedFrom = menu.state();
         pendingTicks = 0;
         localStatus = Component.empty();
@@ -203,6 +221,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private void sendButton(int id) {
         if (!canRequest() || minecraft == null || minecraft.gameMode == null) return;
         beginRequest();
+        togglePending = id == DigitalStorageScreenHandler.SET_UNSTACKABLE_ACCEPT_BUTTON_ID
+                || id == DigitalStorageScreenHandler.SET_UNSTACKABLE_REJECT_BUTTON_ID;
         minecraft.gameMode.handleInventoryButtonClick(menu.containerId, id);
     }
 
@@ -228,6 +248,27 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                 : DigitalStorageScreenHandler.SET_UNSTACKABLE_ACCEPT_BUTTON_ID);
     }
 
+    private UUID iconTarget() { return iconReturn == View.HOME ? menu.state().volumeId() : selectedVolume; }
+
+    private void chooseIcon() {
+        if (!canRequest()) return;
+        iconReturn = view;
+        if (!menu.getCarried().isEmpty()) setIcon(menu.getCarried());
+        else open(View.ICONS);
+    }
+
+    private void setIcon(ItemStack stack) {
+        if (!canRequest() || stack.isEmpty() || iconTarget() == null) return;
+        beginRequest();
+        requestSender.send(new DigitalStorageScreenProtocol.VolumeIcon(menu.containerId, iconTarget(),
+                BuiltInRegistries.ITEM.getKey(stack.getItem())));
+    }
+
+    private static ItemStack iconStack(ResourceLocation id) {
+        return BuiltInRegistries.ITEM.getOptional(id).filter(item -> item != Items.AIR)
+                .map(ItemStack::new).orElseGet(() -> new ItemStack(Items.CHEST));
+    }
+
     private void confirm() {
         if (!confirm.active) return;
         switch (view) {
@@ -248,6 +289,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             case CLEAR -> sendButton(DigitalStorageScreenHandler.CLEAR_BINDING_BUTTON_ID);
             case UPGRADE -> sendButton(DigitalStorageScreenHandler.UPGRADE_BUTTON_ID);
             case NETWORK -> sendButton(DigitalStorageScreenHandler.MIGRATION_BUTTON_ID);
+            case ICONS -> setIcon(new ItemStack(Items.CHEST));
             case VOLUME -> {
                 nameField.setValue(selectedChoice().name());
                 open(View.RENAME);
@@ -276,14 +318,15 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             int y = positions[i] - homeScroll;
             widget.setY(topPos + y);
             widget.visible = boundHome && y >= 30 && y + 20 <= imageHeight - 24;
-            widget.active = canRequest();
+            widget.active = !responseTimedOut;
         }
         upgrade.active &= state.accessorConfigurable() && state.hasNextTier();
         upgrade.setMessage(tr(state.hasNextTier() ? "gui.upgrade" : "maximum_button"));
         clearBinding.active &= state.accessorBound() && state.accessorConfigurable();
         network.active = true;
         boolean accept = state.unstackableItemsAllowedByServer() && state.acceptsUnstackableItems();
-        toggle.setMessage(tr(pending() ? "gui.pending_short" : accept ? "gui.on" : "gui.off"));
+        toggle.setMessage(tr(accept ? "gui.on" : "gui.off"));
+        toggle.active = canRequest();
         toggle.active &= state.unstackableItemsConfigurable() && state.unstackableItemsAllowedByServer()
                 && !diagnostic.migrationActive();
         String policyTip = !state.unstackableItemsAllowedByServer() ? "server_disabled"
@@ -313,7 +356,22 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         secondary.active = canRequest();
         secondary.setTooltip(null);
         var selected = selectedChoice();
+        boolean boundIcon = view == View.HOME && state.accessorBound();
+        volumeGlyph.visible = boundIcon || view == View.VOLUME && selected != null;
+        volumeGlyph.setX(leftPos + MARGIN + (boundIcon ? 0 : 7));
+        volumeGlyph.setY(topPos + (boundIcon ? 32 - homeScroll : 61));
+        if (boundIcon) volumeGlyph.visible &= 32 - homeScroll >= 30;
+        volumeGlyph.active = canRequest() && state.accessorConfigurable()
+                && (boundIcon ? state.unstackableItemsConfigurable() : selected != null);
+        ((ItemIconButton) volumeGlyph).item = iconStack(boundIcon ? state.volumeIcon()
+                : selected == null ? StorageVolume.DEFAULT_ICON : selected.icon());
+        volumeGlyph.setTooltip(volumeGlyph.active ? Tooltip.create(tr("gui.choose_icon")) : null);
+        for (Button choice : iconChoices) {
+            choice.visible = view == View.ICONS;
+            choice.active = canRequest() && !((ItemIconButton) choice).item.isEmpty();
+        }
         switch (view) {
+            case ICONS -> confirm.setMessage(tr("gui.reset_icon"));
             case CREATE -> {
                 confirm.setMessage(tr("create_volume"));
                 confirm.active &= state.accessorConfigurable() && !state.accessorBound()
@@ -408,6 +466,11 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 1 && volumeGlyph.visible && volumeGlyph.active && volumeGlyph.isMouseOver(mouseX, mouseY)) {
+            iconReturn = view;
+            setIcon(new ItemStack(Items.CHEST));
+            return true;
+        }
         if (button == 0 && hasScroll() && inside(mouseX, mouseY, imageWidth - 9, scrollTop(), 7, scrollHeight())) {
             draggingScroll = true;
             moveScroll(mouseY);
@@ -495,7 +558,6 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         graphics.pose().translate(0, -homeScroll, 0);
         drawingHomeContent = true;
         panel(graphics, MARGIN - 3, 31, imageWidth - 18, 77);
-        graphics.renderItem(new ItemStack(Items.CHEST), MARGIN, 33);
         text(graphics, Component.literal(state.volumeName()), MARGIN + 23, 35, imageWidth - 147, TEXT);
         text(graphics, tierName(state.tierId()), imageWidth - 104, 35, 92, MUTED);
         progress(graphics, MARGIN, 54, imageWidth - 24, 7,
@@ -536,9 +598,10 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             if (choice == null) break;
             int y = 62 + row * ROW_HEIGHT;
             int w = imageWidth - 136;
-            text(graphics, Component.literal(choice.name()), MARGIN, y, w, TEXT);
+            graphics.renderItem(iconStack(choice.icon()), MARGIN, y + 2);
+            text(graphics, Component.literal(choice.name()), MARGIN + 22, y, w - 22, TEXT);
             text(graphics, tr("gui.volume_usage", tierName(choice.tierId()), choice.usedVariants(), choice.variantCapacity()),
-                    MARGIN, y + 13, w, MUTED);
+                    MARGIN + 22, y + 13, w - 22, MUTED);
             progress(graphics, MARGIN, y + 26, w, 4,
                     choice.variantCapacity() <= 0 ? 0 : (double) choice.usedVariants() / choice.variantCapacity());
             graphics.hLine(MARGIN, imageWidth - 18, y + 36, LINE);
@@ -553,6 +616,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             case RENAME -> "rename_volume";
             case DELETE -> "gui.delete_title";
             case CLEAR -> "gui.clear_title";
+            case ICONS -> "gui.choose_icon";
             default -> "gui.manage_volume";
         };
         text(graphics, tr(heading), MARGIN, 35, imageWidth - 24, TEXT);
@@ -561,6 +625,10 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             return;
         }
         detailLines = 0;
+        if (view == View.ICONS) {
+            text(graphics, tr("gui.icon_inventory"), MARGIN, 51, imageWidth - 24, MUTED);
+            return;
+        }
         if (view == View.NETWORK) {
             drawNetwork(graphics);
             return;
@@ -644,7 +712,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         int used = selected ? choice.usedVariants() : state.usedVariants();
         int capacity = selected ? choice.variantCapacity() : state.variantCapacity();
         panel(graphics, MARGIN, 53, imageWidth - 24, 58);
-        graphics.renderItem(new ItemStack(Items.CHEST), MARGIN + 7, 62);
+        if (view != View.VOLUME) graphics.renderItem(iconStack(selected ? choice.icon() : state.volumeIcon()), MARGIN + 7, 62);
         text(graphics, Component.literal(name), MARGIN + 31, 62, imageWidth - 62, TEXT);
         text(graphics, tr("gui.volume_usage", tierName(tier), used, capacity), MARGIN + 31, 78, imageWidth - 62, MUTED);
         progress(graphics, MARGIN + 7, 98, imageWidth - 38, 5, capacity <= 0 ? 0 : (double) used / capacity);
@@ -663,11 +731,34 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     }
 
     private void panel(GuiGraphics graphics, int x, int y, int w, int h) {
-        graphics.fill(x, y, x + w, y + h, 0xFFB8B8B8);
-        graphics.hLine(x, x + w - 1, y, 0xFF8B8B8B);
-        graphics.vLine(x, y, y + h - 1, 0xFF8B8B8B);
-        graphics.hLine(x, x + w - 1, y + h - 1, 0xFFFFFFFF);
-        graphics.vLine(x + w - 1, y, y + h - 1, 0xFFFFFFFF);
+        graphics.hLine(x, x + w - 1, y + h - 1, 0xFFAAAAAA);
+    }
+
+    private final class SwitchButton extends Button {
+        SwitchButton(int x, int y, OnPress action) { super(x, y, 64, 20, Component.empty(), action, DEFAULT_NARRATION); }
+        @Override protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
+            boolean selected = menu.state().acceptsUnstackableItems() && menu.state().unstackableItemsAllowedByServer();
+            if (pending() && togglePending) selected = !selected;
+            int x = getX() + 32, y = getY() + 4;
+            graphics.drawString(font, tr(selected ? "gui.on" : "gui.off"), getX() + 2, getY() + 6, active ? TEXT : MUTED, false);
+            graphics.fill(x, y, x + 30, y + 12, selected ? 0xFF579E40 : 0xFF808080);
+            graphics.renderOutline(x, y, 30, 12, isHoveredOrFocused() ? TEXT : LINE);
+            int knob = x + (selected ? 19 : 2);
+            graphics.fill(knob, y + 2, knob + 9, y + 10, 0xFFFFFFFF);
+        }
+    }
+
+    private static final class ItemIconButton extends Button {
+        private ItemStack item;
+        ItemIconButton(int x, int y, ItemStack item, OnPress action) {
+            super(x, y, 20, 20, Component.translatable("screen.digitalstorage.gui.choose_icon"), action, DEFAULT_NARRATION);
+            this.item = item;
+            if (!item.isEmpty()) setTooltip(Tooltip.create(item.getHoverName()));
+        }
+        @Override protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
+            if (active && isHoveredOrFocused()) graphics.renderOutline(getX(), getY(), 20, 20, TEXT);
+            graphics.renderItem(item, getX() + 2, getY() + 2);
+        }
     }
 
     private void drawUpgrade(GuiGraphics graphics) {

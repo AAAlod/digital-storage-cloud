@@ -16,6 +16,7 @@ public final class ForgeClient {
     private static final DigitalStorageScreenProtocol.RequestSender SENDER = new DigitalStorageScreenProtocol.RequestSender() {
         public void send(DigitalStorageScreenProtocol.CreateVolume request) { ForgeScreenNetworking.CHANNEL.sendToServer(request); }
         public void send(DigitalStorageScreenProtocol.ManageVolume request) { ForgeScreenNetworking.CHANNEL.sendToServer(request); }
+        public void send(DigitalStorageScreenProtocol.VolumeIcon request) { ForgeScreenNetworking.CHANNEL.sendToServer(request); }
     };
 
     @SubscribeEvent

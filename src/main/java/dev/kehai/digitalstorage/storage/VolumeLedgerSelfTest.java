@@ -17,6 +17,77 @@ public final class VolumeLedgerSelfTest {
         transactionOrderIsEnforced();
         retainedLedgerKeepsItsVolumeAlive();
         attachedIteratorKeepsProvisionalZeroHandles();
+        volumeIconPersistence();
+        volumeIconDiskRoundTrip();
+    }
+
+    private static void volumeIconDiskRoundTrip() {
+        java.nio.file.Path root;
+        try { root = java.nio.file.Files.createTempDirectory("dsc-icon-selftest-"); }
+        catch (java.io.IOException failure) { throw new IllegalStateException(failure); }
+        try {
+            var owner = java.util.UUID.randomUUID();
+            java.util.UUID id;
+            var diamond = new net.minecraft.resources.ResourceLocation("minecraft", "diamond");
+            var state = DigitalStorageState.openForTest(root);
+            try {
+                var volume = state.createVolume(owner, "Icon disk fixture", 1).orElseThrow();
+                id = volume.id();
+                volume.setIcon(diamond);
+                try (var transaction = LedgerTransaction.open()) {
+                    volume.record().storage().insert(ItemKey.of(Items.STONE), 5, transaction);
+                    transaction.commit();
+                }
+            } finally { state.closeForTest(); }
+            state = DigitalStorageState.openForTest(root);
+            try {
+                var volume = state.volume(id).orElseThrow();
+                expect(volume.icon().equals(diamond) && volume.record().storage().totalItemCount() == 5,
+                        "Icon and inventory survive closing and reopening storage files");
+                volume.setIcon(StorageVolume.DEFAULT_ICON);
+            } finally { state.closeForTest(); }
+            state = DigitalStorageState.openForTest(root);
+            try {
+                expect(state.volume(id).orElseThrow().icon().equals(StorageVolume.DEFAULT_ICON),
+                        "Icon-only edit must reach disk without an inventory change");
+            } finally { state.closeForTest(); }
+        } finally {
+            try (var paths = java.nio.file.Files.walk(root)) {
+                for (var path : paths.sorted(java.util.Comparator.reverseOrder()).toList())
+                    java.nio.file.Files.delete(path);
+            } catch (java.io.IOException failure) { throw new IllegalStateException("Icon fixture cleanup", failure); }
+        }
+    }
+
+    private static void volumeIconPersistence() {
+        AtomicInteger dirty = new AtomicInteger();
+        var volume = StorageVolume.create(java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                "Icon fixture", dirty::incrementAndGet);
+        var diamond = new net.minecraft.resources.ResourceLocation("minecraft", "diamond");
+        expect(volume.icon().equals(StorageVolume.DEFAULT_ICON), "New volume icon default");
+        volume.record().storage().load(ItemKey.of(Items.STONE), 5);
+        expect(volume.setIcon(diamond), "Changed icon marks metadata");
+        int savedDirty = dirty.get();
+        long savedVersion = volume.metadataVersion();
+        var snapshot = volume.snapshot();
+        expect(!volume.setIcon(diamond) && dirty.get() == savedDirty
+                && volume.metadataVersion() == savedVersion, "Identical icon must not dirty the volume");
+        volume.setIcon(StorageVolume.DEFAULT_ICON);
+        var nbt = snapshot.writeNbt();
+        var reloaded = StorageVolume.fromNbt(nbt, () -> { });
+        expect(reloaded.icon().equals(diamond) && reloaded.name().equals(volume.name())
+                && reloaded.id().equals(volume.id()) && reloaded.ownerId().equals(volume.ownerId())
+                && reloaded.record().storage().totalItemCount() == 5,
+                "Frozen icon snapshot preserves identity and inventory");
+        nbt.remove("Icon");
+        expect(StorageVolume.fromNbt(nbt, () -> { }).icon().equals(StorageVolume.DEFAULT_ICON), "Legacy icon default");
+        nbt.putString("Icon", "bad icon");
+        expect(StorageVolume.fromNbt(nbt, () -> { }).icon().equals(StorageVolume.DEFAULT_ICON), "Malformed icon default");
+        nbt.putString("Icon", "minecraft:air");
+        expect(StorageVolume.fromNbt(nbt, () -> { }).icon().equals(StorageVolume.DEFAULT_ICON), "Empty icon default");
+        nbt.putString("Icon", "absent_mod:stored_item");
+        expect(StorageVolume.fromNbt(nbt, () -> { }).snapshot().writeNbt().getString("Icon").equals("absent_mod:stored_item"),
+                "Missing mod icon ID survives save for later restoration");
     }
 
     private static void attachedIteratorKeepsProvisionalZeroHandles() {

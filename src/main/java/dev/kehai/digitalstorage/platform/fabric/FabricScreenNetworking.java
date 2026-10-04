@@ -13,6 +13,11 @@ public final class FabricScreenNetworking {
     }
 
     public static void register() {
+        ServerPlayNetworking.registerGlobalReceiver(DigitalStorageScreenProtocol.VOLUME_ICON_PACKET_ID,
+                (server, player, networkHandler, buf, responseSender) -> {
+                    var request = DigitalStorageScreenProtocol.VolumeIcon.read(buf);
+                    server.execute(() -> DigitalStorageScreenHandler.handleRequest(player, request));
+                });
         DigitalStorageScreenHandler.setStateSender((player, update) -> {
             FriendlyByteBuf buf = PacketByteBufs.create();
             update.write(buf);

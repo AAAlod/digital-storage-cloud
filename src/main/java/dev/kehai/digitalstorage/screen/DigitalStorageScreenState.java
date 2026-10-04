@@ -44,7 +44,9 @@ public record DigitalStorageScreenState(
         NetworkDiagnostic networkDiagnostic,
         boolean statusSuccessful,
         Component status,
-        long responseRevision
+        long responseRevision,
+        UUID volumeId,
+        ResourceLocation volumeIcon
 ) {
     private static final int MAX_SYNCED_INGREDIENTS = 256;
     private static final int MAX_SYNCED_VOLUMES = 64;
@@ -105,7 +107,9 @@ public record DigitalStorageScreenState(
                     networkDiagnostic,
                     false,
                     status,
-                    0
+                    0,
+                    new UUID(0, 0),
+                    StorageVolume.DEFAULT_ICON
             );
         }
 
@@ -136,7 +140,9 @@ public record DigitalStorageScreenState(
                 networkDiagnostic,
                 false,
                 status,
-                0
+                0,
+                volume.id(),
+                volume.icon()
         );
     }
 
@@ -192,6 +198,8 @@ public record DigitalStorageScreenState(
         buf.writeBoolean(statusSuccessful);
         buf.writeComponent(status);
         buf.writeLong(responseRevision);
+        buf.writeUUID(volumeId);
+        buf.writeResourceLocation(volumeIcon);
     }
 
     public static DigitalStorageScreenState read(FriendlyByteBuf buf) {
@@ -244,7 +252,9 @@ public record DigitalStorageScreenState(
                 NetworkDiagnostic.read(buf),
                 buf.readBoolean(),
                 buf.readComponent(),
-                buf.readLong()
+                buf.readLong(),
+                buf.readUUID(),
+                buf.readResourceLocation()
         );
     }
 
@@ -275,7 +285,9 @@ public record DigitalStorageScreenState(
                 networkDiagnostic,
                 successful,
                 message,
-                revision
+                revision,
+                volumeId,
+                volumeIcon
         );
     }
 
@@ -290,7 +302,8 @@ public record DigitalStorageScreenState(
                         "Primary",
                         new ResourceLocation("digitalstorage", "basic"),
                         3,
-                        64
+                        64,
+                        new ResourceLocation("minecraft", "diamond")
                 )),
                 new ResourceLocation("digitalstorage", "basic"),
                 3,
@@ -314,7 +327,9 @@ public record DigitalStorageScreenState(
                 ),
                 true,
                 Component.literal("codec status"),
-                42
+                42,
+                new UUID(0, 1),
+                new ResourceLocation("minecraft", "diamond")
         );
         FriendlyByteBuf buf = new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
         try {
@@ -461,7 +476,8 @@ public record DigitalStorageScreenState(
         }
     }
 
-    public record VolumeChoice(UUID id, String name, ResourceLocation tierId, int usedVariants, int variantCapacity) {
+    public record VolumeChoice(UUID id, String name, ResourceLocation tierId, int usedVariants, int variantCapacity,
+                               ResourceLocation icon) {
         static VolumeChoice from(StorageVolume volume) {
             DigitalStorageRecord record = volume.record();
             return new VolumeChoice(
@@ -469,7 +485,8 @@ public record DigitalStorageScreenState(
                     volume.name(),
                     record.tierId(),
                     record.storage().variantCount(),
-                    record.variantCapacity()
+                    record.variantCapacity(),
+                    volume.icon()
             );
         }
 
@@ -479,6 +496,7 @@ public record DigitalStorageScreenState(
             buf.writeResourceLocation(tierId);
             buf.writeVarInt(usedVariants);
             buf.writeVarInt(variantCapacity);
+            buf.writeResourceLocation(icon);
         }
 
         static VolumeChoice read(FriendlyByteBuf buf) {
@@ -487,7 +505,8 @@ public record DigitalStorageScreenState(
                     buf.readUtf(MAX_TEXT_LENGTH),
                     buf.readResourceLocation(),
                     buf.readVarInt(),
-                    buf.readVarInt()
+                    buf.readVarInt(),
+                    buf.readResourceLocation()
             );
         }
     }

@@ -12,6 +12,7 @@ public final class DigitalStorageScreenProtocol {
     public static final ResourceLocation STATE_PACKET_ID = DigitalStorage.id("screen_state");
     public static final ResourceLocation CREATE_VOLUME_PACKET_ID = DigitalStorage.id("create_volume");
     public static final ResourceLocation MANAGE_VOLUME_PACKET_ID = DigitalStorage.id("manage_volume");
+    public static final ResourceLocation VOLUME_ICON_PACKET_ID = DigitalStorage.id("volume_icon");
 
     private DigitalStorageScreenProtocol() {
     }
@@ -20,6 +21,7 @@ public final class DigitalStorageScreenProtocol {
         void send(CreateVolume request);
 
         void send(ManageVolume request);
+        void send(VolumeIcon request);
     }
 
     @FunctionalInterface
@@ -49,6 +51,17 @@ public final class DigitalStorageScreenProtocol {
         public static ManageVolume read(FriendlyByteBuf buf) {
             return new ManageVolume(buf.readVarInt(), buf.readVarInt(), buf.readUUID(),
                     buf.readUtf(StorageVolume.MAX_NAME_LENGTH));
+        }
+    }
+
+    public record VolumeIcon(int syncId, UUID volumeId, ResourceLocation itemId) {
+        public void write(FriendlyByteBuf buf) {
+            buf.writeVarInt(syncId);
+            buf.writeUUID(volumeId);
+            buf.writeResourceLocation(itemId);
+        }
+        public static VolumeIcon read(FriendlyByteBuf buf) {
+            return new VolumeIcon(buf.readVarInt(), buf.readUUID(), buf.readResourceLocation());
         }
     }
 
@@ -88,6 +101,12 @@ public final class DigitalStorageScreenProtocol {
             buf.clear().writeBytes(java.util.HexFormat.of().parseHex(manageFixture));
             if (!manage.equals(ManageVolume.read(buf)) || buf.isReadable()) {
                 throw new IllegalStateException("Legacy manage volume message was not decoded exactly");
+            }
+            buf.clear();
+            VolumeIcon icon = new VolumeIcon(300, manage.volumeId(), new ResourceLocation("minecraft", "diamond"));
+            icon.write(buf);
+            if (!icon.equals(VolumeIcon.read(buf)) || buf.isReadable()) {
+                throw new IllegalStateException("Volume icon request did not round-trip exactly");
             }
             buf.clear();
             buf.writeVarInt(300);

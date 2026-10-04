@@ -44,6 +44,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
     private boolean migrationWasActive;
     private long lastContentVersion = Long.MIN_VALUE;
     private long lastPolicyVersion = Long.MIN_VALUE;
+    private long lastMetadataVersion = Long.MIN_VALUE;
     private boolean lastServerAllowsUnstackableItems;
     private long nextStateSyncTick;
     private long nextNetworkAnalysisTick;
@@ -69,6 +70,33 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
                 && screenHandler.containerId == request.syncId()) {
             screenHandler.manageVolume(player, request.action(), request.volumeId(), request.name());
         }
+    }
+
+    public static void handleRequest(ServerPlayer player, DigitalStorageScreenProtocol.VolumeIcon request) {
+        if (player.containerMenu instanceof DigitalStorageScreenHandler handler
+                && handler.containerId == request.syncId()) handler.setVolumeIcon(player, request);
+    }
+
+    private void setVolumeIcon(ServerPlayer player, DigitalStorageScreenProtocol.VolumeIcon request) {
+        if (!stillValid(player)) return;
+        var accessor = getServerBlockEntity();
+        var volume = DigitalStorageState.get(player.serverLevel()).volume(request.volumeId()).orElse(null);
+        boolean controls = accessor != null && accessor.controllerId().map(player.getUUID()::equals).orElse(true);
+        var bound = accessor == null ? null : accessor.getVolume();
+        boolean target = accessor != null && (!accessor.isBound() || bound != null && bound.id().equals(request.volumeId()));
+        var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(request.itemId()).orElse(null);
+        boolean possessed = request.itemId().equals(StorageVolume.DEFAULT_ICON);
+        if (item != null && !possessed) {
+            possessed = getCarried().is(item);
+            for (int slot = 0; slot < player.getInventory().getContainerSize() && !possessed; slot++)
+                possessed = player.getInventory().getItem(slot).is(item);
+        }
+        statusSuccessful = controls && target && volume != null && volume.ownerId().equals(player.getUUID())
+                && item != null && item != net.minecraft.world.item.Items.AIR && possessed;
+        if (statusSuccessful) volume.setIcon(request.itemId());
+        status = Component.translatable(statusSuccessful ? "screen.digitalstorage.gui.icon_saved"
+                : "screen.digitalstorage.gui.icon_rejected");
+        sendServerState();
     }
 
     public DigitalStorageScreenHandler(int syncId, Inventory playerInventory, FriendlyByteBuf openingData) {
@@ -296,10 +324,12 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         boolean migrationFinished = migrationWasActive && !migrationActive;
         boolean contentChanged = contentVersion != lastContentVersion;
         boolean policyChanged = policyVersion != lastPolicyVersion;
+        long metadataVersion = volume == null ? Long.MIN_VALUE : volume.metadataVersion();
+        boolean metadataChanged = metadataVersion != lastMetadataVersion;
         boolean serverPolicyChanged = serverAllowsUnstackableItems != lastServerAllowsUnstackableItems;
         int interval = migrationActive ? 4 : 8;
         if (!topologyInvalid && !migrationFinished
-                && (!(contentChanged || policyChanged || serverPolicyChanged) || tick < nextStateSyncTick)
+                && (!(contentChanged || policyChanged || serverPolicyChanged || metadataChanged) || tick < nextStateSyncTick)
                 && (!migrationActive || tick < nextStateSyncTick)) {
             return;
         }
@@ -310,6 +340,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         DigitalStorageScreenState updated = captureServerState(status).withStatus(status, statusSuccessful, responseRevision);
         lastContentVersion = contentVersion;
         lastPolicyVersion = policyVersion;
+        lastMetadataVersion = metadataVersion;
         lastServerAllowsUnstackableItems = serverAllowsUnstackableItems;
         nextStateSyncTick = tick + interval;
         if (!Objects.equals(updated, state)) {
@@ -397,6 +428,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
                 ? Long.MIN_VALUE
                 : volume.record().policyVersion();
         lastServerAllowsUnstackableItems = DigitalStorageConfig.get().allowUnstackableItems;
+        lastMetadataVersion = volume == null ? Long.MIN_VALUE : volume.metadataVersion();
     }
 
     private void createVolume(ServerPlayer player, String requestedName) {
@@ -554,6 +586,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
             handleRequest(player, new DigitalStorageScreenProtocol.ManageVolume(203, DELETE_VOLUME_ACTION, created.id(), ""));
             expectResponse(handler.state.statusSuccessful() && handler.state.responseRevision() == 8,
                     "Empty deletion reply");
+            runIconSelfTest(player, accessor);
             dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Screen operation response fixture passed: menu identity, create, UUID rename, repeated rejection, binding, content broadcast, clearing and guarded deletion");
         } finally {
             stateSender = oldSender;
@@ -567,6 +600,69 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
                 }
                 expectResponse(cloud.deleteEmptyVolume(player.getUUID(), created.id()), "Fixture cleanup");
             }
+        }
+    }
+
+    private static void runIconSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) {
+        var cloud = DigitalStorageState.get(player.serverLevel());
+        var volume = cloud.createVolume(player.getUUID(), "Icon request fixture", Integer.MAX_VALUE).orElseThrow();
+        var foreign = cloud.createVolume(java.util.UUID.randomUUID(), "Foreign icon fixture", 1).orElseThrow();
+        var oldItem = player.getInventory().getItem(0);
+        var diamond = new net.minecraft.resources.ResourceLocation("minecraft", "diamond");
+        var item = new ItemStack(net.minecraft.world.item.Items.DIAMOND, 3);
+        item.getOrCreateTag().putString("IconFixture", "preserve this tag");
+        player.getInventory().setItem(0, item);
+        try {
+            var handler = new DigitalStorageScreenHandler(207, player.getInventory(), accessor);
+            player.containerMenu = handler;
+            handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(208, volume.id(), diamond));
+            expectResponse(volume.icon().equals(StorageVolume.DEFAULT_ICON) && handler.responseRevision == 0,
+                    "Stale icon menu ignored");
+            handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(207, foreign.id(), diamond));
+            expectResponse(!handler.state.statusSuccessful() && foreign.icon().equals(StorageVolume.DEFAULT_ICON),
+                    "Foreign icon edit rejected");
+            int index = cloud.volumes(player.getUUID()).indexOf(volume);
+            handler.clickMenuButton(player, BIND_VOLUME_BUTTON_BASE + index);
+            var alias = new DigitalStorageScreenHandler(208, player.getInventory(), accessor);
+            alias.broadcastChanges();
+            handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(207, volume.id(), diamond));
+            expectResponse(handler.state.statusSuccessful() && handler.state.volumeIcon().equals(diamond)
+                    && handler.state.volumeId().equals(volume.id()), "Owned inventory icon accepted and synced");
+            alias.nextStateSyncTick = 0;
+            alias.broadcastChanges();
+            expectResponse(alias.state.volumeIcon().equals(diamond) && alias.responseRevision == 0,
+                    "Metadata broadcasts refresh other menus without acknowledging an operation");
+            expectResponse(item.getCount() == 3 && item.getTag().getString("IconFixture").equals("preserve this tag")
+                    && volume.record().storage().totalItemCount() == 0, "Icon selection preserves inventory and ledger");
+            for (var denied : java.util.List.of(new net.minecraft.resources.ResourceLocation("minecraft", "air"),
+                    new net.minecraft.resources.ResourceLocation("absent_mod", "missing_item"),
+                    new net.minecraft.resources.ResourceLocation("minecraft", "nether_star"))) {
+                handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(207, volume.id(), denied));
+                expectResponse(!handler.state.statusSuccessful() && volume.icon().equals(diamond),
+                        "Invalid or unpossessed icon rejected: " + denied);
+            }
+            player.setPos(accessor.getBlockPos().getX() + 20, accessor.getBlockPos().getY(), accessor.getBlockPos().getZ());
+            long revision = handler.responseRevision;
+            handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(207, volume.id(), StorageVolume.DEFAULT_ICON));
+            expectResponse(handler.responseRevision == revision && volume.icon().equals(diamond), "Out-of-range icon ignored");
+            player.setPos(accessor.getBlockPos().getX() + .5, accessor.getBlockPos().getY() + .5, accessor.getBlockPos().getZ() + .5);
+            handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(207, volume.id(), StorageVolume.DEFAULT_ICON));
+            expectResponse(handler.state.statusSuccessful() && volume.icon().equals(StorageVolume.DEFAULT_ICON),
+                    "Default icon reset requires no chest item");
+            handler.setCarried(new ItemStack(net.minecraft.world.item.Items.PAPER));
+            handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(207, volume.id(),
+                    new net.minecraft.resources.ResourceLocation("minecraft", "paper")));
+            expectResponse(handler.state.statusSuccessful() && handler.getCarried().getCount() == 1,
+                    "Carried item icon accepted without consumption");
+            handler.setCarried(ItemStack.EMPTY);
+            handler.clickMenuButton(player, CLEAR_BINDING_BUTTON_ID);
+            dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Volume icon fixture passed: owner/menu/range checks, inventory and carried item preservation, invalid item rejection, default reset and metadata broadcast");
+        } finally {
+            player.getInventory().setItem(0, oldItem);
+            player.setPos(accessor.getBlockPos().getX() + .5, accessor.getBlockPos().getY() + .5, accessor.getBlockPos().getZ() + .5);
+            if (accessor.boundVolumeId().filter(volume.id()::equals).isPresent()) accessor.clearBinding(player);
+            expectResponse(cloud.deleteEmptyVolume(volume.ownerId(), volume.id()), "Owned icon fixture cleanup");
+            expectResponse(cloud.deleteEmptyVolume(foreign.ownerId(), foreign.id()), "Foreign icon fixture cleanup");
         }
     }
 

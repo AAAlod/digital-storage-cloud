@@ -3,6 +3,7 @@ package dev.kehai.digitalstorage.storage;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
 
 public final class StorageVolume {
     public static final int MAX_NAME_LENGTH = 48;
@@ -14,6 +15,9 @@ public final class StorageVolume {
     private final UUID id;
     private final UUID ownerId;
     private String name;
+    public static final ResourceLocation DEFAULT_ICON = new ResourceLocation("minecraft", "chest");
+    private ResourceLocation icon = DEFAULT_ICON;
+    private long metadataVersion;
     private final DigitalStorageRecord record;
     private final Runnable dirtyCallback;
 
@@ -41,13 +45,17 @@ public final class StorageVolume {
             throw new IllegalArgumentException("Storage volume has no valid ID or owner UUID");
         }
         String name = nbt.contains(NAME_KEY) ? nbt.getString(NAME_KEY) : "Storage";
-        return new StorageVolume(
+        StorageVolume volume = new StorageVolume(
                 nbt.getUUID(ID_KEY),
                 nbt.getUUID(OWNER_KEY),
                 name,
                 DigitalStorageRecord.fromNbt(nbt.getUUID(ID_KEY), nbt, dirtyCallback),
                 dirtyCallback
         );
+        String iconId = nbt.getString("Icon");
+        ResourceLocation storedIcon = iconId.isBlank() ? null : ResourceLocation.tryParse(iconId);
+        if (storedIcon != null && !storedIcon.equals(new ResourceLocation("minecraft", "air"))) volume.icon = storedIcon;
+        return volume;
     }
 
     public UUID id() {
@@ -60,6 +68,17 @@ public final class StorageVolume {
 
     public String name() {
         return name;
+    }
+
+    public ResourceLocation icon() { return icon; }
+    public long metadataVersion() { return metadataVersion; }
+
+    public boolean setIcon(ResourceLocation requestedIcon) {
+        if (icon.equals(requestedIcon)) return false;
+        icon = java.util.Objects.requireNonNull(requestedIcon);
+        metadataVersion++;
+        dirtyCallback.run();
+        return true;
     }
 
     public DigitalStorageRecord record() {
@@ -80,6 +99,7 @@ public final class StorageVolume {
             return false;
         }
         name = normalized;
+        metadataVersion++;
         dirtyCallback.run();
         return true;
     }
@@ -89,15 +109,16 @@ public final class StorageVolume {
     }
 
     Snapshot snapshot(List<VolumeLedger.StoredEntrySnapshot> items) {
-        return new Snapshot(id, ownerId, name, record.snapshot(items));
+        return new Snapshot(id, ownerId, name, icon, record.snapshot(items));
     }
 
-    record Snapshot(UUID id, UUID ownerId, String name, DigitalStorageRecord.Snapshot record) {
+    record Snapshot(UUID id, UUID ownerId, String name, ResourceLocation icon, DigitalStorageRecord.Snapshot record) {
         CompoundTag writeNbt() {
             CompoundTag nbt = new CompoundTag();
             nbt.putUUID(ID_KEY, id);
             nbt.putUUID(OWNER_KEY, ownerId);
             nbt.putString(NAME_KEY, name);
+            nbt.putString("Icon", icon.toString());
             record.writeNbt(nbt);
             return nbt;
         }

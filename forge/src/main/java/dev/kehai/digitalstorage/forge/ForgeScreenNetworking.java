@@ -14,11 +14,19 @@ import net.minecraftforge.network.simple.SimpleChannel;
 
 public final class ForgeScreenNetworking {
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(DigitalStorage.id("screen"),
-            () -> "2", "2"::equals, "2"::equals);
+            () -> "3", "3"::equals, "3"::equals);
 
     private ForgeScreenNetworking() { }
 
     public static void register() {
+        CHANNEL.messageBuilder(dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol.VolumeIcon.class, 3, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol.VolumeIcon::write)
+                .decoder(dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol.VolumeIcon::read)
+                .consumerMainThread((request, context) -> {
+                    var player = context.get().getSender();
+                    if (player != null) DigitalStorageScreenHandler.handleRequest(player, request);
+                    context.get().setPacketHandled(true);
+                }).add();
         CHANNEL.messageBuilder(CreateVolume.class, 0, NetworkDirection.PLAY_TO_SERVER)
                 .encoder(CreateVolume::write).decoder(CreateVolume::read)
                 .consumerMainThread((request, context) -> {
