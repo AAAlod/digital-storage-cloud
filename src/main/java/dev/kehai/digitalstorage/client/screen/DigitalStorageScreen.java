@@ -18,7 +18,6 @@ import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -107,6 +106,15 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         confirm = button("gui.confirm", imageWidth - 118, imageHeight - 44, 106, ignored -> confirm());
         secondary = button("gui.refresh", imageWidth - 118, imageHeight - 70, 106,
                 ignored -> secondaryAction());
+        if (view == View.NETWORK) {
+            int actionWidth = (imageWidth - 32) / 3;
+            back.setWidth(actionWidth);
+            secondary.setX(leftPos + MARGIN + actionWidth + 4);
+            secondary.setY(topPos + imageHeight - 44);
+            secondary.setWidth(actionWidth);
+            confirm.setX(leftPos + MARGIN + 2 * (actionWidth + 4));
+            confirm.setWidth(actionWidth);
+        }
         updateWidgets();
         nameField.setResponder(ignored -> updateWidgets());
     }
@@ -163,7 +171,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     private int desiredHeight() {
         return switch (view) {
-            case HOME, NETWORK -> 250;
+            case HOME -> 250;
+            case NETWORK -> 224;
             case UPGRADE -> menu.state().hasNextTier() ? 250 : 174;
             case CREATE, RENAME -> 160;
             case MORE, CLEAR, DELETE -> 190;
@@ -327,6 +336,9 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                 confirm.setMessage(tr(state.hasNextTier() ? "gui.confirm_upgrade" : "maximum_button"));
                 confirm.active &= state.accessorBound() && state.accessorConfigurable()
                         && state.hasNextTier() && state.canAfford();
+                confirm.setTooltip(Tooltip.create(tr(!state.hasNextTier() ? "maximum"
+                        : !state.accessorConfigurable() ? "gui.read_only"
+                        : state.canAfford() ? "affordable" : "unaffordable")));
             }
             case NETWORK -> {
                 confirm.setMessage(tr(diagnostic.migrationActive() ? "migration.cancel" : "gui.optimize"));
@@ -468,7 +480,9 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         graphics.pose().pushPose();
         graphics.pose().translate(0, -homeScroll, 0);
         drawingHomeContent = true;
-        text(graphics, Component.literal(state.volumeName()), MARGIN, 35, imageWidth - 124, TEXT);
+        panel(graphics, MARGIN - 3, 31, imageWidth - 18, 77);
+        graphics.renderItem(new ItemStack(Items.CHEST), MARGIN, 33);
+        text(graphics, Component.literal(state.volumeName()), MARGIN + 23, 35, imageWidth - 147, TEXT);
         text(graphics, tierName(state.tierId()), imageWidth - 104, 35, 92, MUTED);
         progress(graphics, MARGIN, 54, imageWidth - 24, 7,
                 state.variantCapacity() <= 0 ? 0 : (double) state.usedVariants() / state.variantCapacity());
@@ -529,31 +543,121 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             default -> "gui.manage_volume";
         };
         text(graphics, tr(heading), MARGIN, 35, imageWidth - 24, TEXT);
-        if (upgradeLayout()) {
+        if (view == View.UPGRADE) {
             drawUpgrade(graphics);
             return;
         }
-        if (view == View.CREATE || view == View.RENAME) {
-            text(graphics, view == View.RENAME && selectedChoice() != null
-                    ? tr("gui.target", selectedChoice().name()) : tr("gui.name"), MARGIN, 62, imageWidth - 24, MUTED);
-            detailLines = 0;
+        detailLines = 0;
+        if (view == View.NETWORK) {
+            drawNetwork(graphics);
             return;
         }
-        List<FormattedCharSequence> lines = new ArrayList<>();
-        for (Component paragraph : detailText()) {
-            lines.addAll(font.split(paragraph, imageWidth - 42));
-            lines.add(FormattedCharSequence.EMPTY);
+        if (view == View.CREATE || view == View.RENAME) {
+            panel(graphics, MARGIN - 3, 54, imageWidth - 18, 54);
+            graphics.renderItem(new ItemStack(view == View.CREATE ? Items.CHEST : Items.NAME_TAG), MARGIN, 58);
+            text(graphics, view == View.RENAME && selectedChoice() != null
+                    ? tr("gui.target", selectedChoice().name()) : tr("gui.name"), MARGIN + 23, 62, imageWidth - 47, TEXT);
+            return;
         }
-        detailLines = lines.size();
-        detailScroll = Math.max(0, Math.min(detailScroll, maxDetailScroll()));
-        panel(graphics, MARGIN - 2, 53, imageWidth - MARGIN * 2 + 2, detailViewport() + 8);
-        graphics.enableScissor(leftPos + MARGIN, topPos + 57, leftPos + imageWidth - 14, topPos + 57 + detailViewport());
-        for (int i = detailScroll; i < lines.size(); i++) {
-            int y = 57 + (i - detailScroll) * (font.lineHeight + 2);
-            if (y >= 57 + detailViewport()) break;
-            graphics.drawString(font, lines.get(i), MARGIN + 5, y, i == 0 ? TEXT : MUTED, false);
+        drawManagement(graphics);
+    }
+
+    private void drawNetwork(GuiGraphics graphics) {
+        var d = menu.state().networkDiagnostic();
+        int color = !d.available() ? MUTED : d.hasDuplicateTargetEndpoints() ? RED
+                : d.failingScanners() > 0 ? YELLOW : GREEN;
+        String health = !d.available() ? "gui.network_disconnected"
+                : d.hasDuplicateTargetEndpoints() ? "gui.network_duplicates"
+                : d.failingScanners() > 0 ? "gui.network_scanner_fault" : "gui.network_healthy";
+        panel(graphics, MARGIN, 52, imageWidth - 24, 33);
+        graphics.renderItem(new ItemStack(Items.COMPARATOR), MARGIN + 6, 60);
+        text(graphics, tr(health), MARGIN + 28, 60, imageWidth - 135, color);
+        Component healthHint = !d.available() ? tr("network.unavailable")
+                : d.hasDuplicateTargetEndpoints() ? tr("network.duplicate_warning", d.targetEndpointCount())
+                : d.failingScanners() > 0 ? tr("network.hopper_warning", d.failingScanners()) : tr("network.no_action");
+        if (d.hasDuplicateTargetEndpoints()) healthHint = Component.empty().append(healthHint)
+                .append("\n").append(tr("network.keep_one_endpoint"));
+        hints.add(new Hint(healthHint, MARGIN, 52, imageWidth - 120, 33));
+        int scoreX = imageWidth - 99;
+        text(graphics, Component.literal(d.available() ? d.healthScore() + "/100 · " + d.grade() : "—"),
+                scoreX, 58, 78, TEXT);
+        progress(graphics, scoreX, 73, 78, 4, d.available() ? d.healthScore() / 100.0 : 0, GREEN);
+        hints.add(new Hint(tr("gui.score_hint"), scoreX, 52, 87, 33));
+        int columnWidth = (imageWidth - 32) / 2;
+        metric(graphics, MARGIN, 94, columnWidth, "gui.metric_inventories", d.available() ? "" + d.physicalInventories() : "—", TEXT);
+        metric(graphics, MARGIN + columnWidth + 8, 94, columnWidth, "gui.metric_slots",
+                d.available() ? d.nonEmptyViews() + "/" + d.totalViews() : "—", TEXT);
+        metric(graphics, MARGIN, 108, columnWidth, "gui.metric_scanners", d.available() ? "" + d.activeScanners() : "—", TEXT);
+        metric(graphics, MARGIN + columnWidth + 8, 108, columnWidth, "gui.metric_failures",
+                d.available() ? "" + d.failingScanners() : "—", d.failingScanners() > 0 ? YELLOW : MUTED);
+        metric(graphics, MARGIN, 122, columnWidth, "gui.metric_interval",
+                d.available() ? tr("gui.ticks", d.averageScanIntervalTicks()).getString() : "—", TEXT);
+        metric(graphics, MARGIN + columnWidth + 8, 122, columnWidth, "gui.metric_freed",
+                d.available() ? "" + d.estimatedFreedViews() : "—", TEXT);
+        int y = 140;
+        panel(graphics, MARGIN, y, imageWidth - 24, 34);
+        graphics.renderItem(new ItemStack(Items.HOPPER), MARGIN + 6, y + 8);
+        if (d.migrationActive()) {
+            text(graphics, tr("migration.progress_short", d.completedCandidates(), d.totalCandidates()),
+                    MARGIN + 28, y + 5, imageWidth - 65, GREEN);
+            progress(graphics, MARGIN + 28, y + 21, imageWidth - 65, 5,
+                    d.totalCandidates() <= 0 ? 0 : (double) d.completedCandidates() / d.totalCandidates(), GREEN);
+            hints.add(new Hint(tr("migration.progress", d.movedItems(), d.completedCandidates(),
+                    d.totalCandidates(), d.scannedViews()), MARGIN, y, imageWidth - 24, 34));
+        } else {
+            text(graphics, tr("gui.opportunity", d.recommendedVariants()), MARGIN + 28, y + 5,
+                    imageWidth - 65, d.recommendedVariants() > 0 ? YELLOW : MUTED);
+            var candidateId = ResourceLocation.tryParse(d.topCandidateId());
+            Component candidate = candidateId == null ? tr("gui.no_opportunity")
+                    : BuiltInRegistries.ITEM.getOptional(candidateId).<Component>map(item -> item.getDescription())
+                            .orElse(Component.literal(d.topCandidateId()));
+            text(graphics, candidate, MARGIN + 28, y + 20, imageWidth - 65, MUTED);
+            hints.add(new Hint(tr("gui.migration_explanation"), MARGIN, y, imageWidth - 24, 34));
         }
-        graphics.disableScissor();
+    }
+
+    private void metric(GuiGraphics graphics, int x, int y, int w, String key, String value, int color) {
+        graphics.fill(x, y - 2, x + w, y + 11, 0xFF25282C);
+        int valueWidth = Math.min(w / 2, font.width(value));
+        text(graphics, tr(key), x + 5, y, Math.max(1, w - valueWidth - 15), MUTED);
+        text(graphics, Component.literal(value), x + w - valueWidth - 5, y, valueWidth, color);
+    }
+
+    private void drawManagement(GuiGraphics graphics) {
+        var state = menu.state();
+        var choice = selectedChoice();
+        boolean selected = view == View.VOLUME || view == View.DELETE;
+        if (selected && choice == null) {
+            notice(graphics, 59, "gui.target_missing", "gui.target_missing", RED);
+            return;
+        }
+        String name = selected ? choice.name() : state.volumeName();
+        ResourceLocation tier = selected ? choice.tierId() : state.tierId();
+        int used = selected ? choice.usedVariants() : state.usedVariants();
+        int capacity = selected ? choice.variantCapacity() : state.variantCapacity();
+        panel(graphics, MARGIN, 53, imageWidth - 24, 58);
+        graphics.renderItem(new ItemStack(Items.CHEST), MARGIN + 7, 62);
+        text(graphics, Component.literal(name), MARGIN + 31, 62, imageWidth - 62, TEXT);
+        text(graphics, tr("gui.volume_usage", tierName(tier), used, capacity), MARGIN + 31, 78, imageWidth - 62, MUTED);
+        progress(graphics, MARGIN + 7, 98, imageWidth - 38, 5, capacity <= 0 ? 0 : (double) used / capacity);
+        switch (view) {
+            case MORE -> {
+                text(graphics, tr("gui.controller", state.controller()), MARGIN + 3, 117, imageWidth - 30, MUTED);
+                text(graphics, tr("gui.items_preserved"), MARGIN + 3, 132, imageWidth - 30, GREEN);
+                hints.add(new Hint(tr("gui.clear_explanation"), MARGIN, 117, imageWidth - 24, 27));
+            }
+            case CLEAR -> notice(graphics, 117, "gui.clear_effect", "gui.clear_confirmation", YELLOW);
+            case DELETE -> notice(graphics, 117, "gui.delete_effect", "gui.delete_confirmation", RED);
+            case VOLUME -> notice(graphics, 117, "gui.volume_actions", "gui.volume_help", MUTED);
+            default -> { }
+        }
+    }
+
+    private void notice(GuiGraphics graphics, int y, String key, String tooltip, int color) {
+        panel(graphics, MARGIN, y, imageWidth - 24, 23);
+        graphics.fill(MARGIN, y, MARGIN + 2, y + 23, color);
+        text(graphics, tr(key), MARGIN + 8, y + 7, imageWidth - 42, color);
+        hints.add(new Hint(tr(tooltip), MARGIN, y, imageWidth - 24, 23));
     }
 
     private void panel(GuiGraphics graphics, int x, int y, int w, int h) {
@@ -564,7 +668,9 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     private void drawUpgrade(GuiGraphics graphics) {
         var state = menu.state();
-        text(graphics, tr("gui.target", state.volumeName()), MARGIN, 53, imageWidth - 24, MUTED);
+        if (imageHeight >= 200 || !state.hasNextTier())
+            text(graphics, tr("gui.target", state.volumeName()), MARGIN, 53, imageWidth - 24, MUTED);
+        else hints.add(new Hint(tr("gui.target", state.volumeName()), MARGIN, 35, imageWidth - 24, 12));
         if (!state.hasNextTier()) {
             panel(graphics, MARGIN, 71, imageWidth - 24, 48);
             graphics.renderItem(new ItemStack(Items.NETHER_STAR), MARGIN + 9, 85);
@@ -575,11 +681,12 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             return;
         }
         int cardWidth = (imageWidth - 48) / 2;
-        tierPanel(graphics, MARGIN, 72, cardWidth, tr("gui.current_tier"), state.tierId(), state.variantCapacity(), MUTED);
-        tierPanel(graphics, imageWidth - MARGIN - cardWidth, 72, cardWidth,
+        int cardY = imageHeight < 200 ? 60 : imageHeight < 230 ? 68 : 72;
+        tierPanel(graphics, MARGIN, cardY, cardWidth, tr("gui.current_tier"), state.tierId(), state.variantCapacity(), MUTED);
+        tierPanel(graphics, imageWidth - MARGIN - cardWidth, cardY, cardWidth,
                 tr("gui.next_tier"), state.nextTierId(), state.nextVariantCapacity(), GREEN);
-        text(graphics, Component.literal("→"), imageWidth / 2 - 4, 91, 12, YELLOW);
-        text(graphics, tr("cost"), MARGIN, 128, imageWidth - 24, TEXT);
+        text(graphics, Component.literal("→"), imageWidth / 2 - 4, cardY + 19, 12, YELLOW);
+        if (imageHeight >= 200) text(graphics, tr("cost"), MARGIN, upgradeCostTop() - 12, imageWidth - 24, TEXT);
         List<Component> costs = new ArrayList<>();
         List<ItemStack> icons = new ArrayList<>();
         for (UpgradeIngredient ingredient : state.upgradeCost()) {
@@ -595,113 +702,47 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         if (costs.isEmpty()) { costs.add(tr("cost_free")); icons.add(ItemStack.EMPTY); }
         detailLines = costs.size();
         detailScroll = Math.max(0, Math.min(detailScroll, maxDetailScroll()));
-        panel(graphics, MARGIN, 140, imageWidth - 24, upgradeCostViewport());
-        graphics.enableScissor(leftPos + MARGIN, topPos + 140, leftPos + imageWidth - 14,
-                topPos + 140 + upgradeCostViewport());
+        int costTop = upgradeCostTop();
+        panel(graphics, MARGIN, costTop, imageWidth - 24, upgradeCostViewport());
+        graphics.enableScissor(leftPos + MARGIN, topPos + costTop, leftPos + imageWidth - 14,
+                topPos + costTop + upgradeCostViewport());
         for (int i = detailScroll; i < Math.min(costs.size(), detailScroll + upgradeCostViewport() / 20); i++) {
-            int y = 142 + (i - detailScroll) * 20;
-            if (y >= 140 + upgradeCostViewport()) break;
+            int y = costTop + 2 + (i - detailScroll) * 20;
             graphics.renderItem(icons.get(i), MARGIN + 5, y);
             text(graphics, costs.get(i), MARGIN + 27, y + 4, imageWidth - 56, TEXT);
         }
         graphics.disableScissor();
-        text(graphics, tr(!state.accessorConfigurable() ? "gui.read_only"
+        if (imageHeight >= 230) text(graphics, tr(!state.accessorConfigurable() ? "gui.read_only"
                 : state.canAfford() ? "affordable" : "unaffordable"), MARGIN, imageHeight - 59,
                 imageWidth - 24, !state.accessorConfigurable() ? YELLOW : state.canAfford() ? GREEN : RED);
     }
 
     private void tierPanel(GuiGraphics graphics, int x, int y, int w, Component label,
                            ResourceLocation tier, int capacity, int color) {
-        panel(graphics, x, y, w, 47);
-        text(graphics, label, x + 7, y + 5, w - 14, MUTED);
-        text(graphics, tierName(tier), x + 7, y + 18, w - 14, color);
-        text(graphics, tr("gui.type_capacity", capacity), x + 7, y + 33, w - 14, TEXT);
+        boolean compact = imageHeight < 200;
+        panel(graphics, x, y, w, compact ? 35 : 47);
+        if (!compact) text(graphics, label, x + 7, y + 5, w - 14, MUTED);
+        text(graphics, tierName(tier), x + 7, y + (compact ? 6 : 18), w - 14, color);
+        text(graphics, tr("gui.type_capacity", capacity), x + 7, y + (compact ? 21 : 33), w - 14, TEXT);
+        hints.add(new Hint(label, x, y, w, compact ? 35 : 47));
     }
 
-    private boolean upgradeLayout() {
-        return view == View.UPGRADE && imageHeight >= (menu.state().hasNextTier() ? 230 : 160);
-    }
-
-    private int upgradeCostViewport() { return Math.max(20, (imageHeight - 205) / 20 * 20); }
-
-    private List<Component> detailText() {
-        var state = menu.state();
-        var d = state.networkDiagnostic();
-        List<Component> result = new ArrayList<>();
-        switch (view) {
-            case UPGRADE -> {
-                result.add(tr("gui.target", state.volumeName()));
-                if (!state.hasNextTier()) { result.add(tr("maximum")); break; }
-                result.add(tr("upgrade.transition", tierName(state.tierId()), tierName(state.nextTierId())));
-                result.add(tr("upgrade.capacity_transition", state.variantCapacity(), state.nextVariantCapacity()));
-                result.add(tr("cost"));
-                for (UpgradeIngredient ingredient : state.upgradeCost()) {
-                    Component name = ingredient.kind() == UpgradeIngredient.Kind.ITEM
-                            ? BuiltInRegistries.ITEM.getOptional(ingredient.id()).<Component>map(item -> item.getDescription())
-                                    .orElse(Component.literal(ingredient.id().toString()))
-                            : Component.literal("#" + ingredient.id());
-                    result.add(tr("cost_entry", name, ingredient.count()));
-                }
-                if (state.experienceLevels() > 0) result.add(tr("cost_xp", state.experienceLevels()));
-                if (state.upgradeCost().isEmpty() && state.experienceLevels() == 0) result.add(tr("cost_free"));
-                result.add(tr(state.canAfford() ? "affordable" : "unaffordable"));
-                if (!state.accessorConfigurable()) result.add(tr("gui.read_only"));
-            }
-            case NETWORK -> {
-                if (!d.available()) result.add(tr("network.unavailable"));
-                else {
-                    result.add(tr("network.health", d.healthScore(), d.grade()));
-                    result.add(tr("gui.score_hint"));
-                    if (d.hasDuplicateTargetEndpoints()) {
-                        result.add(tr("network.duplicate_warning", d.targetEndpointCount()));
-                        result.add(tr("network.keep_one_endpoint"));
-                    }
-                    if (d.failingScanners() > 0) result.add(tr("network.hopper_warning", d.failingScanners()));
-                    if (!d.hasDuplicateTargetEndpoints() && d.failingScanners() == 0) result.add(tr("network.no_action"));
-                    result.add(tr("gui.network_inventories", d.physicalInventories(), d.nonEmptyViews(), d.totalViews()));
-                    result.add(tr("gui.network_scanners", d.activeScanners(), d.failingScanners(), d.averageScanIntervalTicks()));
-                    result.add(tr("gui.opportunity", d.recommendedVariants()));
-                    result.add(tr("network.freed_views_short", d.estimatedFreedViews()));
-                    if (!d.topCandidateId().isBlank()) result.add(tr("gui.top_candidate", d.topCandidateId()));
-                }
-                if (d.migrationActive()) {
-                    result.add(tr("migration.running"));
-                    result.add(tr("migration.progress", d.movedItems(), d.completedCandidates(), d.totalCandidates(), d.scannedViews()));
-                }
-                result.add(tr("gui.migration_explanation"));
-            }
-            case MORE -> {
-                result.add(tr("gui.target", state.volumeName()));
-                result.add(tr("gui.controller", state.controller()));
-                result.add(tr("gui.clear_explanation"));
-            }
-            case CLEAR -> {
-                result.add(tr("gui.target", state.volumeName()));
-                result.add(tr("gui.clear_confirmation"));
-            }
-            case VOLUME, DELETE -> {
-                var choice = selectedChoice();
-                if (choice == null) { result.add(tr("gui.target_missing")); break; }
-                result.add(tr("gui.target", choice.name()));
-                result.add(tr("gui.volume_usage", tierName(choice.tierId()), choice.usedVariants(), choice.variantCapacity()));
-                result.add(tr(view == View.DELETE ? "gui.delete_confirmation" : "gui.volume_help"));
-            }
-            default -> { }
-        }
-        return result;
+    private int upgradeCostTop() { return imageHeight < 200 ? 106 : imageHeight < 230 ? 128 : 140; }
+    private int upgradeCostViewport() {
+        int bottom = imageHeight - (imageHeight >= 230 ? 65 : 50);
+        return Math.max(20, (bottom - upgradeCostTop()) / 20 * 20);
     }
 
     private int maxHomeScroll() { return Math.max(0, 231 - imageHeight); }
-    private int detailViewport() { return Math.max(11, imageHeight - (secondary.visible ? 132 : 106)); }
     private int maxDetailScroll() {
-        if (upgradeLayout()) return menu.state().hasNextTier()
+        if (view == View.UPGRADE) return menu.state().hasNextTier()
                 ? Math.max(0, detailLines - Math.max(1, upgradeCostViewport() / 20)) : 0;
-        return Math.max(0, detailLines - Math.max(1, detailViewport() / (font.lineHeight + 2)));
+        return 0;
     }
     private int scrollTop() { return view == View.HOME ? menu.state().accessorBound() ? 30 : 62
-            : upgradeLayout() ? 140 : 57; }
+            : upgradeCostTop(); }
     private int scrollHeight() { return view == View.HOME ? imageHeight - 24 - scrollTop()
-            : upgradeLayout() ? upgradeCostViewport() : detailViewport(); }
+            : upgradeCostViewport(); }
     private boolean hasScroll() {
         return view == View.HOME ? menu.state().accessorBound() ? maxHomeScroll() > 0
                 : menu.state().ownedVolumes().size() > bindButtons.size() : maxDetailScroll() > 0;
@@ -730,10 +771,14 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     }
 
     private void progress(GuiGraphics graphics, int x, int y, int w, int h, double fraction) {
+        progress(graphics, x, y, w, h, fraction, fraction >= 0.9 ? YELLOW : GREEN);
+    }
+
+    private void progress(GuiGraphics graphics, int x, int y, int w, int h, double fraction, int color) {
         graphics.fill(x, y, x + w, y + h, 0xFF151515);
         graphics.renderOutline(x, y, w, h, LINE);
         int filled = (int) Math.round((w - 2) * Math.max(0, Math.min(1, fraction)));
-        if (filled > 0) graphics.fill(x + 1, y + 1, x + 1 + filled, y + h - 1, fraction >= 0.9 ? YELLOW : GREEN);
+        if (filled > 0) graphics.fill(x + 1, y + 1, x + 1 + filled, y + h - 1, color);
     }
 
     private Component tierName(ResourceLocation id) {
