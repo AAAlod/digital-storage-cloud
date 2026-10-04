@@ -9,6 +9,7 @@
   "screen.digitalstorage.gui.create": "+ 创建存储卷",
   "screen.digitalstorage.gui.bind": "绑定",
   "screen.digitalstorage.gui.name": "存储卷名称",
+  "screen.digitalstorage.gui.name_placeholder": "输入存储卷名称…",
   "screen.digitalstorage.gui.back": "返回",
   "screen.digitalstorage.gui.confirm": "确认",
   "screen.digitalstorage.gui.refresh": "重新分析",

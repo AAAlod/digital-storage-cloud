@@ -9,6 +9,7 @@
   "screen.digitalstorage.gui.create": "+ Create volume",
   "screen.digitalstorage.gui.bind": "Bind",
   "screen.digitalstorage.gui.name": "Volume name",
+  "screen.digitalstorage.gui.name_placeholder": "Enter a volume name…",
   "screen.digitalstorage.gui.back": "Back",
   "screen.digitalstorage.gui.confirm": "Confirm",
   "screen.digitalstorage.gui.refresh": "Analyze again",

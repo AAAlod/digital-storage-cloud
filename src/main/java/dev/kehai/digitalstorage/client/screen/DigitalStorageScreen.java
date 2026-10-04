@@ -26,14 +26,14 @@ import net.minecraft.world.item.Items;
 public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalStorageScreenHandler> {
     private static final int MARGIN = 12;
     private static final int ROW_HEIGHT = 40;
-    private static final int TEXT = 0xFFE8E8E8;
-    private static final int MUTED = 0xFFB9B9B9;
-    private static final int LINE = 0xFF626262;
-    private static final int GREEN = 0xFF8ED389;
-    private static final int YELLOW = 0xFFFFCC75;
-    private static final int RED = 0xFFFF8E8E;
+    private static final int TEXT = 0xFF404040;
+    private static final int MUTED = 0xFF545454;
+    private static final int LINE = 0xFF8B8B8B;
+    private static final int GREEN = 0xFF245A20;
+    private static final int YELLOW = 0xFF825500;
+    private static final int RED = 0xFFA32C2C;
     private static final ItemStack ICON = new ItemStack(DigitalStorageContent.accessorItem());
-    private enum View { HOME, UPGRADE, NETWORK, MORE, VOLUME, CREATE, RENAME, DELETE, CLEAR }
+    private enum View { HOME, UPGRADE, NETWORK, VOLUME, CREATE, RENAME, DELETE, CLEAR }
     private record Hint(Component text, int x, int y, int width, int height) {}
 
     private final DigitalStorageScreenProtocol.RequestSender requestSender;
@@ -51,7 +51,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private boolean lastBound;
     private boolean drawingHomeContent;
     private EditBox nameField;
-    private Button upgrade, more, network, toggle, create, back, confirm, secondary;
+    private Button upgrade, clearBinding, network, toggle, create, back, confirm, secondary;
     private DigitalStorageScreenState requestedFrom;
     private int pendingTicks;
     private boolean responseTimedOut;
@@ -67,7 +67,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     @Override
     protected void init() {
         String draft = nameField == null ? "" : nameField.getValue();
-        imageWidth = Math.min(360, width - 16);
+        imageWidth = Math.min(desiredWidth(), width - 16);
         imageHeight = Math.min(desiredHeight(), height - 16);
         super.init();
         homeButtons.clear();
@@ -76,10 +76,10 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         lastBound = menu.state().accessorBound();
         button("gui.close", imageWidth - 26, 4, 20, ignored -> onClose());
         upgrade = button("upgrade", MARGIN, 113, 98, ignored -> open(View.UPGRADE));
-        more = button("gui.more", imageWidth - 90, 113, 78, ignored -> open(View.MORE));
+        clearBinding = button("clear_binding", imageWidth - 102, 113, 90, ignored -> open(View.CLEAR));
         network = button("gui.details", imageWidth - 90, 149, 78, ignored -> open(View.NETWORK));
         toggle = button("gui.off", imageWidth - 76, 187, 64, ignored -> requestToggle());
-        homeButtons.addAll(List.of(upgrade, more, network, toggle));
+        homeButtons.addAll(List.of(upgrade, clearBinding, network, toggle));
         create = button("gui.create", MARGIN, 34, 122, ignored -> {
             nameField.setValue("");
             open(View.CREATE);
@@ -101,12 +101,14 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         nameField = addRenderableWidget(new EditBox(font, leftPos + MARGIN, topPos + 81,
                 imageWidth - MARGIN * 2, 20, tr("gui.name")));
         nameField.setMaxLength(StorageVolume.MAX_NAME_LENGTH);
+        nameField.setBordered(true);
+        nameField.setHint(tr("gui.name_placeholder"));
         nameField.setValue(draft);
         back = button("gui.back", MARGIN, imageHeight - 44, 92, ignored -> goBack());
         confirm = button("gui.confirm", imageWidth - 118, imageHeight - 44, 106, ignored -> confirm());
         secondary = button("gui.refresh", imageWidth - 118, imageHeight - 70, 106,
                 ignored -> secondaryAction());
-        if (view == View.NETWORK) {
+        if (view == View.NETWORK || view == View.VOLUME) {
             int actionWidth = (imageWidth - 32) / 3;
             back.setWidth(actionWidth);
             secondary.setX(leftPos + MARGIN + actionWidth + 4);
@@ -141,7 +143,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     private void goBack() {
         open(view == View.RENAME || view == View.DELETE ? View.VOLUME
-                : view == View.CLEAR ? View.MORE : View.HOME);
+                : View.HOME);
     }
 
     @Override
@@ -171,12 +173,20 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     private int desiredHeight() {
         return switch (view) {
-            case HOME -> 250;
+            case HOME -> 234;
             case NETWORK -> 224;
             case UPGRADE -> menu.state().hasNextTier() ? 250 : 174;
             case CREATE, RENAME -> 160;
-            case MORE, CLEAR, DELETE -> 190;
-            case VOLUME -> 210;
+            case CLEAR, DELETE -> 190;
+            case VOLUME -> 180;
+        };
+    }
+
+    private int desiredWidth() {
+        return switch (view) {
+            case CREATE, RENAME, VOLUME -> 280;
+            case CLEAR, DELETE -> 300;
+            default -> 320;
         };
     }
 
@@ -238,7 +248,6 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             case CLEAR -> sendButton(DigitalStorageScreenHandler.CLEAR_BINDING_BUTTON_ID);
             case UPGRADE -> sendButton(DigitalStorageScreenHandler.UPGRADE_BUTTON_ID);
             case NETWORK -> sendButton(DigitalStorageScreenHandler.MIGRATION_BUTTON_ID);
-            case MORE -> open(View.CLEAR);
             case VOLUME -> {
                 nameField.setValue(selectedChoice().name());
                 open(View.RENAME);
@@ -271,7 +280,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         }
         upgrade.active &= state.accessorConfigurable() && state.hasNextTier();
         upgrade.setMessage(tr(state.hasNextTier() ? "gui.upgrade" : "maximum_button"));
-        more.active = true;
+        clearBinding.active &= state.accessorBound() && state.accessorConfigurable();
         network.active = true;
         boolean accept = state.unstackableItemsAllowedByServer() && state.acceptsUnstackableItems();
         toggle.setMessage(tr(pending() ? "gui.pending_short" : accept ? "gui.on" : "gui.off"));
@@ -280,7 +289,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         String policyTip = !state.unstackableItemsAllowedByServer() ? "server_disabled"
                 : diagnostic.migrationActive() ? "migration_active"
                 : !state.unstackableItemsConfigurable() ? "not_owner" : accept ? "accept" : "reject";
-        toggle.setTooltip(Tooltip.create(tr("unstackables.tooltip." + policyTip)));
+        toggle.setTooltip(toggle.active ? null : Tooltip.create(tr("unstackables.tooltip." + policyTip)));
         create.visible = unboundHome && state.accessorConfigurable();
         create.active = canRequest() && state.accessorConfigurable();
         firstVolume = Math.max(0, Math.min(firstVolume,
@@ -320,8 +329,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                 confirm.active &= state.accessorConfigurable() && !state.accessorBound()
                         && selected != null && selected.usedVariants() == 0;
             }
-            case CLEAR, MORE -> {
-                confirm.setMessage(tr(view == View.CLEAR ? "gui.confirm_clear" : "clear_binding"));
+            case CLEAR -> {
+                confirm.setMessage(tr("gui.confirm_clear"));
                 confirm.active &= state.accessorBound() && state.accessorConfigurable();
             }
             case VOLUME -> {
@@ -329,23 +338,21 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                 secondary.setMessage(tr("delete_volume"));
                 confirm.active &= state.accessorConfigurable() && !state.accessorBound() && selected != null;
                 secondary.active = confirm.active && selected.usedVariants() == 0;
-                secondary.setTooltip(Tooltip.create(tr(selected != null && selected.usedVariants() == 0
-                        ? "delete_volume.tooltip.empty" : "delete_volume.tooltip.non_empty")));
+                if (selected != null && selected.usedVariants() > 0)
+                    secondary.setTooltip(Tooltip.create(tr("delete_volume.tooltip.non_empty")));
             }
             case UPGRADE -> {
                 confirm.setMessage(tr(state.hasNextTier() ? "gui.confirm_upgrade" : "maximum_button"));
                 confirm.active &= state.accessorBound() && state.accessorConfigurable()
                         && state.hasNextTier() && state.canAfford();
-                confirm.setTooltip(Tooltip.create(tr(!state.hasNextTier() ? "maximum"
-                        : !state.accessorConfigurable() ? "gui.read_only"
-                        : state.canAfford() ? "affordable" : "unaffordable")));
+                if (state.hasNextTier() && (!state.accessorConfigurable() || !state.canAfford()))
+                    confirm.setTooltip(Tooltip.create(tr(!state.accessorConfigurable() ? "gui.read_only" : "unaffordable")));
             }
             case NETWORK -> {
                 confirm.setMessage(tr(diagnostic.migrationActive() ? "migration.cancel" : "gui.optimize"));
                 confirm.active &= state.accessorBound() && state.accessorConfigurable()
                         && (diagnostic.migrationActive() || diagnostic.available()
                         && !diagnostic.hasDuplicateTargetEndpoints() && diagnostic.recommendedVariants() > 0);
-                confirm.setTooltip(Tooltip.create(tr("network.migration_hint")));
                 secondary.setMessage(tr("network.refresh"));
                 secondary.active &= state.accessorBound() && !diagnostic.migrationActive();
             }
@@ -450,16 +457,23 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     @Override
     protected void renderBg(GuiGraphics graphics, float delta, int mouseX, int mouseY) {
-        graphics.fillGradient(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xFF303236, 0xFF202226);
-        graphics.renderOutline(leftPos, topPos, imageWidth, imageHeight, 0xFF858585);
-        graphics.fill(leftPos + 1, topPos + 1, leftPos + imageWidth - 1, topPos + 26, 0xFF3B3B3B);
-        graphics.fill(leftPos + 1, topPos + 26, leftPos + imageWidth - 1, topPos + 27, 0xFF997344);
-        graphics.fill(leftPos + 1, topPos + imageHeight - 23, leftPos + imageWidth - 1,
-                topPos + imageHeight - 1, 0xFF181A1D);
+        graphics.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xFF555555);
+        graphics.fill(leftPos + 2, topPos + 2, leftPos + imageWidth - 2, topPos + imageHeight - 2, 0xFFC6C6C6);
+        graphics.fill(leftPos + 2, topPos + 2, leftPos + imageWidth - 2, topPos + 4, 0xFFFFFFFF);
+        graphics.fill(leftPos + 2, topPos + 4, leftPos + 4, topPos + imageHeight - 2, 0xFFFFFFFF);
+        graphics.fill(leftPos + 4, topPos + imageHeight - 4, leftPos + imageWidth - 2, topPos + imageHeight - 2, 0xFF8B8B8B);
+        graphics.fill(leftPos + imageWidth - 4, topPos + 4, leftPos + imageWidth - 2, topPos + imageHeight - 4, 0xFF8B8B8B);
+        graphics.pose().pushPose();
+        graphics.pose().translate(leftPos, topPos, 0);
+        // Container labels run after widgets. Draw surfaces first so they cannot cover the EditBox.
+        drawContent(graphics);
+        graphics.pose().popPose();
     }
 
     @Override
-    protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
+    protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) { }
+
+    private void drawContent(GuiGraphics graphics) {
         graphics.renderItem(ICON, 6, 5);
         text(graphics, title, 26, 9, imageWidth - 58, TEXT);
         if (view == View.HOME) {
@@ -535,7 +549,6 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         String heading = switch (view) {
             case UPGRADE -> "gui.upgrade_title";
             case NETWORK -> "gui.network_title";
-            case MORE -> "gui.manage_accessor";
             case CREATE -> "gui.create";
             case RENAME -> "rename_volume";
             case DELETE -> "gui.delete_title";
@@ -553,10 +566,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             return;
         }
         if (view == View.CREATE || view == View.RENAME) {
-            panel(graphics, MARGIN - 3, 54, imageWidth - 18, 54);
-            graphics.renderItem(new ItemStack(view == View.CREATE ? Items.CHEST : Items.NAME_TAG), MARGIN, 58);
             text(graphics, view == View.RENAME && selectedChoice() != null
-                    ? tr("gui.target", selectedChoice().name()) : tr("gui.name"), MARGIN + 23, 62, imageWidth - 47, TEXT);
+                    ? tr("gui.target", selectedChoice().name()) : tr("gui.name"), MARGIN, 62, imageWidth - 24, TEXT);
             return;
         }
         drawManagement(graphics);
@@ -582,7 +593,6 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         text(graphics, Component.literal(d.available() ? d.healthScore() + "/100 · " + d.grade() : "—"),
                 scoreX, 58, 78, TEXT);
         progress(graphics, scoreX, 73, 78, 4, d.available() ? d.healthScore() / 100.0 : 0, GREEN);
-        hints.add(new Hint(tr("gui.score_hint"), scoreX, 52, 87, 33));
         int columnWidth = (imageWidth - 32) / 2;
         metric(graphics, MARGIN, 94, columnWidth, "gui.metric_inventories", d.available() ? "" + d.physicalInventories() : "—", TEXT);
         metric(graphics, MARGIN + columnWidth + 8, 94, columnWidth, "gui.metric_slots",
@@ -612,12 +622,10 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                     : BuiltInRegistries.ITEM.getOptional(candidateId).<Component>map(item -> item.getDescription())
                             .orElse(Component.literal(d.topCandidateId()));
             text(graphics, candidate, MARGIN + 28, y + 20, imageWidth - 65, MUTED);
-            hints.add(new Hint(tr("gui.migration_explanation"), MARGIN, y, imageWidth - 24, 34));
         }
     }
 
     private void metric(GuiGraphics graphics, int x, int y, int w, String key, String value, int color) {
-        graphics.fill(x, y - 2, x + w, y + 11, 0xFF25282C);
         int valueWidth = Math.min(w / 2, font.width(value));
         text(graphics, tr(key), x + 5, y, Math.max(1, w - valueWidth - 15), MUTED);
         text(graphics, Component.literal(value), x + w - valueWidth - 5, y, valueWidth, color);
@@ -628,7 +636,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         var choice = selectedChoice();
         boolean selected = view == View.VOLUME || view == View.DELETE;
         if (selected && choice == null) {
-            notice(graphics, 59, "gui.target_missing", "gui.target_missing", RED);
+            notice(graphics, 59, "gui.target_missing", RED);
             return;
         }
         String name = selected ? choice.name() : state.volumeName();
@@ -641,29 +649,25 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         text(graphics, tr("gui.volume_usage", tierName(tier), used, capacity), MARGIN + 31, 78, imageWidth - 62, MUTED);
         progress(graphics, MARGIN + 7, 98, imageWidth - 38, 5, capacity <= 0 ? 0 : (double) used / capacity);
         switch (view) {
-            case MORE -> {
-                text(graphics, tr("gui.controller", state.controller()), MARGIN + 3, 117, imageWidth - 30, MUTED);
-                text(graphics, tr("gui.items_preserved"), MARGIN + 3, 132, imageWidth - 30, GREEN);
-                hints.add(new Hint(tr("gui.clear_explanation"), MARGIN, 117, imageWidth - 24, 27));
-            }
-            case CLEAR -> notice(graphics, 117, "gui.clear_effect", "gui.clear_confirmation", YELLOW);
-            case DELETE -> notice(graphics, 117, "gui.delete_effect", "gui.delete_confirmation", RED);
-            case VOLUME -> notice(graphics, 117, "gui.volume_actions", "gui.volume_help", MUTED);
+            case CLEAR -> notice(graphics, 117, "gui.clear_effect", YELLOW);
+            case DELETE -> notice(graphics, 117, "gui.delete_effect", RED);
+            case VOLUME -> { }
             default -> { }
         }
     }
 
-    private void notice(GuiGraphics graphics, int y, String key, String tooltip, int color) {
+    private void notice(GuiGraphics graphics, int y, String key, int color) {
         panel(graphics, MARGIN, y, imageWidth - 24, 23);
         graphics.fill(MARGIN, y, MARGIN + 2, y + 23, color);
         text(graphics, tr(key), MARGIN + 8, y + 7, imageWidth - 42, color);
-        hints.add(new Hint(tr(tooltip), MARGIN, y, imageWidth - 24, 23));
     }
 
     private void panel(GuiGraphics graphics, int x, int y, int w, int h) {
-        graphics.fill(x, y, x + w, y + h, 0xFF25282C);
-        graphics.hLine(x, x + w - 1, y, 0xFF55595E);
-        graphics.hLine(x, x + w - 1, y + h - 1, 0xFF15171A);
+        graphics.fill(x, y, x + w, y + h, 0xFFB8B8B8);
+        graphics.hLine(x, x + w - 1, y, 0xFF8B8B8B);
+        graphics.vLine(x, y, y + h - 1, 0xFF8B8B8B);
+        graphics.hLine(x, x + w - 1, y + h - 1, 0xFFFFFFFF);
+        graphics.vLine(x + w - 1, y, y + h - 1, 0xFFFFFFFF);
     }
 
     private void drawUpgrade(GuiGraphics graphics) {
@@ -724,7 +728,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         if (!compact) text(graphics, label, x + 7, y + 5, w - 14, MUTED);
         text(graphics, tierName(tier), x + 7, y + (compact ? 6 : 18), w - 14, color);
         text(graphics, tr("gui.type_capacity", capacity), x + 7, y + (compact ? 21 : 33), w - 14, TEXT);
-        hints.add(new Hint(label, x, y, w, compact ? 35 : 47));
+        if (compact) hints.add(new Hint(label, x, y, w, 35));
     }
 
     private int upgradeCostTop() { return imageHeight < 200 ? 106 : imageHeight < 230 ? 128 : 140; }
@@ -778,7 +782,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         graphics.fill(x, y, x + w, y + h, 0xFF151515);
         graphics.renderOutline(x, y, w, h, LINE);
         int filled = (int) Math.round((w - 2) * Math.max(0, Math.min(1, fraction)));
-        if (filled > 0) graphics.fill(x + 1, y + 1, x + 1 + filled, y + h - 1, color);
+        int fillColor = color == GREEN ? 0xFF579E40 : color == YELLOW ? 0xFFD2AA44 : color;
+        if (filled > 0) graphics.fill(x + 1, y + 1, x + 1 + filled, y + h - 1, fillColor);
     }
 
     private Component tierName(ResourceLocation id) {
