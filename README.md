@@ -140,7 +140,7 @@ dependencies. Tom's Storage 1.7.1 is already included in `libs/`; development
 runtime libraries are prepared automatically. Building does not require local
 worlds, manually generated textures or files outside this checkout.
 
-The distributable is `build/libs/digital-storage-cloud-<version>.jar`, where
+The Fabric distributable is `build/libs/digital-storage-cloud-fabric-<version>.jar`, where
 `<version>` is `mod_version` in `gradle.properties`. The matching `-sources.jar`
 is source code, not a playable mod. Development/shadow JARs are not the release
 artifact. To run a development instance, use `runClient` or `runServer` instead
