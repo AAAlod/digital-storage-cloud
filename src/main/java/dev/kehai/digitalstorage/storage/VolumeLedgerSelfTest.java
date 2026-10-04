@@ -16,6 +16,40 @@ public final class VolumeLedgerSelfTest {
         closedScopeCannotLeaveProvisionalEntries();
         transactionOrderIsEnforced();
         retainedLedgerKeepsItsVolumeAlive();
+        attachedIteratorKeepsProvisionalZeroHandles();
+    }
+
+    private static void attachedIteratorKeepsProvisionalZeroHandles() {
+        VolumeLedger ledger = new VolumeLedger(() -> {}, 2);
+        ItemKey stone = ItemKey.of(Items.STONE);
+        ledger.load(stone, 2);
+        var initial = ledger.attachedViewsIterator();
+        var handle = initial.next();
+        try {
+            initial.remove();
+            throw new IllegalStateException("Attached iterator allowed removal outside a transaction");
+        } catch (UnsupportedOperationException expected) {
+            // Only transactional ledger methods may change membership.
+        }
+        long version = ledger.structureVersion();
+        try (LedgerTransaction transaction = LedgerTransaction.open()) {
+            ledger.extract(stone, 2, transaction);
+            var attached = ledger.attachedViewsIterator();
+            expect(!ledger.iterator().hasNext() && attached.next() == handle && !attached.hasNext()
+                            && handle.getAmount() == 0 && ledger.structureVersion() == version,
+                    "Provisional zero disappeared from attached membership");
+        }
+        expect(handle.getAmount() == 2 && ledger.structureVersion() == version,
+                "Attached handle did not reflect a shared rollback");
+        var stale = ledger.attachedViewsIterator();
+        ledger.load(ItemKey.of(Items.PAPER), 1);
+        expect(ledger.structureVersion() != version, "Insertion did not invalidate membership");
+        try {
+            stale.next();
+            throw new IllegalStateException("Raw attached iterator ignored changed membership");
+        } catch (java.util.ConcurrentModificationException expected) {
+            // Iteration must preserve the underlying membership invalidation.
+        }
     }
 
     private static void retainedLedgerKeepsItsVolumeAlive() {

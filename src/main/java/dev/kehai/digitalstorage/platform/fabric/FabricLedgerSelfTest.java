@@ -6,6 +6,7 @@ import dev.kehai.digitalstorage.storage.VolumeLedger;
 import dev.kehai.digitalstorage.storage.LedgerTransaction;
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.ConcurrentModificationException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
@@ -28,6 +29,10 @@ public final class FabricLedgerSelfTest {
         sharedMutationsInvalidateViewCache();
         reentrantValidatorKeepsOuterScope();
         sharedRemovalsReleasePreviouslyEnlistedParticipants();
+        firstScanAtZeroSurvivesRollback();
+        iteratorsReadLiveQuantitiesAndRejectChangedMembership();
+        removalCallbackCanRebuildViews();
+        partialScanDoesNotAdaptUnvisitedEntries();
     }
 
     private static void repeatedCanonicalLookupsShareNestedSnapshots() {
@@ -243,6 +248,83 @@ public final class FabricLedgerSelfTest {
         }
         expect(!storage.iterator().hasNext() && cacheSize(storage, "bridges") <= 1,
                 "Final shared removal left detached participants after cleanup");
+    }
+
+    private static void firstScanAtZeroSurvivesRollback() {
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> {}, 1);
+        ItemVariant stone = ItemVariant.of(Items.STONE);
+        storage.load(stone, 2);
+        try (Transaction transaction = Transaction.openOuter()) {
+            storage.extract(stone, 2, transaction);
+            expect(!storage.iterator().hasNext(), "Initial zero-amount scan exposed an empty entry");
+        }
+        expect(storage.iterator().next().getAmount() == 2,
+                "Membership first cached at zero omitted a restored Fabric entry");
+        FabricDigitalItemStorage shared = new FabricDigitalItemStorage(() -> {}, 1);
+        shared.load(stone, 2);
+        try (LedgerTransaction transaction = LedgerTransaction.open()) {
+            shared.ledger().extract(ItemKey.of(Items.STONE), 2, transaction);
+            expect(!shared.iterator().hasNext(), "Initial shared zero-amount scan exposed an empty entry");
+        }
+        expect(shared.iterator().next().getAmount() == 2,
+                "Membership first cached at zero omitted a restored shared entry");
+    }
+
+    private static void iteratorsReadLiveQuantitiesAndRejectChangedMembership() {
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> {}, 2);
+        ItemVariant stone = ItemVariant.of(Items.STONE);
+        storage.load(stone, 2);
+        var live = storage.iterator();
+        storage.load(stone, 3);
+        expect(live.next().getAmount() == 5 && !live.hasNext(),
+                "Cached iteration froze quantities without a membership change");
+        var stale = storage.iterator();
+        storage.load(ItemVariant.of(Items.PAPER), 1);
+        try {
+            stale.next();
+            throw new IllegalStateException("Old iterator silently reused changed membership");
+        } catch (ConcurrentModificationException expected) {
+            // A cached array must not turn membership changes into stale scans.
+        }
+        long sum = 0;
+        for (var view : storage) sum += view.getAmount();
+        expect(sum == 6, "New iterator failed to rebuild after membership insertion");
+    }
+
+    private static void removalCallbackCanRebuildViews() {
+        AtomicReference<FabricDigitalItemStorage> storageRef = new AtomicReference<>();
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> {
+            long sum = 0;
+            for (var view : storageRef.get()) sum += view.getAmount();
+            expect(sum == 3, "Removal notification could not rebuild the remaining live membership");
+        }, 2);
+        storageRef.set(storage);
+        ItemVariant stone = ItemVariant.of(Items.STONE);
+        storage.load(stone, 2);
+        storage.load(ItemVariant.of(Items.PAPER), 3);
+        storage.iterator();
+        try (Transaction transaction = Transaction.openOuter()) {
+            storage.extract(stone, 2, transaction);
+            transaction.commit();
+        }
+        var remaining = storage.iterator();
+        expect(remaining.next().getAmount() == 3 && !remaining.hasNext(),
+                "Post-notification cleanup discarded a freshly rebuilt live membership");
+    }
+
+    private static void partialScanDoesNotAdaptUnvisitedEntries() {
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> {}, 2048);
+        for (int index = 0; index < 2048; index++) {
+            CompoundTag tag = new CompoundTag();
+            tag.putInt("PartialScan", index);
+            storage.load(ItemVariant.of(Items.PAPER, tag), 1);
+        }
+        var iterator = storage.iterator();
+        expect(iterator.next().getAmount() == 1 && cacheSize(storage, "views") == 1,
+                "One-entry partial scan adapted NBT for unvisited entries");
+        long total = 1;
+        while (iterator.hasNext()) total += iterator.next().getAmount();
+        expect(total == 2048, "Lazy cached iteration omitted volume members");
     }
 
     private static int cacheSize(FabricDigitalItemStorage storage, String name) {

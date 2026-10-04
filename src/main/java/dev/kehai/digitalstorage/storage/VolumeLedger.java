@@ -212,6 +212,15 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
         return new NonEmptyViewIterator(entries.values().iterator());
     }
 
+    /**
+     * Lazy live membership, including provisional zero entries. Adapters must
+     * filter quantities when visiting and invalidate completed membership caches
+     * when structureVersion changes. Opening this iterator does not copy a volume.
+     */
+    public Iterator<? extends View> attachedViewsIterator() {
+        return java.util.Collections.unmodifiableCollection(entries.values()).iterator();
+    }
+
     public int variantCount() {
         return variantCount;
     }

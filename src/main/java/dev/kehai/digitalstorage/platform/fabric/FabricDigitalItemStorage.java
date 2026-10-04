@@ -6,10 +6,13 @@ import dev.kehai.digitalstorage.storage.MutationParticipant;
 import dev.kehai.digitalstorage.storage.MutationScope;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.ConcurrentModificationException;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.WeakHashMap;
@@ -36,6 +39,8 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
     // ItemVariants without a weak-reference lookup or repeated NBT copies.
     private final Map<VolumeLedger.View, FabricView> views = new IdentityHashMap<>();
     private long viewStructureVersion = Long.MIN_VALUE;
+    private FabricView[] attachedViews;
+    private VolumeLedger.View[] attachedMembers;
 
     public FabricDigitalItemStorage(Runnable dirtyCallback, int variantCapacity) {
         this(new VolumeLedger(dirtyCallback, variantCapacity));
@@ -130,23 +135,88 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
     @Override
     public Iterator<StorageView<ItemVariant>> iterator() {
         discardDetachedViews();
-        Iterator<VolumeLedger.View> iterator = ledger.iterator();
+        if (attachedViews == null) return buildingIterator(viewStructureVersion);
+        FabricView[] cachedMembers = attachedViews;
+        VolumeLedger.View[] members = attachedMembers;
+        long expectedStructureVersion = viewStructureVersion;
         return new Iterator<>() {
+            private int index;
+            private FabricView next;
+
             @Override
             public boolean hasNext() {
-                return iterator.hasNext();
+                if (ledger.structureVersion() != expectedStructureVersion) {
+                    throw new ConcurrentModificationException("Ledger membership changed during Fabric iteration");
+                }
+                while (next == null && index < cachedMembers.length) {
+                    int memberIndex = index++;
+                    FabricView candidate = cachedMembers[memberIndex];
+                    if (candidate == null) {
+                        VolumeLedger.View member = members[memberIndex];
+                        if (member.getAmount() <= 0) continue;
+                        candidate = adaptView(member);
+                        cachedMembers[memberIndex] = candidate;
+                    }
+                    if (candidate.getAmount() > 0) next = candidate;
+                }
+                return next != null;
             }
 
             @Override
             public StorageView<ItemVariant> next() {
-                VolumeLedger.View view = iterator.next();
-                FabricView existing = views.get(view);
-                if (existing != null) {
-                    return existing;
+                if (!hasNext()) throw new NoSuchElementException();
+                FabricView result = next;
+                next = null;
+                return result;
+            }
+        };
+    }
+
+    private FabricView adaptView(VolumeLedger.View member) {
+        FabricView cached = views.get(member);
+        if (cached == null) {
+            cached = new FabricView(member);
+            views.put(member, cached);
+        }
+        return cached;
+    }
+
+    private Iterator<StorageView<ItemVariant>> buildingIterator(long expectedStructureVersion) {
+        Iterator<? extends VolumeLedger.View> raw = ledger.attachedViewsIterator();
+        return new Iterator<>() {
+            private final List<VolumeLedger.View> members = new ArrayList<>();
+            private final List<FabricView> adapted = new ArrayList<>();
+            private FabricView next;
+            private boolean complete;
+
+            @Override
+            public boolean hasNext() {
+                if (ledger.structureVersion() != expectedStructureVersion) {
+                    throw new ConcurrentModificationException("Ledger membership changed during Fabric iteration");
                 }
-                FabricView created = new FabricView(view);
-                views.put(view, created);
-                return created;
+                while (next == null && raw.hasNext()) {
+                    VolumeLedger.View member = raw.next();
+                    FabricView candidate = member.getAmount() > 0 ? adaptView(member) : null;
+                    members.add(member);
+                    adapted.add(candidate);
+                    next = candidate;
+                }
+                if (next == null && !complete) {
+                    // Publish only after natural exhaustion. Partial scans retain
+                    // their original budget and never copy/adapt unvisited entries.
+                    attachedMembers = members.toArray(VolumeLedger.View[]::new);
+                    attachedViews = adapted.toArray(FabricView[]::new);
+                    complete = true;
+                }
+                return next != null;
+            }
+
+            @Override
+            public StorageView<ItemVariant> next() {
+                if (!hasNext()) throw new NoSuchElementException();
+                FabricView result = next;
+                next = null;
+                return result;
             }
         };
     }
@@ -158,6 +228,8 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
             views.keySet().removeIf(view -> view instanceof MutationParticipant<?> participant
                     && !participant.isAttached());
             bridges.keySet().removeIf(participant -> !participant.isAttached());
+            attachedMembers = null;
+            attachedViews = null;
             viewStructureVersion = current;
         }
     }
@@ -225,6 +297,10 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
                 }
                 if (participant instanceof VolumeLedger.View view) {
                     views.remove(view);
+                    // Do not retain detached participants through the old array
+                    // while waiting for the next iterator to rebuild membership.
+                    attachedViews = null;
+                    attachedMembers = null;
                 }
             }
         }
