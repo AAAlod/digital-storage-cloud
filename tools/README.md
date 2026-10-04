@@ -1,17 +1,13 @@
-# Texture tool
+# 纹理生成工具
 
-`build_textures.ps1` regenerates two block textures from the checked-in Tom's
-Storage JAR and adds this project's design elements. Run on Windows with
-PowerShell and System.Drawing available, from the repository root:
+`build_textures.ps1` 从仓库内的 Tom JAR 读取纹理，再绘制本项目的访问器与高级漏斗纹理。需要 Windows PowerShell 和 System.Drawing，在仓库根目录运行：
 
 ```powershell
 .\tools\build_textures.ps1
-# Optional dependency path, relative to the repository root:
+# 可指定相对于仓库根目录的 Tom JAR 路径
 .\tools\build_textures.ps1 -TomJar 'libs/toms_storage_fabric-1.20-1.7.1.jar'
 ```
 
-The script overwrites `advanced_inventory_hopper.png` and
-`digital_storage_unit.png` under
-`src/main/resources/assets/digitalstorage/textures/block/`, and writes enlarged
-previews to `build/texture-previews/`. It is an authoring tool, not a required
-build step; building uses the textures already in the repository.
+脚本覆盖 `src/main/resources/assets/digitalstorage/textures/block/` 中的 `advanced_inventory_hopper.png` 和 `digital_storage_accessor.png`，放大预览写入 `build/texture-previews/`。
+
+日常构建直接使用仓库内的纹理，不需要先运行此脚本。

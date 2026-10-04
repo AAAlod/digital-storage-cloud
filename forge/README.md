@@ -1,43 +1,103 @@
-# Forge 平台构建
+# Forge 平台
 
-高级库存漏斗已注册并随包提供合成、掉落与挖掘标签，复用 Tom 原始实体类型、过滤和红石行为。通过 Forge access transformer 扩展该实体类型的合法方块集合，保留原 Tom 方块。普通和高级漏斗默认每次最多转移 16/64 件，沿用共享批量、成功冷却及失败退避配置；关闭优化时使用 Tom 原始单件更新。过滤变化唤醒调度，停止或未决状态仍禁止提取；连接器搜索按位置分散到 20 个 tick。
+`forge/` 是 DSC 的 Minecraft 1.20.1 Forge 适配层，当前验证环境为 Forge 47.4.10、Java 17 和 Tom's Simple Storage 1.7.1。
 
-普通及高级漏斗均保存稳定托管身份和独立转移状态；旧存档没有该字段时保持就绪，有托管或不确定状态时阻止提取。批量异常发生后立即登记世界级托管记录；区块替换、移除及清理前保留停止状态，重载匹配同一实例，冲突镜像单独隔离。保存/重载保留过滤物品，未知版本或错误类型的数据原样保存；已有未决实例不会被重复加载覆盖。回调异常保留实际返回栈，不自动重放；无法编码时仍保留内存原实例，须修复序列化后才能持久化。
+共享的卷管理、配置、权限、存储账本和迁移策略仍来自主源码；这里负责 Forge 注册、菜单与网络消息、`IItemHandler` 接入、Tom 拓扑、Mixin、漏斗状态以及 Forge 特有的异常恢复流程。
 
-旋转后清除源与目标能力缓存，在下一扫描相位重新连接两端；旧箱子能力仍有效时也不继续使用旧方向。独立私有夹具验证了20台实际设备的300自然世界tick、扫描相位、批量间隔、旋转和禁用状态；实际客户端操作及大规模性能仍需验收。
+## 构建
 
-Forge 1.20.1 / 47.4.10 使用独立 Gradle 构建，复用上级工程的 wrapper、版本属性和 common 源码选择。这样 ForgeGradle 与 Loom 不共享插件 classloader，也不建立第二份业务源码。
+ForgeGradle 与根工程的 Loom 分开加载，避免两个插件体系共享 classloader。两端仍使用同一份版本属性和共享源码清单。
 
-从仓库根目录使用 Java 17：
+从仓库根目录运行：
 
 ```powershell
 .\gradlew.bat -p forge build --console=plain
 ```
 
-`runServer`/`runClient` 使用原始依赖生成仅开发运行的兼容副本：Toml 3.9.0 去除无版本目录的 Multi-Release 声明；Tom 保留实际 dist 判断，避免专用开发服务器提前验证客户端回调。原依赖、编译副本及发行依赖均不替换，发行仍只重定位 NightConfig、单独安装原始 Tom。开发任务显式加载 DSC Mixin 配置；ASM 使用当前 Gradle 分发自带库。服务端运行可加 `-x downloadAssets` 跳过客户端声音等资源，`-PdscRunDir=<目录>` 设置相对于 `forge/` 的独立运行目录。
+发行 JAR 位于：
 
-当前处于移植阶段：接入器注册、菜单网络、服务器生命周期、可撤销 IItemHandler 库存、Tom 聚合器同卷去重、网络分析、扫描器统计及玩家迁移调度已接入；安全漏斗批量、冷却及错峰已接入，性能和完整客户端验收仍待完成。迁移限制原卷所有者，按 tick 预算执行，每批复核绑定与拓扑，支持取消、退出和停服终止；未决恢复状态阻止启动。`digitalstorage selftest` 覆盖共享及 Forge/Tom 回归；放置方块的世界夹具仅在专用 audit-world 明确配置时运行，驱动实际 Tom 周期入口验证单箱/双箱扫描和重建、电缆/代理/熔炉顶面权限及方块移除。夹具不是连续 tick 或旋转交互验收。完整运行验收完成前不使用构建产物替换玩家安装。
+```text
+forge/build/libs/digital-storage-cloud-forge-<version>.jar
+```
 
-扫描器统计在分析时关联实际网络根与目标卷，观察原始或优化更新的实际尝试；源和目标属于同一卷时只计一次，统计过程不枚举库存槽位。报告包括最近 1200 tick 内活跃数量、连续失败至少 3 次的数量和平均尝试间隔；禁用、冷却及缺少必需过滤器时不作为扫描尝试。每 200 tick 清理失效关联与过期条目，停服清理服务器会话。
+`build` 不只编译代码，还会检查共享代码的平台引用、模组元数据版本、重复 ZIP entry，以及 Tom / Fabric 等不应被打进发行包的依赖载荷。NightConfig 会重定位进 DSC 自己的命名空间，Tom 仍然是外部必需依赖。
 
-恢复会话与物理提取结算已接入迁移。`digitalstorage recovery list` 查看自己的恢复条目，`recovery deliver <id> [amount]` 显式交付到自己拥有的原目标卷。容量/策略拒绝保留待恢复数量；交付中断或刷盘失败的 `DELIVERING` 不允许重试，需要管理员核对外部持久化结果。
+开发环境的 `runServer` / `runClient` 会生成仅用于本地运行的兼容依赖副本，不修改仓库中的原始依赖，也不改变最终发行包。服务端可以用 `-PdscRunDir=<目录>` 指定独立运行目录；只做服务端测试时可加 `-x downloadAssets` 跳过客户端资源下载。
 
-漏斗没有可靠的玩家归属，管理员使用权限等级 2 的 `digitalstorage hopperrecovery list`、`inspect <id>` 查看独立托管记录，再以 `hopperrecovery handoff <id> <volume> <explanation>` 明确选择现存目标卷。已确认余量生成固定标识的卷主恢复条目，由卷主使用 `recovery deliver <id>` 交付。交接记录保留管理员说明及永久收据，重复请求不新增条目；旧区块镜像退役身份并清除已交接的镜像状态。目标卷不能在重试时更换。“已确认”描述原调用返回的余量，交接前仍需核对外部库存的持久化结果，特别是异常退出后；不同库存与世界文件之间没有共同原子提交。未知、损坏、冲突、不确定或缺少有效稳定身份的停止条目拒绝交接，保留证据；无可交付余量的核对见下文，其他未决结果仍待完善。未决交接和写盘失败继续阻止新迁移。
+## 漏斗接入
 
-漏斗核对命令 `digitalstorage hopperrecovery reconcile-empty <id> <explanation>` 要求权限等级 2 的玩家管理员。只有在外部核对确认该条目无可交付余量时执行，说明必须写明依据；该操作保存永久退役收据并释放原托管来源，不生成恢复物品。原始 State、身份、观察数量仍作证据保留，旧镜像用独立托管身份匹配收据后更新为就绪设备。收据写入失败保留原实例，修复后 flush 或显式重试；重复核对不改写原收据。已进入交接的条目必须继续原恢复流程，不能在此退役。没有稳定身份的历史镜像不能自动关联旧收据，需要依据实际外部证据核对。
+高级存储漏斗沿用 Tom 的实体类型、过滤和红石逻辑，通过 access transformer 把 DSC 方块加入该实体类型允许的方块集合。基础存储漏斗和高级存储漏斗默认单批最多转移 16 / 64 件；关闭 DSC 优化后回到 Tom 原来的单件更新路径。
 
-外部核对确认仍有余量时，管理员可用 `hopperrecovery reconcile-handoff <id> <volume> <confirmed> <external> <explanation>`。confirmed 是核实仍由 DSC 持有的正数量，external 是核实已在外部结算的数量，二者合计必须等于实际返回栈；例如原观察 8 件、外部目标已收下 5 件，只交接 confirmed=3、external=5。没有实际返回栈或尚有数量未核实的条目不能在此交接；全量都已外部结算时使用 reconcile-empty。收据分别保存原观察量、核定余量和外部结算量，保留原 State，仅将核定余量纳入卷主恢复流程。重试不能更换数量和目标卷，已交付后不会重新生成物品。schema 3 数量收据由旧版本按未知记录阻断，不能降级重放；外部证据由管理员负责核实，命令不会自行检查其他模组的持久化文件。
+优化开启时还会处理成功冷却、失败退避、过滤变化唤醒和连接器扫描错峰。漏斗旋转后必须丢弃旧的源/目标能力缓存，在后续扫描中重新发现端点，不能因为旧 capability 仍然存活就继续朝旧方向工作。
 
-托管目录在启动时不可用，恢复后才读到同 UUID 的旧磁盘记录时，磁盘记录保留原 UUID 与文件，内存原实例另存为带 ConflictsWith 的新分支，设备保存新的分支身份。两侧不因内容相同而自动合并；新载入的旧 UUID 镜像也不能自动选择未决分支。管理员先逐条检查实际来源和外部库存，只有确认无可交付来源的分支才使用 reconcile-empty；关联主条目和其他冲突都已持久化结算后，才能对仍持有实际余量的分支执行数量核对交接。写入失败继续保留原实例并阻止新迁移。
+## 为什么 Forge 有额外的恢复状态
 
-管理员可用 `digitalstorage transferincident list`、`inspect <id>` 查看事件，`acknowledge <id> <explanation>` 保存明确核对说明和收据。事件只记录观察，核对事件不会交付物品或解除 `DELIVERING`。selftest、diagnostics、flush 和 transferincident 均要求权限等级 2。
+Fabric 可以把外部库存转移纳入 Transfer API 事务；Forge 的 `IItemHandler` 没有同样的跨库存原子事务。物品已经从一侧取出、另一侧又在异常过程中只接受一部分时，直接重试可能造成物品复制。
 
-专门交付核对使用权限等级 2 的 `digitalstorage recoveryadmin inspect <id>` 取得当前尝试标识，再执行 `recoveryadmin reconcile <id> <attempt> delivered|not_delivered <explanation>`。管理员必须基于外部持久化证据确认本次交付的结果并说明依据。已交付从条目扣除本次量，未交付恢复待交付状态；核对保存管理员收据，不直接改变卷内物品。状态与收据同文件替换，失败保留待刷盘记录并阻止再次交付；新尝试使用不同标识，旧请求拒绝。
+因此 Forge 端会为批量转移保存稳定身份、托管状态和持久化收据。无法确认结算结果时，相关来源停止提取，保留观察到的返回栈和状态供管理员核对。未知版本、损坏数据和身份冲突不会被自动覆盖或合并。
 
-最终 Forge 工作 JAR 为 `build/libs/digital-storage-cloud-forge-<version>.jar`。NightConfig 单独 relocation；Tom 是外部依赖，不嵌入发行 JAR。`build` 同时检查共享源码/字节码平台边界、元数据版本、重复 ZIP entry 和禁止依赖载荷。
+无法确认结算结果时停止转移，保留未决记录，不自动重放。
 
-管理员可使用 `digitalstorage probe <pos>`（或 `/dsc probe`）只读检查已加载方块的无方向 IItemHandler，报告总槽位、扫描槽位、非空槽位及是否截断；最多扫描65536槽，缺少无方向能力不代表没有其他方向的库存。异常能力提供者返回失败信息，探针不提取物品。
+## 玩家恢复与管理员核对
 
-`digitalstorage benchmark` 显式运行最长30秒的隔离微基准，使用私有内存库存和临时恢复目录，不挂载玩家世界或卷。覆盖512变种的物理/数字Tom扫描、256槽实际迁移以及1/10/50/100漏斗 × 64/256/1024槽的冷过滤拒收更新。每场景至少128次且250毫秒预热，采集64样本；返回关键延迟，日志保留全部场景的均值、p95、p99/最大值、CPU时间、线程分配量和实际预热次数。准备夹具不在计时内；冷场景每次通过过滤设置重置槽位缓存/唤醒，并不代表自然退避后的调用频率。CPU/分配计数不可用时为-1；短操作CPU读数为0不能当作没有CPU成本。物理扫描512槽、数字固定1024槽，且Forge与Fabric基准实现不同，不能直接比较绝对延迟或宣称TPS收益。
+卷迁移产生的可恢复余量可以通过：
 
-`libs/toms_storage-1.20-1.7.1.jar` 是 MIT 许可的精确 Tom 编译依赖（SHA-256 `08552be86f960111e501227707dc089c91b8a55f6c1be09baee188338576ff9b`），由 ForgeGradle 重映射用于开发，运行环境仍需单独安装 Tom；许可见上级 `licenses/Toms-Storage-LICENSE`。聚合 Mixin 只补充明确的 DSC 卷身份，过滤和未知包装器保留原接口。
+```text
+/digitalstorage recovery list
+/digitalstorage recovery deliver <id> [amount]
+```
+
+交付回原目标卷。容量或策略暂时拒绝时，余量会继续保留。
+
+漏斗没有可靠的玩家所有者，因此异常漏斗记录由权限等级 2 的管理员处理。常用入口包括：
+
+```text
+/digitalstorage hopperrecovery list
+/digitalstorage hopperrecovery inspect <id>
+/digitalstorage hopperrecovery handoff <id> <volume> <explanation>
+```
+
+普通 `handoff` 的“已确认”仅指原调用返回的余量。操作前仍须核对外部库存的持久化结果，尤其是异常退出后；不同库存与世界文件之间没有共同的原子提交。交接目标一旦确定，重试不能换卷；永久收据用于避免重复交接。
+
+如果已经通过外部存档或实际库存确认结果，还可以使用：
+
+```text
+/digitalstorage hopperrecovery reconcile-empty <id> <explanation>
+/digitalstorage hopperrecovery reconcile-handoff <id> <volume> <confirmed> <external> <explanation>
+```
+
+`confirmed` 是确认仍由 DSC 持有、需要进入恢复流程的正数量，`external` 是确认已在外部库存结算的非负数量，两者之和必须等于实际返回栈的数量。全量已在外部结算时使用 `reconcile-empty`，不再交接物品。命令不会替管理员读取其他模组的持久化文件；没有实际返回栈或数量尚未核实的条目不能交接。
+
+交付进入 `DELIVERING` 后发生中断或刷盘失败时，不得直接重试。先用：
+
+```text
+/digitalstorage recoveryadmin inspect <id>
+/digitalstorage recoveryadmin reconcile <id> <attempt> delivered|not_delivered <explanation>
+```
+
+根据外部持久化结果明确本次尝试究竟有没有完成。核对会保存永久收据，旧 attempt 之后不能再次作为新尝试使用。
+
+`transferincident` 记录的是异常观察和核对证据，本身不会交付物品，也不会绕过恢复状态机。
+
+## 迁移与网络统计
+
+迁移按 tick 预算分批执行，每批都会重新确认绑定、端点和拓扑是否仍然有效。取消、玩家退出、停服、访问器失效或网络拓扑改变时会停止后续提取；存在未决恢复状态时也不会启动新的迁移。
+
+网络统计记录 DSC/Tom 扫描的实际尝试，不额外遍历库存。它可用于检查连续失败或尝试过于频繁的扫描器，不代表服务器整体性能。
+
+## 自检、夹具与诊断
+
+`/digitalstorage selftest` 会运行共享层以及 Forge/Tom 的内置回归。需要实际放置方块和推进世界 tick 的测试只有显式指定专用 `audit-world` 时才运行，不会自动碰玩家世界。
+
+重启与自然 tick 测试夹具见 [restartFixture](src/restartFixture/README.md)。
+
+管理员诊断还包括只读库存探针和隔离微基准：
+
+```text
+/digitalstorage probe <pos>
+/digitalstorage benchmark
+```
+
+`probe` 最多检查 65536 个槽位，不提取物品。`benchmark` 使用私有内存库存和临时恢复目录，最长运行约 30 秒；它测的是指定场景下的相对实现成本，Fabric 与 Forge 的基准实现也不同，因此不要直接拿绝对数字互相比较或据此宣称 TPS 提升。
+
+Forge 使用的 Tom 1.7.1 编译依赖位于 `forge/libs/`，运行游戏时仍需正常安装 Tom。第三方来源和许可记录在仓库根目录的 `THIRD_PARTY_NOTICES.md` 与 `licenses/` 中。

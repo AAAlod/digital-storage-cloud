@@ -1,7 +1,23 @@
-# 私有重启夹具
+# 重启与自然 tick 测试夹具
 
-独立 `restartFixture` 源集，通过 `reobfRestartFixtureJar` 显式构建，不随玩家 binary/sources 打包。入口为 `RestartAudit`，必须指定 `digitalstorage.restartTestRoot`，且实际世界路径须精确匹配工作区专用 `maintenance/work/fabric-decoupling/*/audit-world`。
+`restartFixture` 是 Forge 端的私有集成测试源集，不进入 DSC 的 binary 或 sources JAR。它测试停服、同进程重启、自然世界 tick、Tom 周期入口和异常转移后的状态保留。
 
-两次真实专用服务器生命周期验证编码失败后的同进程 Session、转移实例及返回物品栈引用保留，修复后恰好交付一次，再运行正式自检、诊断及保存。夹具 Mixin 仅支持第二次注册跳过、第一次进程退出与全局执行器关闭延迟；实际 DSC 和世界停止流程保持执行。此夹具不验证跨进程恢复或客户端行为。
+通过 `reobfRestartFixtureJar` 显式构建夹具。RestartAudit 必须设置 `digitalstorage.restartTestRoot`，TickAudit 必须设置 `digitalstorage.tickTestRoot`。世界路径须与所设属性一致，位于工作区 `maintenance/work/fabric-decoupling/` 下，并以 `audit-world` 结尾。路径不符合条件时测试拒绝运行。
 
-另有 `TickAudit` 自然周期夹具，使用 `digitalstorage.tickTestRoot` 启用，与重启模式互斥。它在声明的私有世界放置 20 个普通/高级漏斗、真实连接器和独立箱子，临时强制加载自建区块，观察300真实世界tick的扫描相位、批量间隔、旋转和禁用状态；不手动调用 Tom update。源网络使用过滤器；通过反射只观察自然产生的源句柄，区分端点发现和网络首次转移。结束后移除自建方块并解除自己添加的强制加载。它不验证客户端操作、网络全部组合或大规模性能。
+## RestartAudit
+
+`RestartAudit` 在同一进程中启动两次专用服务器。第一阶段主动制造物品编码失败，确认 Session、转移实例和返回栈在停服后仍被保留；第二阶段修复编码条件，确认物品只交付一次，再执行自检、诊断和保存。
+
+为了允许同一 JVM 再次启动服务器，夹具自己的 Mixin 会跳过第二次模组注册，并延迟第一次进程退出和全局执行器关闭。DSC 本身和 Minecraft 世界的正常停服流程仍然照常执行。
+
+这项测试验证的是**同进程生命周期**，不覆盖跨进程恢复或客户端行为。
+
+## TickAudit
+
+`TickAudit` 通过 `digitalstorage.tickTestRoot` 显式启用，不能和重启模式同时运行。
+
+它会在专用世界中放置共 20 个基础存储漏斗和高级存储漏斗，以及存储连接器和独立箱子，临时强制加载测试区块，然后观察 300 个世界 tick 内的扫描相位、批量间隔、旋转和禁用状态。Tom 由世界周期驱动，测试不手动调用 update；反射只用于观察自然产生的源句柄。
+
+结束后，夹具会移除自己放置的方块并解除自己添加的强制加载。
+
+它仍然不是完整验收：客户端交互、所有网络组合和大规模服务器性能需要另外测试。

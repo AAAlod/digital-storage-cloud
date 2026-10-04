@@ -163,9 +163,9 @@ try {
     Set-Pixel $storage 13 7 $cyan
     Set-Pixel $storage 13 8 $cyanDark
 
-    $storagePath = Join-Path $textureRoot "digital_storage_unit.png"
+    $storagePath = Join-Path $textureRoot "digital_storage_accessor.png"
     $storage.Save($storagePath, [System.Drawing.Imaging.ImageFormat]::Png)
-    Save-Preview $storage (Join-Path $previewRoot "digital_storage_unit.png")
+    Save-Preview $storage (Join-Path $previewRoot "digital_storage_accessor.png")
 } finally {
     $storage.Dispose()
 }

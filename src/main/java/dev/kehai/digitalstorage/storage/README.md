@@ -1,28 +1,35 @@
-# Storage and persistence
+# 存储与持久化
 
-`DigitalStorageState` owns the server's player accounts and volumes.
-`StorageVolume` owns item contents and capacity; accessor blocks only retain
-controller and volume IDs. Accessors bound to the same volume expose the same
-canonical platform storage adapter so network aggregation can deduplicate it.
+DSC 的核心数据不放在访问器方块里。`DigitalStorageState` 管理服务器中的玩家账户和存储卷，`StorageVolume` 管理某个卷的物品、容量和策略；访问器只保存自己的控制者和所绑定的卷 ID。
 
-`VolumeLedger` owns quantities, policy, metrics and incremental snapshots without
-loader APIs. `ItemKey` and `ItemKeyCodec` preserve the existing variant identity
-and stored encoding. `MutationScope` enlists per-entry and metric snapshots;
-`LedgerTransaction` provides local nested transactions for shared ledger work.
-It does not make arbitrary external inventories transactional.
+这样做的直接结果是：破坏访问器不会删除存储卷，多个访问器也可以安全指向同一份卷数据。网络侧看到的数字库存应复用同一个账本身份，方便 Tom 按卷去重。
 
-The Fabric adapter is `platform/fabric/FabricDigitalItemStorage`; its bridges
-participate in external Fabric transactions and notify only on final commit. Provisional
-mutation and rollback must invalidate incremental snapshot iteration even when
-committed content has not changed. Keep extraction possible for existing items
-when insertion policy becomes more restrictive.
+## 数量账本
 
-Persistence lives under `<world>/digitalstorage/`, with compressed account and
-volume NBT files. Dirty data is snapshotted on the server thread and written by
-one ordered background writer; shutdown flushes pending work. Malformed records
-are quarantined individually, while newer schemas must not be rewritten by an
-older mod. Preserve these boundaries when changing storage or persistence.
+`VolumeLedger` 是卷内数量的权威来源，处理物品数量、插入策略、统计和增量快照。`ItemKey` / `ItemKeyCodec` 定义“什么算同一种物品”以及它如何被保存；不同 NBT 的精确变体会得到不同身份。
 
-`DigitalItemStorageSelfTest` is the storage regression entry point, invoked by
-the operator command `/digitalstorage selftest`. Network migration is described
-in the adjacent [optimization module](../optimization/README.md).
+`MutationScope` 保存一次修改涉及的条目和统计快照，`LedgerTransaction` 为共享账本提供可嵌套的本地事务。账本事务只能撤销自身的修改，外部库存的事务由平台适配器处理。
+
+外部转移的结算分别由两端处理：Fabric 通过 Transfer API 把外部库存纳入事务；Forge 则使用自己的转移执行器、托管状态和恢复记录处理无法原子结算的情况。
+
+收紧插入策略不会阻止取出卷内已有物品。黑名单和新变种 NBT 限额主要检查首次新增的物品种类；已有相同变种不会仅因这些检查被拒绝追加。不可堆叠物品策略仍会检查后续插入。
+
+## 增量快照与保存
+
+数据位于：
+
+```text
+<world>/digitalstorage/
+```
+
+账户和存储卷分别保存为压缩 NBT。服务器线程只负责按预算生成脏数据快照，实际文件写入交给单个后台写入器按顺序完成；正常停服时会刷完待写数据。
+
+事务里的临时插入和回滚有可能改变账本条目集合，所以即使最终提交内容没有变化，也不能继续使用已经失效的增量快照迭代状态。这类边界是持久化回归测试重点覆盖的内容。
+
+损坏的记录会单独隔离并保留原始数据，使其他卷仍可独立加载。遇到比当前模组更新的存储格式时，旧版本应拒绝把它按旧格式重写。
+
+## 测试
+
+共享账本回归由 `VolumeLedgerSelfTest` 覆盖。Fabric 的 `DigitalItemStorageSelfTest` 和 Forge 的 `ForgeSharedSelfTest` 分别通过本端 `/digitalstorage selftest` 运行共享回归及平台库存适配、结算测试。`DigitalItemStorageSelfTest` 不参与 Forge 编译。
+
+网络分析与批量迁移的策略见[网络分析与迁移](../optimization/README.md)。

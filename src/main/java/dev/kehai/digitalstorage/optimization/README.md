@@ -1,29 +1,29 @@
-# Tom's Storage integration and migration
+# 网络分析与迁移
 
-`NetworkAnalysis` scores network snapshots and recommends candidates using
-`ItemKey` and `InventoryEndpoint`. `MigrationTask` owns scan budgets, progress
-and topology checks; it delegates settled transfers to `InventoryTransferExecutor`.
-These policies do not import loader inventory or Tom types.
+本目录包含迁移候选生成、执行预算和任务停止条件。具体库存操作由平台适配器实现。
 
-`NetworkServices` lets the screen call the loader-installed backend without
-depending on its implementation. Fabric discovery, lifetime and telemetry live
-in [platform/fabric/tom](../platform/fabric/tom/); loader-specific mixins live in
-[platform/fabric/mixin](../platform/fabric/mixin/). Tom's Storage 1.7.1 is the
-verification baseline.
+`NetworkAnalysis` 根据平台提供的网络快照生成基础状态和迁移候选；`MigrationTask` 管理扫描预算、进度、取消和拓扑检查；提取与插入交给 `InventoryTransferExecutor`。这些共享类使用 `ItemKey`、`InventoryEndpoint`、`TopologyToken` 等抽象，不直接引用加载器库存接口或 Tom 类型。
 
-Network aggregation deduplicates canonical digital storage, while endpoint
-diagnostics still count accessor aliases. Migration excludes digital storage
-sources and transfers extraction/insertion in one Fabric transaction, committing
-only when the full amount moves.
+## 网络分析的定位
 
-`TomStorageIdentity` recognizes supported physical wrappers across network
-rebuilds without inspecting item contents. Unknown wrappers keep conservative
-object identity; do not equate arbitrary filtered wrappers merely because they
-share a backing inventory. Job liveness must still detect invalid topology or
-unavailable endpoints, and cancellation must not lose items.
+当前评分根据容器数量、库存视图、重复数字卷入口和扫描统计生成，迁移候选优先考虑大宗物品。这是启发式建议，不是性能分析器，也不代表 TPS 或 MSPT 测量。
 
-Use `/digitalstorage selftest` for built-in integration regressions and
-`/digitalstorage diagnostics` for current status. `TomPerformanceBenchmark`
-backs the operator benchmark command; benchmark results depend on workload and
-are not universal server performance guarantees. Storage ownership and
-persistence are described in the adjacent [storage module](../storage/README.md).
+屏幕通过 `NetworkServices` 调用各平台安装的实现：Fabric 的 Tom 拓扑、生命周期和统计位于 `platform/fabric/tom/`，Forge 则在独立 `forge/` 子项目中完成对应接入。
+
+同一个存储卷即使通过多个访问器接入，也只应作为一个数字存储端点参与网络聚合；诊断仍可以统计这些访问器别名，用来提示重复入口。
+
+## 迁移结算与停止条件
+
+数字存储本身不会再次作为迁移来源。任务只在端点、绑定和拓扑仍然有效时继续，并且每个 tick 都受预算限制，避免一次操作长时间占用服务器线程。
+
+Fabric 可以把提取和插入放进同一个 Transfer API 事务，目标没有完整接收时回滚两侧。Forge 没有等价的跨库存事务，因此平台执行器需要用托管状态、恢复记录和持久化收据处理部分接受或异常中断。
+
+共享层只把**已经确认结算的数量**计入迁移进度。平台无法确认结算结果时停止任务，并保留恢复记录。
+
+未知或第三方包装器也要保守处理。Fabric 的 `TomStorageIdentity` 可以识别已明确支持的物理包装器在网络重建前后的等价关系，但不能因为两个带过滤的包装器碰巧指向同一个底层库存，就把它们当成同一端点。
+
+## 测试与诊断
+
+`/digitalstorage selftest` 运行内置回归，`/digitalstorage diagnostics` 查看当前接入状态。平台还各自提供隔离性能基准，但基准结果只描述对应规模和调用方式，不是通用服务器性能保证。
+
+卷归属、数量账本和持久化见[存储模块](../storage/README.md)。
