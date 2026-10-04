@@ -13,12 +13,11 @@ Digital Storage Cloud 是 Tom's Simple Storage 的大宗物品存储后端。它
 ## 安装要求
 
 - Minecraft 1.20.1
-- Fabric Loader 0.15.11 或更高版本
-- Fabric API
 - Java 17
-- Tom's Simple Storage（仍为必需前置，但 1.1.8 不锁定精确版本；编译和验证基线为 1.7.1）
+- Fabric：已验证 Fabric Loader 0.15.11、Fabric API 0.92.2+1.20.1、Tom's Simple Storage Fabric 1.7.1。
+- Forge：已验证 Forge 47.4.10、Tom's Simple Storage Forge 1.7.1；不需要 Fabric API。
 
-将本模组 JAR、Fabric API 和 Tom's Simple Storage JAR 放入游戏或服务器的 `mods` 文件夹。多人游戏时，服务器和需要打开管理界面的客户端都应安装本模组及 Fabric API。
+将对应加载器的 DSC JAR 和依赖放入游戏或服务器的 `mods` 文件夹，移出旧 DSC JAR。文件名中的 `fabric` / `forge` 标明适用加载器；`sources.jar` 是源码，不安装。多人游戏时，服务器和需要打开管理界面的客户端均须安装对应模组与依赖。更新前备份世界；未验证跨 Fabric/Forge 的世界转换。
 
 ## 合成数字存储访问器
 
