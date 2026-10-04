@@ -1,5 +1,12 @@
 {
   "screen.digitalstorage.gui.close": "×",
+  "screen.digitalstorage.gui.search": "Find a volume…",
+  "screen.digitalstorage.gui.no_matches": "No matching volumes",
+  "screen.digitalstorage.gui.reopen": "Close and check again",
+  "screen.digitalstorage.gui.container_details": "Container details ▸",
+  "screen.digitalstorage.gui.hide_details": "Hide details ▾",
+  "screen.digitalstorage.gui.item_total": "Total items: %s",
+  "screen.digitalstorage.gui.capacity_full": "Item type capacity full",
   "screen.digitalstorage.gui.more": "Manage…",
   "screen.digitalstorage.gui.more_short": "…",
   "screen.digitalstorage.gui.details": "Details…",

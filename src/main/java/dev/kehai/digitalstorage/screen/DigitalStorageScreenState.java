@@ -292,6 +292,7 @@ public record DigitalStorageScreenState(
     }
 
     public static void runCodecSelfTest() {
+        ScreenOperationTracker.runSelfTest();
         DigitalStorageScreenState expected = new DigitalStorageScreenState(
                 false,
                 true,
