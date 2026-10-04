@@ -7,6 +7,7 @@ import dev.kehai.digitalstorage.storage.LedgerTransaction;
 import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
@@ -25,6 +26,8 @@ public final class FabricLedgerSelfTest {
         exceptionRollsBackBothInventories();
         detachedEntriesReleaseAdapterCaches();
         sharedMutationsInvalidateViewCache();
+        reentrantValidatorKeepsOuterScope();
+        sharedRemovalsReleasePreviouslyEnlistedParticipants();
     }
 
     private static void repeatedCanonicalLookupsShareNestedSnapshots() {
@@ -161,6 +164,85 @@ public final class FabricLedgerSelfTest {
         ledger.load(ItemKey.of(Items.DIRT), 1);
         expect(storage.iterator().next().getResource().equals(ItemVariant.of(Items.DIRT)),
                 "Shared replacement reused the removed entry's view");
+    }
+
+    private static void reentrantValidatorKeepsOuterScope() {
+        ItemVariant stone = ItemVariant.of(Items.STONE);
+        ItemVariant paper = ItemVariant.of(Items.PAPER);
+        for (boolean outerCommit : new boolean[]{false, true}) {
+            AtomicReference<FabricDigitalItemStorage> storageRef = new AtomicReference<>();
+            AtomicReference<Transaction> transactionRef = new AtomicReference<>();
+            FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> {}, () -> 2, key -> {
+                if (key.item() == Items.PAPER) {
+                    try (Transaction inner = transactionRef.get().openNested()) {
+                        expect(storageRef.get().extract(stone, 2, inner) == 2,
+                                "Reentrant validator did not extract from its nested scope");
+                        inner.commit();
+                    }
+                }
+                return true;
+            });
+            storageRef.set(storage);
+            storage.load(stone, 10);
+            try (Transaction outer = Transaction.openOuter()) {
+                transactionRef.set(outer);
+                expect(storage.insert(paper, 3, outer) == 3,
+                        "Reentrant validator interrupted the outer insertion");
+                if (outerCommit) outer.commit();
+            }
+            expect(storage.amountOf(stone) == (outerCommit ? 8 : 10)
+                            && storage.amountOf(paper) == (outerCommit ? 3 : 0),
+                    "Reentrant validator replaced the outer transaction with its closed nested scope");
+            try (Transaction next = Transaction.openOuter()) {
+                transactionRef.set(next);
+                expect(storage.insert(paper, 4, next) == 4,
+                        "Subsequent operation reused a closed transaction scope");
+                next.commit();
+            }
+            transactionRef.set(null);
+            expect(storage.amountOf(stone) == 8 && storage.amountOf(paper) == (outerCommit ? 7 : 4),
+                    "Reentrant scope reuse changed a subsequent final commit");
+        }
+    }
+
+    private static void sharedRemovalsReleasePreviouslyEnlistedParticipants() {
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> {}, 1);
+        for (int index = 0; index < 64; index++) {
+            CompoundTag tag = new CompoundTag();
+            tag.putInt("SharedRemoval", index);
+            ItemVariant variant = ItemVariant.of(Items.PAPER, tag);
+            try (Transaction transaction = Transaction.openOuter()) {
+                storage.insert(variant, 3, transaction);
+                transaction.commit();
+            }
+            var oldView = storage.iterator().next();
+            try (LedgerTransaction shared = LedgerTransaction.open()) {
+                storage.ledger().extract(FabricItemKeys.fromVariant(variant), 3, shared);
+                shared.commit();
+            }
+            expect(!storage.iterator().hasNext() && oldView.getAmount() == 0
+                            && cacheSize(storage, "bridges") <= 1 && cacheSize(storage, "views") == 0,
+                    "Shared removal retained a previously enlisted Fabric participant");
+        }
+        // A shared-only removal need not be followed by a Fabric iterator scan.
+        // Repeated replacements must still bound the strong transaction cache.
+        for (int index = 0; index < 64; index++) {
+            CompoundTag tag = new CompoundTag();
+            tag.putInt("UnscannedRemoval", index);
+            ItemVariant variant = ItemVariant.of(Items.PAPER, tag);
+            try (Transaction transaction = Transaction.openOuter()) {
+                storage.insert(variant, 3, transaction);
+                transaction.commit();
+            }
+            expect(cacheSize(storage, "bridges") <= 2,
+                    "Shared removals accumulated bridges without an iterator scan");
+            try (LedgerTransaction shared = LedgerTransaction.open()) {
+                storage.ledger().extract(FabricItemKeys.fromVariant(variant), 3, shared);
+                shared.commit();
+            }
+        }
+        expect(!storage.iterator().hasNext() && cacheSize(storage, "bridges") <= 1,
+                "Final shared removal left detached participants after cleanup");
     }
 
     private static int cacheSize(FabricDigitalItemStorage storage, String name) {

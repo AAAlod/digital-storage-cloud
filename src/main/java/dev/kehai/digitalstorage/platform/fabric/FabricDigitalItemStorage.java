@@ -27,7 +27,11 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
     public static final long MAX_AMOUNT_PER_VARIANT = VolumeLedger.MAX_AMOUNT_PER_VARIANT;
     private static final Map<VolumeLedger, WeakReference<FabricDigitalItemStorage>> CANONICAL = new WeakHashMap<>();
     private final VolumeLedger ledger;
-    private final Map<MutationParticipant<?>, WeakReference<Bridge<?>>> bridges = new WeakHashMap<>();
+    // The ledger already owns attached participants. Adapter-local strong bridges
+    // survive GC between transactions; detached participants are removed below.
+    // CANONICAL remains weak, so this adapter/ledger cycle cannot root a volume.
+    private final Map<MutationParticipant<?>, Bridge<?>> bridges = new IdentityHashMap<>();
+    private FabricMutationScope spareScope;
     // Adapter-owned live views do not root the weak canonical cache. Reuse their
     // ItemVariants without a weak-reference lookup or repeated NBT copies.
     private final Map<VolumeLedger.View, FabricView> views = new IdentityHashMap<>();
@@ -84,12 +88,43 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
 
     @Override
     public long insert(ItemVariant resource, long maxAmount, TransactionContext transaction) {
-        return ledger.insert(FabricItemKeys.fromVariant(resource), maxAmount, new FabricMutationScope(transaction));
+        FabricMutationScope scope = acquireScope(transaction);
+        try {
+            return ledger.insert(FabricItemKeys.fromVariant(resource), maxAmount, scope);
+        } finally {
+            releaseScope(scope);
+        }
     }
 
     @Override
     public long extract(ItemVariant resource, long maxAmount, TransactionContext transaction) {
-        return ledger.extract(FabricItemKeys.fromVariant(resource), maxAmount, new FabricMutationScope(transaction));
+        FabricMutationScope scope = acquireScope(transaction);
+        try {
+            return ledger.extract(FabricItemKeys.fromVariant(resource), maxAmount, scope);
+        } finally {
+            releaseScope(scope);
+        }
+    }
+
+    private FabricMutationScope acquireScope(TransactionContext transaction) {
+        // Shared transactions can remove entries without Fabric callbacks. Prune
+        // when the cache exceeds live variants plus the one metrics participant;
+        // ordinary growth need not scan every earlier bridge on each insertion.
+        if (bridges.size() > (long) ledger.variantCount() + 1) {
+            bridges.keySet().removeIf(participant -> !participant.isAttached());
+        }
+        FabricMutationScope scope = spareScope;
+        spareScope = null;
+        if (scope == null) scope = new FabricMutationScope();
+        scope.transaction = transaction;
+        return scope;
+    }
+
+    private void releaseScope(FabricMutationScope scope) {
+        // Ledger mutations enlist synchronously. Never retain a closed transaction
+        // or reuse an active scope if a validator reenters this adapter.
+        scope.transaction = null;
+        spareScope = scope;
     }
 
     @Override
@@ -122,6 +157,7 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
             // Shared ledger transactions can detach entries without Fabric callbacks.
             views.keySet().removeIf(view -> view instanceof MutationParticipant<?> participant
                     && !participant.isAttached());
+            bridges.keySet().removeIf(participant -> !participant.isAttached());
             viewStructureVersion = current;
         }
     }
@@ -144,20 +180,15 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
     public VolumeLedger.SnapshotCursor snapshotCursor() { return ledger.snapshotCursor(); }
 
     private final class FabricMutationScope implements MutationScope {
-        private final TransactionContext transaction;
-
-        private FabricMutationScope(TransactionContext transaction) {
-            this.transaction = transaction;
-        }
+        private TransactionContext transaction;
 
         @Override
         @SuppressWarnings("unchecked")
         public <S> void enlist(MutationParticipant<S> participant) {
-            WeakReference<Bridge<?>> reference = bridges.get(participant);
-            Bridge<S> bridge = reference == null ? null : (Bridge<S>) reference.get();
+            Bridge<S> bridge = (Bridge<S>) bridges.get(participant);
             if (bridge == null) {
                 bridge = new Bridge<>(participant);
-                bridges.put(participant, new WeakReference<>(bridge));
+                bridges.put(participant, bridge);
             }
             bridge.updateSnapshots(transaction);
         }
@@ -189,8 +220,7 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
 
         private void discardDetached() {
             if (!participant.isAttached()) {
-                WeakReference<Bridge<?>> reference = bridges.get(participant);
-                if (reference != null && reference.get() == this) {
+                if (bridges.get(participant) == this) {
                     bridges.remove(participant);
                 }
                 if (participant instanceof VolumeLedger.View view) {
