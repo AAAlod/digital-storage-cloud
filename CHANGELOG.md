@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0 - Unreleased
+## 1.2.0 - 2026-10-04
 
 - 构建产物文件名明确标注 Fabric 或 Forge，便于选择对应加载器。
 
