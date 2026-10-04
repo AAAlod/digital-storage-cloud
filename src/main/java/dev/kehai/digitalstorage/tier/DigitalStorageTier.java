@@ -1,6 +1,7 @@
 package dev.kehai.digitalstorage.tier;
 
 import java.util.List;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
 public record DigitalStorageTier(
@@ -24,5 +25,11 @@ public record DigitalStorageTier(
                 ? "no items"
                 : entryCost.stream().map(UpgradeIngredient::displayName).reduce((left, right) -> left + ", " + right).orElse("");
         return experienceLevels > 0 ? itemCost + ", " + experienceLevels + " XP levels" : itemCost;
+    }
+
+    /** Keep the component translatable until it reaches the viewing client's language. */
+    public static Component displayName(ResourceLocation id) {
+        return Component.translatableWithFallback("tier.digitalstorage." + id.getNamespace() + "."
+                + id.getPath().replace('/', '.'), id.toString());
     }
 }

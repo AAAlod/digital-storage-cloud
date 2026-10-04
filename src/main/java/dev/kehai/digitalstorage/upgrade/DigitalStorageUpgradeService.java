@@ -39,7 +39,7 @@ public final class DigitalStorageUpgradeService {
         if (nextTierResult.isEmpty()) {
             return UpgradeResult.failure(Component.translatable(
                     "screen.digitalstorage.error.maximum",
-                    currentTier.id().toString()
+                    DigitalStorageTier.displayName(currentTier.id())
             ));
         }
         DigitalStorageTier nextTier = nextTierResult.get();
@@ -48,7 +48,7 @@ public final class DigitalStorageUpgradeService {
         if (paymentResult.plan() == null) {
             return UpgradeResult.failure(Component.translatable(
                     "screen.digitalstorage.error.missing_item",
-                    paymentResult.missingIngredient().displayName()
+                    paymentResult.missingIngredient().displayComponent()
             ));
         }
         if (player.experienceLevel < nextTier.experienceLevels()) {
@@ -79,8 +79,8 @@ public final class DigitalStorageUpgradeService {
         cleanGuard(currentTick);
         return UpgradeResult.success(Component.translatable(
                 "screen.digitalstorage.success",
-                currentTier.id().toString(),
-                nextTier.id().toString(),
+                DigitalStorageTier.displayName(currentTier.id()),
+                DigitalStorageTier.displayName(nextTier.id()),
                 nextTier.variantCapacity()
         ));
     }
@@ -113,6 +113,12 @@ public final class DigitalStorageUpgradeService {
         );
         expect(overlapping.plan() == null, "overlapping costs reused the same inventory items");
         expect(overlappingInventory.get(0).getCount() == 10, "failed payment planning mutated inventory");
+        Component tier = DigitalStorageTier.displayName(new ResourceLocation("digitalstorage", "ultimate"));
+        expect(tier.getContents() instanceof net.minecraft.network.chat.contents.TranslatableContents translation
+                && translation.getKey().equals("tier.digitalstorage.digitalstorage.ultimate"),
+                "tier name became a literal ID instead of a client-localized component");
+        expect(sixDiamonds.displayComponent().getContents() instanceof net.minecraft.network.chat.contents.TranslatableContents cost
+                && cost.getArgs()[0] instanceof Component, "missing ingredient lost its translated item component");
     }
 
     private static void cleanGuard(long currentTick) {
