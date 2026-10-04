@@ -33,6 +33,7 @@ public final class FabricLedgerSelfTest {
         iteratorsReadLiveQuantitiesAndRejectChangedMembership();
         removalCallbackCanRebuildViews();
         partialScanDoesNotAdaptUnvisitedEntries();
+        viewExtractionPreservesIdentityAndNestedRollback();
     }
 
     private static void repeatedCanonicalLookupsShareNestedSnapshots() {
@@ -325,6 +326,43 @@ public final class FabricLedgerSelfTest {
         long total = 1;
         while (iterator.hasNext()) total += iterator.next().getAmount();
         expect(total == 2048, "Lazy cached iteration omitted volume members");
+    }
+
+    private static void viewExtractionPreservesIdentityAndNestedRollback() {
+        CompoundTag tag = new CompoundTag();
+        tag.putInt("ViewIdentity", 7);
+        ItemVariant original = ItemVariant.of(Items.PAPER, tag);
+        ItemVariant equivalent = ItemVariant.of(Items.PAPER, tag.copy());
+        CompoundTag otherTag = tag.copy();
+        otherTag.putInt("ViewIdentity", 8);
+        for (boolean innerCommit : new boolean[]{false, true}) {
+            for (boolean outerCommit : new boolean[]{false, true}) {
+                AtomicInteger dirty = new AtomicInteger();
+                FabricDigitalItemStorage storage = new FabricDigitalItemStorage(dirty::incrementAndGet, 1);
+                storage.load(original, 5);
+                var view = storage.iterator().next();
+                try (Transaction outer = Transaction.openOuter()) {
+                    expect(view.extract(ItemVariant.of(Items.PAPER, otherTag), 4, outer) == 0
+                                    && view.extract(ItemVariant.of(Items.PAPER), 4, outer) == 0
+                                    && view.extract(ItemVariant.of(Items.STONE, tag), 4, outer) == 0
+                                    && view.extract(ItemVariant.blank(), 4, outer) == 0,
+                            "View extraction ignored exact NBT/item identity");
+                    try (Transaction inner = outer.openNested()) {
+                        expect(view.extract(equivalent, 4, inner) == 4,
+                                "View rejected an equal independently constructed variant");
+                        if (innerCommit) inner.commit();
+                    }
+                    expect(dirty.get() == 0 && storage.contentVersion() == 0,
+                            "View extraction notified before the final commit");
+                    if (outerCommit) outer.commit();
+                }
+                boolean committed = innerCommit && outerCommit;
+                expect(view.getAmount() == (committed ? 1 : 5)
+                                && storage.totalItemCount() == (committed ? 1 : 5)
+                                && dirty.get() == (committed ? 1 : 0),
+                        "Known-key view extraction changed nested rollback or notifications");
+            }
+        }
     }
 
     private static int cacheSize(FabricDigitalItemStorage storage, String name) {

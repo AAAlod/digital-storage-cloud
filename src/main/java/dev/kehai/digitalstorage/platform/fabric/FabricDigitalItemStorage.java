@@ -103,9 +103,13 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
 
     @Override
     public long extract(ItemVariant resource, long maxAmount, TransactionContext transaction) {
+        return extractKey(FabricItemKeys.fromVariant(resource), maxAmount, transaction);
+    }
+
+    private long extractKey(ItemKey resource, long maxAmount, TransactionContext transaction) {
         FabricMutationScope scope = acquireScope(transaction);
         try {
-            return ledger.extract(FabricItemKeys.fromVariant(resource), maxAmount, scope);
+            return ledger.extract(resource, maxAmount, scope);
         } finally {
             releaseScope(scope);
         }
@@ -326,7 +330,9 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
 
         @Override
         public long extract(ItemVariant requested, long maxAmount, TransactionContext transaction) {
-            return resource.equals(requested) ? FabricDigitalItemStorage.this.extract(requested, maxAmount, transaction) : 0;
+            // Equality has already established the exact immutable variant. The
+            // live handle owns its ledger key; avoid converting it back from Fabric.
+            return resource.equals(requested) ? extractKey(view.getResource(), maxAmount, transaction) : 0;
         }
     }
 
