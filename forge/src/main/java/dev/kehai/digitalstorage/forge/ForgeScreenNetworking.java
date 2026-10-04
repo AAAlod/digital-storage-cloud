@@ -14,7 +14,7 @@ import net.minecraftforge.network.simple.SimpleChannel;
 
 public final class ForgeScreenNetworking {
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(DigitalStorage.id("screen"),
-            () -> "1", "1"::equals, "1"::equals);
+            () -> "2", "2"::equals, "2"::equals);
 
     private ForgeScreenNetworking() { }
 

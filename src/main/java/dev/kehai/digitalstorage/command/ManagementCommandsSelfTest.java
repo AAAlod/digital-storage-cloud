@@ -61,6 +61,7 @@ public final class ManagementCommandsSelfTest {
                     "Foreign rename/delete rejected");
             world.setBlockAndUpdate(pos, ((BlockItem) DigitalStorageContent.accessorItem()).getBlock().defaultBlockState());
             var accessor = (DigitalStorageAccessorBlockEntity) world.getBlockEntity(pos);
+            dev.kehai.digitalstorage.screen.DigitalStorageScreenHandler.runResponseSelfTest(player, accessor);
             expect(dispatcher.execute("digitalstorage accessor bind " + location + " " + id, foreignSource) == 0
                     && accessor.boundVolumeId().isEmpty(), "Foreign binding rejected");
             expect(dispatcher.execute("dsc accessor bind " + location + " " + id, ownSource) == 1

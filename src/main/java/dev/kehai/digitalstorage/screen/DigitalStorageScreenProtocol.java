@@ -7,7 +7,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 
-/** Loader-independent messages; field order remains compatible with the Fabric protocol. */
+/** Loader-independent messages. 1.2.1 state replies include an operation response revision. */
 public final class DigitalStorageScreenProtocol {
     public static final ResourceLocation STATE_PACKET_ID = DigitalStorage.id("screen_state");
     public static final ResourceLocation CREATE_VOLUME_PACKET_ID = DigitalStorage.id("create_volume");

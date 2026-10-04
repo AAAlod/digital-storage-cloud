@@ -43,7 +43,8 @@ public record DigitalStorageScreenState(
         boolean canAfford,
         NetworkDiagnostic networkDiagnostic,
         boolean statusSuccessful,
-        Component status
+        Component status,
+        long responseRevision
 ) {
     private static final int MAX_SYNCED_INGREDIENTS = 256;
     private static final int MAX_SYNCED_VOLUMES = 64;
@@ -103,7 +104,8 @@ public record DigitalStorageScreenState(
                     false,
                     networkDiagnostic,
                     false,
-                    status
+                    status,
+                    0
             );
         }
 
@@ -133,7 +135,8 @@ public record DigitalStorageScreenState(
                 nextTier.isPresent() && DigitalStorageUpgradeService.canAfford(player, next),
                 networkDiagnostic,
                 false,
-                status
+                status,
+                0
         );
     }
 
@@ -188,6 +191,7 @@ public record DigitalStorageScreenState(
         networkDiagnostic.write(buf);
         buf.writeBoolean(statusSuccessful);
         buf.writeComponent(status);
+        buf.writeLong(responseRevision);
     }
 
     public static DigitalStorageScreenState read(FriendlyByteBuf buf) {
@@ -239,11 +243,16 @@ public record DigitalStorageScreenState(
                 buf.readBoolean(),
                 NetworkDiagnostic.read(buf),
                 buf.readBoolean(),
-                buf.readComponent()
+                buf.readComponent(),
+                buf.readLong()
         );
     }
 
     public DigitalStorageScreenState withStatus(Component message, boolean successful) {
+        return withStatus(message, successful, responseRevision);
+    }
+
+    public DigitalStorageScreenState withStatus(Component message, boolean successful, long revision) {
         return new DigitalStorageScreenState(
                 accessorBound,
                 accessorConfigurable,
@@ -265,7 +274,8 @@ public record DigitalStorageScreenState(
                 canAfford,
                 networkDiagnostic,
                 successful,
-                message
+                message,
+                revision
         );
     }
 
@@ -303,14 +313,19 @@ public record DigitalStorageScreenState(
                         4217, 64, "minecraft:cobblestone", "RUNNING", "4096", 3, 12, 8192
                 ),
                 true,
-                Component.literal("codec status")
+                Component.literal("codec status"),
+                42
         );
         FriendlyByteBuf buf = new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
         try {
             expected.write(buf);
             DigitalStorageScreenState actual = read(buf);
-            if (!expected.equals(actual)) {
+            if (!expected.equals(actual) || buf.isReadable()) {
                 throw new IllegalStateException("Digital storage screen state codec round trip failed");
+            }
+            if (actual.withStatus(Component.literal("content update"), false).responseRevision() != 42
+                    || actual.withStatus(actual.status(), true, 43).responseRevision() != 43) {
+                throw new IllegalStateException("Screen response revision was lost or not advanced");
             }
         } finally {
             buf.release();

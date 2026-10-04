@@ -48,6 +48,8 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
     private long nextStateSyncTick;
     private long nextNetworkAnalysisTick;
     private boolean initialStateSyncPending;
+    // Advances only for an operation reply, never for inventory/topology broadcasts.
+    private long responseRevision;
 
     /** Bound once by the loader during initialization, before any server menu opens. */
     public static void setStateSender(DigitalStorageScreenProtocol.StateSender sender) {
@@ -305,7 +307,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         if (policyChanged || serverPolicyChanged) {
             networkReport = null;
         }
-        DigitalStorageScreenState updated = captureServerState(status).withStatus(status, statusSuccessful);
+        DigitalStorageScreenState updated = captureServerState(status).withStatus(status, statusSuccessful, responseRevision);
         lastContentVersion = contentVersion;
         lastPolicyVersion = policyVersion;
         lastServerAllowsUnstackableItems = serverAllowsUnstackableItems;
@@ -375,7 +377,8 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
 
     private void sendServerState() {
         if (playerInventory.player instanceof ServerPlayer serverPlayer) {
-            state = captureServerState(status).withStatus(status, statusSuccessful);
+            responseRevision++;
+            state = captureServerState(status).withStatus(status, statusSuccessful, responseRevision);
             DigitalStorageAccessorBlockEntity blockEntity = getServerBlockEntity();
             if (blockEntity != null) {
                 rememberContentVersion(blockEntity);
@@ -491,5 +494,83 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
             return null;
         }
         return blockEntity;
+    }
+
+    /** Called only by the declared private-world management fixture with a synthetic player. */
+    public static void runResponseSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) {
+        var oldMenu = player.containerMenu;
+        var oldSender = stateSender;
+        var cloud = DigitalStorageState.get(player.serverLevel());
+        var pos = accessor.getBlockPos();
+        player.setPos(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+        var replies = new java.util.ArrayList<DigitalStorageScreenState>();
+        setStateSender((recipient, update) -> {
+            if (recipient == player) replies.add(update.state());
+            else oldSender.send(recipient, update);
+        });
+        StorageVolume created = null;
+        try {
+            var handler = new DigitalStorageScreenHandler(203, player.getInventory(), accessor);
+            player.containerMenu = handler;
+            handler.broadcastChanges();
+            expectResponse(replies.size() == 1 && handler.state.responseRevision() == 0, "Initial sync is not a reply");
+            handleRequest(player, new DigitalStorageScreenProtocol.CreateVolume(204, "GUI fixture"));
+            expectResponse(replies.size() == 1, "Wrong menu request is ignored");
+            handleRequest(player, new DigitalStorageScreenProtocol.CreateVolume(203, "GUI fixture"));
+            expectResponse(handler.state.statusSuccessful() && handler.state.responseRevision() == 1, "Create reply");
+            created = cloud.volumes(player.getUUID()).stream().filter(v -> v.name().equals("GUI fixture"))
+                    .findFirst().orElseThrow();
+            handleRequest(player, new DigitalStorageScreenProtocol.ManageVolume(203, RENAME_VOLUME_ACTION,
+                    created.id(), "GUI renamed"));
+            expectResponse(handler.state.statusSuccessful() && handler.state.responseRevision() == 2, "Rename reply");
+            for (int revision = 3; revision <= 4; revision++) {
+                handleRequest(player, new DigitalStorageScreenProtocol.ManageVolume(203, RENAME_VOLUME_ACTION,
+                        created.id(), "GUI renamed"));
+                expectResponse(!handler.state.statusSuccessful() && handler.state.responseRevision() == revision,
+                        "Identical rejection still acknowledges a new operation");
+            }
+            int index = cloud.volumes(player.getUUID()).indexOf(created);
+            handler.clickMenuButton(player, BIND_VOLUME_BUTTON_BASE + index);
+            expectResponse(handler.state.accessorBound() && handler.state.responseRevision() == 5, "Binding reply");
+            try (var transaction = dev.kehai.digitalstorage.storage.LedgerTransaction.open()) {
+                created.record().storage().insert(dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.world.item.Items.STONE),
+                        5, transaction);
+                transaction.commit();
+            }
+            handler.nextStateSyncTick = 0;
+            handler.broadcastChanges();
+            expectResponse(handler.state.usedVariants() == 1 && handler.state.responseRevision() == 5,
+                    "Content broadcast cannot acknowledge an operation");
+            handler.clickMenuButton(player, CLEAR_BINDING_BUTTON_ID);
+            expectResponse(!handler.state.accessorBound() && handler.state.responseRevision() == 6, "Clear reply");
+            handleRequest(player, new DigitalStorageScreenProtocol.ManageVolume(203, DELETE_VOLUME_ACTION, created.id(), ""));
+            expectResponse(!handler.state.statusSuccessful() && handler.state.responseRevision() == 7,
+                    "Nonempty deletion rejected with a reply");
+            try (var transaction = dev.kehai.digitalstorage.storage.LedgerTransaction.open()) {
+                created.record().storage().extract(dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.world.item.Items.STONE),
+                        5, transaction);
+                transaction.commit();
+            }
+            handleRequest(player, new DigitalStorageScreenProtocol.ManageVolume(203, DELETE_VOLUME_ACTION, created.id(), ""));
+            expectResponse(handler.state.statusSuccessful() && handler.state.responseRevision() == 8,
+                    "Empty deletion reply");
+            dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Screen operation response fixture passed: menu identity, create, UUID rename, repeated rejection, binding, content broadcast, clearing and guarded deletion");
+        } finally {
+            stateSender = oldSender;
+            player.containerMenu = oldMenu;
+            if (created != null && cloud.ownsVolume(player.getUUID(), created.id())) {
+                if (accessor.boundVolumeId().filter(created.id()::equals).isPresent()) accessor.clearBinding(player);
+                try (var transaction = dev.kehai.digitalstorage.storage.LedgerTransaction.open()) {
+                    created.record().storage().extract(dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.world.item.Items.STONE),
+                            Long.MAX_VALUE, transaction);
+                    transaction.commit();
+                }
+                expectResponse(cloud.deleteEmptyVolume(player.getUUID(), created.id()), "Fixture cleanup");
+            }
+        }
+    }
+
+    private static void expectResponse(boolean value, String description) {
+        if (!value) throw new IllegalStateException("Screen response fixture: " + description);
     }
 }
