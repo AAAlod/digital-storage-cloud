@@ -7,6 +7,7 @@
   "screen.digitalstorage.gui.hide_details": "Hide details ▾",
   "screen.digitalstorage.gui.item_total": "Total items: %s",
   "screen.digitalstorage.gui.capacity_full": "Item type capacity full",
+  "screen.digitalstorage.gui.import_target": "Import target",
   "screen.digitalstorage.gui.more": "Manage…",
   "screen.digitalstorage.gui.more_short": "…",
   "screen.digitalstorage.gui.details": "Details…",

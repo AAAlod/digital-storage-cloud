@@ -7,6 +7,7 @@
   "screen.digitalstorage.gui.hide_details": "收起详情 ▾",
   "screen.digitalstorage.gui.item_total": "物品总量：%s 件",
   "screen.digitalstorage.gui.capacity_full": "种类容量已满",
+  "screen.digitalstorage.gui.import_target": "移入目标",
   "screen.digitalstorage.gui.more": "管理…",
   "screen.digitalstorage.gui.more_short": "…",
   "screen.digitalstorage.gui.details": "详情…",

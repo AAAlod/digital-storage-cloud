@@ -95,7 +95,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         button("gui.close", imageWidth - 26, 4, 20, ignored -> onClose());
         upgrade = button("upgrade", MARGIN, 113, 98, ignored -> open(View.UPGRADE));
         clearBinding = button("gui.more_short", imageWidth - 38, 113, 26,
-                ignored -> showMenu(true, imageWidth - 128, 135));
+                ignored -> showMenu(true, clearBinding));
         network = button("gui.details", imageWidth - 90, 149, 78, ignored -> open(View.NETWORK));
         toggle = addRenderableWidget(new SwitchButton(leftPos + imageWidth - 76, topPos + 187, ignored -> requestToggle()));
         homeButtons.addAll(List.of(upgrade, clearBinding, network, toggle));
@@ -113,11 +113,11 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                         var choice = visibleChoice(slot);
                         if (choice != null) {
                             selectedVolume = choice.id();
-                            showMenu(false, imageWidth - 128, 84 + slot * ROW_HEIGHT);
+                            showMenu(false, manageButtons.get(slot));
                         }
                     }));
         }
-        nameField = addRenderableWidget(new EditBox(font, leftPos + MARGIN, topPos + 81,
+        nameField = addRenderableWidget(new EditBox(font, leftPos + MARGIN, topPos + 61,
                 imageWidth - MARGIN * 2, 20, tr("gui.name")));
         nameField.setMaxLength(StorageVolume.MAX_NAME_LENGTH);
         nameField.setBordered(true);
@@ -134,7 +134,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             ItemStack sample = inventory.getItem(slot < 27 ? slot + 9 : slot - 27);
             ItemStack display = sample.isEmpty() ? ItemStack.EMPTY : new ItemStack(sample.getItem());
             iconChoices.add(addRenderableWidget(new ItemIconButton(leftPos + (imageWidth - 198) / 2 + slot % 9 * 22,
-                    topPos + 65 + slot / 9 * 22 + (slot >= 27 ? 4 : 0), display, ignored -> setIcon(display), true)));
+                    topPos + 45 + slot / 9 * 22 + (slot >= 27 ? 4 : 0), display, ignored -> setIcon(display), true)));
         }
         presetChoices.clear();
         for (int i = 0; i < StorageVolume.PRESET_ICONS.size(); i++) {
@@ -157,7 +157,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             confirm.setX(leftPos + MARGIN + 2 * (actionWidth + 4));
             confirm.setWidth(actionWidth);
         }
-        detailToggle = button("gui.details", MARGIN, 100, 100, ignored -> {
+        detailToggle = button("gui.details", imageWidth - 112, 36, 100, ignored -> {
             networkDetails = !networkDetails;
             updateWidgets();
         });
@@ -206,11 +206,15 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         open(view == View.ICONS ? iconReturn : View.HOME);
     }
 
-    private void showMenu(boolean bound, int x, int y) {
+    private void showMenu(boolean bound, Button anchor) {
         boundMenu = bound;
         menuOpen = true;
-        menuX = Math.max(MARGIN, Math.min(imageWidth - 128, x));
-        menuY = Math.max(30, Math.min(imageHeight - 86, y));
+        menuX = Math.max(MARGIN, Math.min(imageWidth - 128, anchor.getX() - leftPos + anchor.getWidth() - 116));
+        int menuHeight = bound ? 40 : 60;
+        int below = anchor.getY() - topPos + anchor.getHeight() + 2;
+        int start = below + menuHeight + 2 <= imageHeight - 24 ? below
+                : anchor.getY() - topPos - menuHeight - 2;
+        menuY = Math.max(30, start) - (bound ? 20 : 0);
         setFocused(null);
         updateWidgets();
         setFocused(actionMenu.get(bound ? 1 : 0));
@@ -253,17 +257,17 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private int desiredHeight() {
         return switch (view) {
             case HOME -> 234;
-            case NETWORK -> 224;
+            case NETWORK -> 208;
             case UPGRADE -> menu.state().hasNextTier() ? 250 : 174;
-            case CREATE, RENAME -> 160;
-            case CLEAR, DELETE -> 190;
-            case ICONS -> 224;
+            case CREATE, RENAME -> 140;
+            case CLEAR, DELETE -> 170;
+            case ICONS -> 204;
         };
     }
 
     private int desiredWidth() {
         return switch (view) {
-            case CREATE, RENAME -> 280;
+            case CREATE, RENAME, NETWORK -> 280;
             case CLEAR, DELETE -> 300;
             default -> 320;
         };
@@ -670,7 +674,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     private void drawContent(GuiGraphics graphics) {
         graphics.renderItem(ICON, 6, 5);
-        text(graphics, title, 26, 9, imageWidth - 58, TEXT);
+        text(graphics, pageTitle(), 26, 9, imageWidth - 58, TEXT);
         if (view == View.HOME) {
             if (menu.state().accessorBound()) drawHome(graphics);
             else drawVolumes(graphics);
@@ -690,8 +694,9 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         graphics.pose().translate(0, -homeScroll, 0);
         drawingHomeContent = true;
         panel(graphics, MARGIN - 3, 31, imageWidth - 18, 77);
-        text(graphics, Component.literal(state.volumeName()), MARGIN + 23, 35, imageWidth - 147, TEXT);
-        text(graphics, tierName(state.tierId()), imageWidth - 104, 35, 92, MUTED);
+        int nameY = 32 + (20 - font.lineHeight) / 2;
+        text(graphics, Component.literal(state.volumeName()), MARGIN + 23, nameY, imageWidth - 147, TEXT);
+        text(graphics, tierName(state.tierId()), imageWidth - 104, nameY, 92, MUTED);
         progress(graphics, MARGIN, 54, imageWidth - 24, 7,
                 state.variantCapacity() <= 0 ? 0 : (double) state.usedVariants() / state.variantCapacity());
         text(graphics, tr("gui.capacity", state.usedVariants(), state.variantCapacity(),
@@ -743,8 +748,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         }
     }
 
-    private void drawDetail(GuiGraphics graphics) {
-        String heading = switch (view) {
+    private Component pageTitle() {
+        return view == View.HOME ? title : tr(switch (view) {
             case UPGRADE -> "gui.upgrade_title";
             case NETWORK -> "gui.network_title";
             case CREATE -> "gui.create";
@@ -753,8 +758,10 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             case CLEAR -> "gui.clear_title";
             case ICONS -> "gui.choose_icon";
             default -> "gui.manage_volume";
-        };
-        text(graphics, tr(heading), MARGIN, 35, imageWidth - 24, TEXT);
+        });
+    }
+
+    private void drawDetail(GuiGraphics graphics) {
         if (view == View.UPGRADE) {
             drawUpgrade(graphics);
             return;
@@ -769,7 +776,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         }
         if (view == View.CREATE || view == View.RENAME) {
             text(graphics, view == View.RENAME && selectedChoice() != null
-                    ? tr("gui.target", selectedChoice().name()) : tr("gui.name"), MARGIN, 62, imageWidth - 24, TEXT);
+                    ? tr("gui.target", selectedChoice().name()) : tr("gui.name"), MARGIN, 42, imageWidth - 24, TEXT);
             return;
         }
         drawManagement(graphics);
@@ -782,43 +789,48 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         String health = !d.available() ? "gui.network_disconnected"
                 : d.hasDuplicateTargetEndpoints() ? "gui.network_duplicates"
                 : d.failingScanners() > 0 ? "gui.network_scanner_fault" : "gui.network_healthy";
-        panel(graphics, MARGIN, 52, imageWidth - 24, 43);
-        graphics.renderItem(new ItemStack(Items.COMPARATOR), MARGIN + 6, 60);
+        panel(graphics, MARGIN, 32, imageWidth - 24, 43);
+        graphics.renderItem(new ItemStack(Items.COMPARATOR), MARGIN + 6, 40);
         text(graphics, d.failingScanners() > 0 && !d.hasDuplicateTargetEndpoints() && d.available()
                 ? tr("gui.network_stalled", d.failingScanners()) : tr(health),
-                MARGIN + 28, 60, imageWidth - 65, color);
+                MARGIN + 28, 42, imageWidth - 152, color);
         String nextStep = !d.available() ? "gui.network_connect"
                 : d.hasDuplicateTargetEndpoints() ? "gui.network_remove_duplicate"
                 : d.failingScanners() > 0 ? "gui.network_check_hoppers" : "gui.network_no_action";
-        text(graphics, tr(nextStep), MARGIN + 28, 78, imageWidth - 65, MUTED);
+        if (!nextStep.equals("gui.network_no_action"))
+            text(graphics, tr(nextStep), MARGIN + 28, 62, imageWidth - 65, MUTED);
         if (networkDetails) {
             int columnWidth = (imageWidth - 32) / 2;
-            metric(graphics, MARGIN, 126, columnWidth, "gui.metric_inventories", d.available() ? "" + d.physicalInventories() : "—", TEXT);
-            metric(graphics, MARGIN + columnWidth + 8, 126, columnWidth, "gui.metric_slots",
+            metric(graphics, MARGIN, 86, columnWidth, "gui.metric_inventories", d.available() ? "" + d.physicalInventories() : "—", TEXT);
+            metric(graphics, MARGIN + columnWidth + 8, 86, columnWidth, "gui.metric_slots",
                     d.available() ? d.nonEmptyViews() + "/" + d.totalViews() : "—", TEXT);
         }
-        int y = networkDetails ? 140 : 126;
-        int lastLine = networkDetails ? 28 : 36;
-        panel(graphics, MARGIN, y, imageWidth - 24, networkDetails ? 38 : 53);
+        int y = networkDetails ? 105 : 88;
+        int column = (imageWidth - 32) / 2;
+        int targetX = MARGIN + column + 8;
+        panel(graphics, MARGIN, y, imageWidth - 24, 55);
+        text(graphics, tr("gui.import_target"), targetX, y + 5, column, MUTED);
+        graphics.renderItem(iconStack(menu.state().volumeIcon()), targetX, y + 21);
+        text(graphics, Component.literal(menu.state().volumeName()), targetX + 22, y + 25, column - 22, TEXT);
         if (d.migrationActive()) {
-            graphics.renderItem(new ItemStack(Items.HOPPER), MARGIN + 6, y + 8);
+            graphics.renderItem(new ItemStack(Items.HOPPER), MARGIN + 2, y + 3);
             text(graphics, tr("migration.progress_short", d.completedCandidates(), d.totalCandidates()),
-                    MARGIN + 28, y + 5, imageWidth - 65, GREEN);
-            progress(graphics, MARGIN + 28, y + 21, imageWidth - 65, 5,
+                    MARGIN + 24, y + 7, column - 24, GREEN);
+            progress(graphics, MARGIN, y + 45, imageWidth - 24, 5,
                     d.totalCandidates() <= 0 ? 0 : (double) d.completedCandidates() / d.totalCandidates(), GREEN);
-            text(graphics, tr("gui.moved_items", d.movedItems()), MARGIN + 28, y + lastLine, imageWidth - 65, MUTED);
+            text(graphics, tr("gui.moved_items", d.movedItems()), MARGIN, y + 28, column, MUTED);
         } else {
             boolean hasCandidate = d.available() && d.recommendedVariants() > 0;
-            text(graphics, hasCandidate ? tr("gui.migration_benefit", d.recommendedVariants(), d.estimatedFreedViews())
-                    : tr("gui.no_opportunity"), MARGIN + 28, y + 5, imageWidth - 65, hasCandidate ? GREEN : MUTED);
             var candidateId = hasCandidate ? ResourceLocation.tryParse(d.topCandidateId()) : null;
             var candidateItem = candidateId == null ? Items.HOPPER : BuiltInRegistries.ITEM.getOptional(candidateId).orElse(Items.HOPPER);
-            graphics.renderItem(new ItemStack(candidateItem), MARGIN + 6, y + 8);
+            graphics.renderItem(new ItemStack(candidateItem), MARGIN + 2, y + 3);
             Component candidate = candidateId == null ? tr("gui.no_opportunity")
                     : BuiltInRegistries.ITEM.getOptional(candidateId).<Component>map(item -> item.getDescription())
                             .orElse(Component.literal(d.topCandidateId()));
-            if (hasCandidate) text(graphics, candidate, MARGIN + 28, y + (networkDetails ? 16 : 21), imageWidth - 65, TEXT);
-            text(graphics, tr("gui.migration_target", menu.state().volumeName()), MARGIN + 28, y + lastLine, imageWidth - 65, MUTED);
+            text(graphics, hasCandidate ? candidate : tr("gui.no_opportunity"),
+                    MARGIN + 24, y + 7, column - 24, hasCandidate ? TEXT : MUTED);
+            if (hasCandidate) text(graphics, tr("gui.migration_benefit", d.recommendedVariants(), d.estimatedFreedViews()),
+                    MARGIN, y + 28, column, GREEN);
         }
     }
 
@@ -840,14 +852,14 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         ResourceLocation tier = selected ? choice.tierId() : state.tierId();
         int used = selected ? choice.usedVariants() : state.usedVariants();
         int capacity = selected ? choice.variantCapacity() : state.variantCapacity();
-        panel(graphics, MARGIN, 53, imageWidth - 24, 58);
-        graphics.renderItem(iconStack(selected ? choice.icon() : state.volumeIcon()), MARGIN + 7, 62);
-        text(graphics, Component.literal(name), MARGIN + 31, 62, imageWidth - 62, TEXT);
-        text(graphics, tr("gui.volume_usage", tierName(tier), used, capacity), MARGIN + 31, 78, imageWidth - 62, MUTED);
-        progress(graphics, MARGIN + 7, 98, imageWidth - 38, 5, capacity <= 0 ? 0 : (double) used / capacity);
+        panel(graphics, MARGIN, 33, imageWidth - 24, 58);
+        graphics.renderItem(iconStack(selected ? choice.icon() : state.volumeIcon()), MARGIN + 7, 42);
+        text(graphics, Component.literal(name), MARGIN + 31, 46, imageWidth - 62, TEXT);
+        text(graphics, tr("gui.volume_usage", tierName(tier), used, capacity), MARGIN + 31, 62, imageWidth - 62, MUTED);
+        progress(graphics, MARGIN + 7, 78, imageWidth - 38, 5, capacity <= 0 ? 0 : (double) used / capacity);
         switch (view) {
-            case CLEAR -> notice(graphics, 117, "gui.clear_effect", YELLOW);
-            case DELETE -> notice(graphics, 117, "gui.delete_effect", RED);
+            case CLEAR -> notice(graphics, 97, "gui.clear_effect", YELLOW);
+            case DELETE -> notice(graphics, 97, "gui.delete_effect", RED);
             default -> { }
         }
     }
