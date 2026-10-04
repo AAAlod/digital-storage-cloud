@@ -36,6 +36,7 @@ public final class RestartAudit {
     private static final CountDownLatch complete = new CountDownLatch(1);
 
     public RestartAudit() {
+        if (System.getProperty("digitalstorage.tickTestRoot") != null) { TickAudit.install(); return; }
         root();
         MinecraftForge.EVENT_BUS.addListener(EventPriority.LOWEST, RestartAudit::started);
         MinecraftForge.EVENT_BUS.addListener(EventPriority.LOWEST, RestartAudit::stopped);
