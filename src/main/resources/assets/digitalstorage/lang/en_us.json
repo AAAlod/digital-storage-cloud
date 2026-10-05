@@ -24,6 +24,8 @@
   "screen.digitalstorage.batch.amount": "Quantity",
   "screen.digitalstorage.batch.maximum": "All",
   "screen.digitalstorage.batch.previous": "‹",
+  "screen.digitalstorage.batch.quantity_desc": "Count ↓",
+  "screen.digitalstorage.batch.quantity_asc": "Count ↑",
   "screen.digitalstorage.batch.next": "›",
   "screen.digitalstorage.batch.refresh": "Refresh preview",
   "screen.digitalstorage.batch.start_out": "Start moving out",

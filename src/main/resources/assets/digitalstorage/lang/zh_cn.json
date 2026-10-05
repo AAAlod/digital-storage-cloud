@@ -24,6 +24,8 @@
   "screen.digitalstorage.batch.amount": "数量",
   "screen.digitalstorage.batch.maximum": "全部",
   "screen.digitalstorage.batch.previous": "‹",
+  "screen.digitalstorage.batch.quantity_desc": "数量：多 → 少",
+  "screen.digitalstorage.batch.quantity_asc": "数量：少 → 多",
   "screen.digitalstorage.batch.next": "›",
   "screen.digitalstorage.batch.refresh": "刷新预览",
   "screen.digitalstorage.batch.start_out": "开始移出",

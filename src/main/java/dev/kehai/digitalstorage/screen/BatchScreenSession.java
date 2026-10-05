@@ -70,7 +70,12 @@ public final class BatchScreenSession {
                 } else requirePreview(volume.id(), request.token(), tick);
                 var paginated = new java.util.ArrayList<List<BatchScreenProtocol.Row>>();
                 var current = new java.util.ArrayList<BatchScreenProtocol.Row>(); int bytes = 0;
-                for (int i = 0; i < entries.size(); i++) {
+                // Sort presentation indexes, never the authoritative identities used by picks.
+                var indexes = new java.util.ArrayList<Integer>();
+                for (int i = 0; i < entries.size(); i++) indexes.add(i);
+                java.util.Comparator<Integer> byAmount = java.util.Comparator.comparingLong(i -> entries.get(i).amount());
+                indexes.sort((request.ascending() ? byAmount : byAmount.reversed()).thenComparingInt(i -> i));
+                for (int i : indexes) {
                     var entry = entries.get(i); var icon = entry.key().toStack(1);
                     if (!matches(entry, request)) continue;
                     int size = entry.key().tagBytes() + 1024;
@@ -164,6 +169,17 @@ public final class BatchScreenSession {
         var page = session.handle(player, accessor, testRequest(serial++, BatchScreenProtocol.PAGE, preview, List.of()));
         expect(page.rows().size() == 24 && page.pages() == 43 && page.entryCount() == 1024 && page.available() == 524800
                 && page.rows().get(23).index() == 23, "Large preview lost pagination or exact quantities");
+        session.nextRequest = 0;
+        var descending = session.handle(player, accessor, new BatchScreenProtocol.Request(207, serial++,
+                BatchScreenProtocol.PAGE, preview, true, false, 0, "", List.of(), List.of(), false));
+        expect(descending.rows().get(0).index() == 1023 && descending.rows().get(0).amount() == 1024
+                && descending.rows().get(23).index() == 1000 && descending.pages() == 43,
+                "Descending quantity sort did not cover the full preview or changed identity indexes");
+        session.nextRequest = 0;
+        var secondPage = session.handle(player, accessor, new BatchScreenProtocol.Request(207, serial++,
+                BatchScreenProtocol.PAGE, preview, true, false, 1, "", List.of(), List.of(), false));
+        expect(secondPage.rows().get(0).index() == 999 && secondPage.available() == 524800,
+                "Quantity sort lost order or totals across pages");
         session.entries = List.of(new BatchTransfer.Entry(stone, 5)); session.nextRequest = 0;
         session.expires = player.getServer().getTickCount() - 1;
         expect(session.handle(player, accessor, testRequest(serial++, BatchScreenProtocol.START, preview, List.of(new BatchScreenProtocol.Pick(0, 2)))).detail().equals("preview_changed"), "Expired preview started a task");

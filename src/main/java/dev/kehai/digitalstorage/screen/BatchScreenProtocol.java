@@ -13,13 +13,18 @@ public final class BatchScreenProtocol {
     public static final int PREVIEW = 0, PAGE = 1, START = 2, STOP = 3, POLL = 4;
     public record Pick(int index, long amount) { }
     public record Request(int syncId, int serial, int action, UUID token, boolean exporting, boolean tools,
-                          int page, String query, List<ResourceLocation> matches, List<Pick> picks) {
+                          int page, String query, List<ResourceLocation> matches, List<Pick> picks, boolean ascending) {
         public Request { matches = List.copyOf(matches); picks = List.copyOf(picks); }
+        public Request(int syncId, int serial, int action, UUID token, boolean exporting, boolean tools,
+                int page, String query, List<ResourceLocation> matches, List<Pick> picks) {
+            this(syncId, serial, action, token, exporting, tools, page, query, matches, picks, exporting);
+        }
         public void write(FriendlyByteBuf buf) {
             buf.writeVarInt(syncId); buf.writeVarInt(serial); buf.writeVarInt(action); buf.writeUUID(token);
             buf.writeBoolean(exporting); buf.writeBoolean(tools); buf.writeVarInt(page); buf.writeUtf(query, 128);
             buf.writeVarInt(matches.size()); for (var id : matches) buf.writeResourceLocation(id);
             buf.writeVarInt(picks.size()); for (var pick : picks) { buf.writeVarInt(pick.index()); buf.writeVarLong(pick.amount()); }
+            buf.writeBoolean(ascending);
         }
         public static Request read(FriendlyByteBuf buf) {
             int sync = buf.readVarInt(), serial = buf.readVarInt(), action = buf.readVarInt(); UUID token = buf.readUUID();
@@ -28,7 +33,7 @@ public final class BatchScreenProtocol {
             for (int i = 0; i < count; i++) matches.add(buf.readResourceLocation());
             count = bounded(buf.readVarInt(), 4097); var picks = new java.util.ArrayList<Pick>(count);
             for (int i = 0; i < count; i++) picks.add(new Pick(buf.readVarInt(), buf.readVarLong()));
-            return new Request(sync, serial, action, token, exporting, tools, page, query, matches, picks);
+            return new Request(sync, serial, action, token, exporting, tools, page, query, matches, picks, buf.readBoolean());
         }
     }
     public record Row(int index, ItemStack icon, long amount, boolean tools) { }
@@ -59,7 +64,7 @@ public final class BatchScreenProtocol {
         var buffer = new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
         try {
             var token = UUID.randomUUID();
-            var request = new Request(12, 9, START, token, true, true, 2, "钻石", List.of(new ResourceLocation("minecraft", "diamond_sword")), List.of(new Pick(-1, 1), new Pick(0, 7), new Pick(1, 0)));
+            var request = new Request(12, 9, START, token, true, true, 2, "钻石", List.of(new ResourceLocation("minecraft", "diamond_sword")), List.of(new Pick(-1, 1), new Pick(0, 7), new Pick(1, 0)), false);
             request.write(buffer);
             if (!request.equals(Request.read(buffer)) || buffer.isReadable()) throw new IllegalStateException("Batch selection codec failed");
             buffer.clear();
