@@ -24,6 +24,9 @@ final class BatchTransferPanel {
     private final Map<Integer, Long> amounts = new HashMap<>(), available = new HashMap<>();
     private List<BatchScreenProtocol.Row> rows = List.of();
     private BatchScreenProtocol.Reply status;
+    private BatchScreenProtocol.Reply result;
+    private UUID refreshedTask = BatchScreenProtocol.EMPTY;
+    private int autoRefresh;
     private UUID token = BatchScreenProtocol.EMPTY;
     private boolean exporting, tools, all, editing;
     private boolean pendingOpen, pendingExport, pendingTools;
@@ -59,8 +62,8 @@ final class BatchTransferPanel {
         maximum = button(add, "maximum", 204, 129, width - 216, () -> {
             if (focused >= 0) { amounts.put(focused, available.getOrDefault(focused, 0L)); updateQuantity(); }
         });
-        previous = button(add, "previous", 12, 161, 38, () -> request(BatchScreenProtocol.PAGE, page - 1));
-        next = button(add, "next", 160, 161, 38, () -> request(BatchScreenProtocol.PAGE, page + 1));
+        previous = button(add, "previous", 12, 161, 20, () -> request(BatchScreenProtocol.PAGE, page - 1));
+        next = button(add, "next", 174, 161, 20, () -> request(BatchScreenProtocol.PAGE, page + 1));
         refresh = button(add, "refresh", 204, height - 70, width - 216, () -> open(exporting, tools));
         start = button(add, "start_out", 204, height - 44, width - 216, () -> request(running() ? BatchScreenProtocol.STOP : BatchScreenProtocol.START, page));
         updateQuantity(); update();
@@ -88,6 +91,7 @@ final class BatchTransferPanel {
         if (action == BatchScreenProtocol.PAGE) { focused = -1; updateQuantity(); }
         List<BatchScreenProtocol.Pick> picks = List.of();
         if (action == BatchScreenProtocol.START) {
+            result = null;
             var selected = new java.util.ArrayList<BatchScreenProtocol.Pick>();
             if (all) selected.add(new BatchScreenProtocol.Pick(-1, 1));
             amounts.forEach((index, amount) -> { if (all || amount > 0) selected.add(new BatchScreenProtocol.Pick(index, amount)); });
@@ -116,11 +120,19 @@ final class BatchTransferPanel {
                 } else if (!reply.state().equals("ERROR") && !reply.state().equals("IDLE")) {
                     token = reply.token(); exporting = reply.exporting();
                 }
+                if ((reply.state().equals("COMPLETE") || reply.state().equals("STOPPED") || reply.state().equals("CANCELLED"))
+                        && !reply.token().equals(refreshedTask)) {
+                    result = reply; refreshedTask = reply.token(); autoRefresh = 10;
+                }
             }
         }
         if (outstanding != 0 && ++waiting >= 200) { outstanding = 0; detail = "timeout"; request(BatchScreenProtocol.POLL, 0); }
         if (outstanding == 0 && pendingResume) { pendingResume = false; resume(); }
         if (outstanding == 0 && pendingOpen) open(pendingExport, pendingTools);
+        if (autoRefresh > 0 && --autoRefresh == 0) {
+            if (outstanding != 0 || running()) autoRefresh = 1;
+            else { open(exporting, tools); all = false; }
+        }
         if (visible && searchDelay > 0 && --searchDelay == 0) {
             if (outstanding != 0 || running()) searchDelay = 1;
             else { all = false; amounts.clear(); focused = -1; request(BatchScreenProtocol.PAGE, 0); }
@@ -162,10 +174,11 @@ final class BatchTransferPanel {
     private boolean hasProgress() { return status != null && status.volumeId().equals(menu.state().volumeId()) && status.total() > 0 && !status.state().equals("PREVIEW") && !status.state().equals("ERROR"); }
     long toolsStored() { return toolsVolume.equals(menu.state().volumeId()) ? storedTools : 0; }
     Component progressText() { return status == null ? Component.empty() : tr("progress", status.moved(), status.total()); }
-    boolean hasTaskResult() { return hasProgress() && status.volumeId().equals(menu.state().volumeId()); }
+    boolean hasTaskResult() { return hasProgress() || result != null && result.volumeId().equals(menu.state().volumeId()); }
     Component homeProgress() {
-        return running() ? progressText() : status.state().equals("COMPLETE") ? tr("completed", status.moved())
-                : tr("stopped_progress", status.moved(), status.total());
+        var last = hasProgress() ? status : result;
+        return running() ? progressText() : last.state().equals("COMPLETE") ? tr("completed", last.moved())
+                : tr("stopped_progress", last.moved(), last.total());
     }
     Component locationText() { return location.isEmpty() ? Component.empty() : tr("connector", location); }
     boolean click(double mouseX, double mouseY, int button) {
@@ -193,7 +206,10 @@ final class BatchTransferPanel {
                 String count = row.amount() >= 1_000_000_000L ? row.amount() / 1_000_000_000L + "B"
                         : row.amount() >= 1_000_000 ? row.amount() / 1_000_000 + "M"
                         : row.amount() >= 1000 ? row.amount() / 1000 + "k" : Long.toString(row.amount());
+                graphics.pose().pushPose();
+                graphics.pose().translate(0, 0, 200);
                 graphics.drawString(font, count, gx + 20 - font.width(count), gy + 13, 0xFFFFFFFF, true);
+                graphics.pose().popPose();
             }
             if (mouseX >= gx && mouseX < gx + 21 && mouseY >= gy && mouseY < gy + 21)
                 hovered = row.icon();
@@ -204,7 +220,10 @@ final class BatchTransferPanel {
         if (status != null && status.state().equals("PREVIEW") && rows.isEmpty())
             draw(graphics, tr("empty"), 18, 113, 172, 0xFF545454);
         draw(graphics, hasProgress() ? tr("remaining", Math.max(0, status.total() - status.moved())) : tr("selected", selectedAmount()), 204, 152, width - 216, 0xFF404040);
-        if (!hasProgress()) draw(graphics, Component.literal((pages == 0 ? 0 : page + 1) + " / " + pages), 68, 167, 86, 0xFF545454);
+        if (!hasProgress()) {
+            String fraction = (pages == 0 ? 0 : page + 1) + " / " + pages;
+            draw(graphics, Component.literal(fraction), 103 - font.width(fraction) / 2, 167, 140, 0xFF545454);
+        }
         if (hasProgress())
             draw(graphics, progressText(), 12, height - 64, width - 142, 0xFF245A20);
         if (outstanding != 0 && !running()) draw(graphics, tr("loading"), 12, height - 17, width - 24, 0xFF545454);
@@ -212,6 +231,9 @@ final class BatchTransferPanel {
         else if (status != null && status.state().equals("COMPLETE")) draw(graphics, tr("completed", status.moved()), 12, height - 17, width - 24, 0xFF245A20);
         else if (status != null && (status.state().equals("STOPPED") || status.state().equals("CANCELLED")))
             draw(graphics, tr("remaining", Math.max(0, status.total() - status.moved())), 12, height - 17, width - 24, 0xFF545454);
+        else if (result != null && result.volumeId().equals(menu.state().volumeId()))
+            draw(graphics, result.detail().isEmpty() ? tr("completed", result.moved()) : tr("reason." + result.detail()),
+                    12, height - 17, width - 24, result.detail().isEmpty() ? 0xFF245A20 : 0xFFA32C2C);
         if (hovered != null) graphics.renderTooltip(font, hovered, mouseX, mouseY);
     }
     private void draw(GuiGraphics graphics, Component value, int dx, int dy, int max, int color) {

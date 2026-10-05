@@ -9,7 +9,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.registries.BuiltInRegistries;
 
 /** Menu-scoped preview authority. Client indexes never substitute an item identity. */
-final class BatchScreenSession {
+public final class BatchScreenSession {
     private UUID previewId = BatchScreenProtocol.EMPTY, volumeId;
     private BatchTransfer.Route route;
     private List<BatchTransfer.Entry> entries = List.of();
@@ -116,6 +116,32 @@ final class BatchScreenSession {
         var id = BuiltInRegistries.ITEM.getKey(entry.key().item());
         return query.isEmpty() || request.matches().contains(id) || id.toString().contains(query)
                 || entry.key().toStack(1).getHoverName().getString().toLowerCase(java.util.Locale.ROOT).contains(query);
+    }
+    public static void runNetworkPreviewSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor,
+            Runnable rebuild, Runnable removeContainer) {
+        var session = new BatchScreenSession();
+        var preview = session.handle(player, accessor, new BatchScreenProtocol.Request(207, 1,
+                BatchScreenProtocol.PREVIEW, BatchScreenProtocol.EMPTY, false, false, 0, "", List.of(), List.of()));
+        expect(preview.state().equals("PREVIEW") && preview.available() == 576, "Physical chest preview failed: " + preview);
+        rebuild.run();
+        session.nextRequest = 0;
+        var started = session.handle(player, accessor, new BatchScreenProtocol.Request(207, 2,
+                BatchScreenProtocol.START, preview.token(), false, false, 0, "", List.of(),
+                List.of(new BatchScreenProtocol.Pick(-1, 1))));
+        expect(started.state().equals("RUNNING"), "All-selected import rejected after scanner rebuild: " + started.detail());
+        var task = BatchTransfers.get(player.getServer(), accessor.getVolume().id());
+        for (int i = 0; i < 100 && task.active(); i++) task.tick(128);
+        expect(task.state().equals("COMPLETE") && task.moved() == 576
+                && accessor.getRecord().storage().totalItemCount() == 576, "Chest import did not settle: " + task.detail());
+        session.nextRequest = session.nextPreview = 0;
+        var refreshed = session.handle(player, accessor, new BatchScreenProtocol.Request(207, 3,
+                BatchScreenProtocol.PREVIEW, BatchScreenProtocol.EMPTY, false, false, 0, "", List.of(), List.of()));
+        expect(refreshed.state().equals("PREVIEW") && refreshed.available() == 0, "Post-import preview still contains chest items");
+        removeContainer.run(); session.nextRequest = 0;
+        var stale = session.handle(player, accessor, new BatchScreenProtocol.Request(207, 4,
+                BatchScreenProtocol.PAGE, refreshed.token(), false, false, 0, "", List.of(), List.of()));
+        expect(stale.state().equals("ERROR") && stale.detail().equals("preview_changed"), "Removed chest retained preview authority");
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Physical batch preview regression passed: all-select, 5 scanner rebuilds, 576 imported, refreshed chest empty, removed container revokes preview");
     }
     static void runSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) {
         var volume = accessor.getVolume();

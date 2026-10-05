@@ -11,7 +11,13 @@ import net.minecraft.server.level.ServerPlayer;
 
 /** Server-thread batch ownership; closing a menu never cancels a running batch. */
 public final class BatchTransfers {
-    public interface Backend { BatchTransfer.Route open(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor); }
+    public interface Backend {
+        BatchTransfer.Route open(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor);
+        default void runWorldSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) { }
+    }
+    public static void runWorldSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) {
+        backend.runWorldSelfTest(player, accessor);
+    }
     private static Backend backend;
     private static final Map<MinecraftServer, Map<UUID, Job>> SERVERS = new IdentityHashMap<>();
     private record Job(UUID owner, BatchTransfer task, long[] lastTick) { }

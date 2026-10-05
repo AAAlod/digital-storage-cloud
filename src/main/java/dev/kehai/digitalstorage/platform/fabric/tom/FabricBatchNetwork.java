@@ -16,6 +16,52 @@ import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
 import net.minecraft.server.level.ServerPlayer;
 
 public final class FabricBatchNetwork implements BatchTransfers.Backend {
+    @Override public void runWorldSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) {
+        runChestPreviewSelfTest(player, accessor, false);
+        runChestPreviewSelfTest(player, accessor, true);
+    }
+    private void runChestPreviewSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor, boolean doubleChest) {
+        var world = player.serverLevel();
+        var connectorPos = accessor.getBlockPos().east();
+        var chestPos = connectorPos.east();
+        var secondChestPos = chestPos.east();
+        var cloud = dev.kehai.digitalstorage.storage.DigitalStorageState.get(world);
+        var volume = cloud.createVolume(player.getUUID(), "Physical batch fixture", Integer.MAX_VALUE).orElseThrow();
+        if (!world.getBlockState(connectorPos).isAir() || !world.getBlockState(chestPos).isAir()
+                || !world.getBlockState(secondChestPos).isAir())
+            throw new IllegalStateException("Physical batch fixture requires untouched positions");
+        try {
+            world.setBlockAndUpdate(connectorPos, com.tom.storagemod.Content.connector.get().defaultBlockState());
+            world.setBlockAndUpdate(chestPos, net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState()
+                    .setValue(net.minecraft.world.level.block.ChestBlock.TYPE, doubleChest
+                            ? net.minecraft.world.level.block.state.properties.ChestType.LEFT : net.minecraft.world.level.block.state.properties.ChestType.SINGLE));
+            if (doubleChest) world.setBlockAndUpdate(secondChestPos, net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState()
+                    .setValue(net.minecraft.world.level.block.ChestBlock.TYPE, net.minecraft.world.level.block.state.properties.ChestType.RIGHT));
+            var chest = (net.minecraft.world.level.block.entity.ChestBlockEntity) world.getBlockEntity(chestPos);
+            for (int i = 0; i < 9; i++) chest.setItem(i, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.OAK_PLANKS, 64));
+            accessor.bind(player, volume.id());
+            var connector = (com.tom.storagemod.tile.InventoryConnectorBlockEntity) world.getBlockEntity(connectorPos);
+            long time = world.getGameTime();
+            try {
+                world.getServer().getWorldData().overworldData().setGameTime(time - time % 20);
+                connector.updateServer();
+                dev.kehai.digitalstorage.screen.BatchScreenSession.runNetworkPreviewSelfTest(player, accessor,
+                        () -> { for (int i = 1; i <= 5; i++) {
+                            world.getServer().getWorldData().overworldData().setGameTime(time - time % 20 + i * 20);
+                            connector.updateServer();
+                        } }, () -> { world.removeBlock(doubleChest ? secondChestPos : chestPos, false); connector.updateServer(); });
+                if (!chest.isEmpty()) throw new IllegalStateException("Imported chest was not emptied");
+            } finally { world.getServer().getWorldData().overworldData().setGameTime(time); }
+        } finally {
+            accessor.clearBinding(player);
+            if (doubleChest) world.removeBlock(secondChestPos, false);
+            world.removeBlock(chestPos, false); world.removeBlock(connectorPos, false);
+            try (var tx = dev.kehai.digitalstorage.storage.LedgerTransaction.open()) {
+                volume.record().storage().extract(ItemKey.of(net.minecraft.world.item.Items.OAK_PLANKS), 576, tx); tx.commit();
+            }
+            if (!cloud.deleteEmptyVolume(player.getUUID(), volume.id())) throw new IllegalStateException("Physical batch fixture cleanup failed");
+        }
+    }
     public static void runSelfTest() {
         var record = DigitalStorageRecord.createNew(() -> { });
         var tool = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND_SWORD);
