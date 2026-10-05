@@ -22,6 +22,17 @@ import net.minecraftforge.items.IItemHandler;
 public final class ForgeTomTopology {
     private ForgeTomTopology() { }
 
+    public static List<IItemHandler> physicalHandlers(IItemHandler root) {
+        return inspect(root).physical.stream().filter(ForgeTomTopology::trustedPhysical).toList();
+    }
+    private static boolean trustedPhysical(IItemHandler handler) {
+        if (handler instanceof ForgeTomEndpoints.FilteredEndpoint filtered) return trustedPhysical(filtered.digitalstorage$parent());
+        if (handler instanceof IProxy proxy) return trustedPhysical(proxy.get());
+        if (handler instanceof MultiItemHandler multi) return multi.getHandlers().stream()
+                .allMatch(child -> child.orElse(null) != null && trustedPhysical(child.orElse(null)));
+        return handler.getClass().getName().startsWith("net.minecraftforge.items.");
+    }
+
     public static NetworkAnalysis.Report analyze(DigitalStorageRecord record, Supplier<IItemHandler> currentNetwork) {
         return analyze(record, currentNetwork, new ForgeScannerTelemetry.Snapshot(0, 0, 0));
     }

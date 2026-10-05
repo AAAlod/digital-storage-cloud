@@ -33,6 +33,7 @@ public final class ForgeMigrationManager {
                                     ForgeInventoryTransferExecutor.Origin origin) {
         StorageVolume volume = accessor.getVolume();
         if (volume == null || !volume.ownerId().equals(player.getUUID())) return StartResult.NOT_OWNER;
+        if (dev.kehai.digitalstorage.optimization.BatchTransfers.active(player.getServer(), volume.id())) return StartResult.ALREADY_RUNNING;
         if (!(accessor.getLevel() instanceof ServerLevel world) || player.serverLevel() != world || !origin.known()
                 || !origin.dimension().equals(world.dimension().location().toString())
                 || origin.accessorPosition() != accessor.getBlockPos().asLong()) return StartResult.NO_NETWORK;

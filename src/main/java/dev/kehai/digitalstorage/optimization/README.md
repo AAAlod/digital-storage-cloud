@@ -4,6 +4,8 @@
 
 `NetworkAnalysis` 根据平台提供的网络快照生成基础状态和迁移候选；`MigrationTask` 管理扫描预算、进度、取消和拓扑检查；提取与插入交给 `InventoryTransferExecutor`。这些共享类使用 `ItemKey`、`InventoryEndpoint`、`TopologyToken` 等抽象，不直接引用加载器库存接口或 Tom 类型。
 
+`BatchTransfer` 按不可变预览中的完整身份和数量执行双向批次；`BatchTransfers` 管服务器任务归属、互斥和生命周期。平台提供保留过滤的实体端点，排除所有数字卷。预算限制暴露的端点/槽位调用次数；过滤包装的单次平台调用可能遍历底层多个槽，不等于固定 CPU 时间。预览与执行的 GUI 授权位于 `screen/BatchScreenSession`。
+
 ## 网络分析的定位
 
 当前评分根据容器数量、库存视图、重复数字卷入口和扫描统计生成，迁移候选优先考虑大宗物品。这是启发式建议，不是性能分析器，也不代表 TPS 或 MSPT 测量。

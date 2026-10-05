@@ -30,12 +30,14 @@ public final class FabricServerEvents {
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             DigitalStorageState.onServerTick(server);
             TomMigrationManager.tick(server);
+            dev.kehai.digitalstorage.optimization.BatchTransfers.tick(server);
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(DigitalStorageState::onServerStopping);
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
             DigitalStorageState.onServerStopped(server);
             DigitalStorageMountTracker.clear();
             TomMigrationManager.clear();
+            dev.kehai.digitalstorage.optimization.BatchTransfers.stopped(server);
         });
         ServerBlockEntityEvents.BLOCK_ENTITY_LOAD.register(DigitalStorageMountTracker::onBlockEntityLoad);
         ServerBlockEntityEvents.BLOCK_ENTITY_UNLOAD.register((blockEntity, world) -> {

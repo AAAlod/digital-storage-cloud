@@ -33,6 +33,7 @@ public final class ForgeServerEvents {
     @SubscribeEvent public static void tick(TickEvent.ServerTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
             ForgeMigrationManager.tick(event.getServer());
+            dev.kehai.digitalstorage.optimization.BatchTransfers.tick(event.getServer());
             if (event.getServer().getTickCount() % 200 == 0) {
                 ForgeScannerTelemetry.get(event.getServer()).prune(event.getServer().getTickCount());
             }
@@ -46,6 +47,7 @@ public final class ForgeServerEvents {
     }
     @SubscribeEvent public static void stopped(ServerStoppedEvent event) {
         ForgeMigrationManager.stopped(event.getServer());
+        dev.kehai.digitalstorage.optimization.BatchTransfers.stopped(event.getServer());
         ForgeScannerTelemetry.stopped(event.getServer());
         ForgeTransferSessions.stopped(event.getServer());
         DigitalStorageState.onServerStopped(event.getServer());

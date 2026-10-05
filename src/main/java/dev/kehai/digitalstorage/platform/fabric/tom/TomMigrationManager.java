@@ -62,6 +62,7 @@ public final class TomMigrationManager {
         if (!report.available()) {
             return StartResult.NO_NETWORK;
         }
+        if (dev.kehai.digitalstorage.optimization.BatchTransfers.active(player.getServer(), volume.id())) return StartResult.ALREADY_RUNNING;
         if (report.targetEndpointCount() > 1) {
             return StartResult.DUPLICATE_TARGET_ENDPOINTS;
         }
@@ -144,6 +145,7 @@ public final class TomMigrationManager {
     }
 
     public static void runSelfTest() {
+        FabricBatchNetwork.runSelfTest();
         MigrationTaskSelfTest.run();
         ItemVariant stone = ItemVariant.of(net.minecraft.world.item.Items.STONE);
         FabricDigitalItemStorage source = new FabricDigitalItemStorage(() -> { }, 64);

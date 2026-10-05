@@ -94,6 +94,18 @@ public final class ForgeMigrationWorldSelfTest {
                     && backend.status(volume.id()).movedItems().equals("96") && chest.getItem(0).isEmpty() && chest.getItem(1).isEmpty()
                     && volume.record().storage().amountOf(ItemKey.of(Items.STONE)) == 96,
                     "Placed migration did not conserve actual chest/volume quantities");
+            var route = dev.kehai.digitalstorage.optimization.BatchTransfers.open(player, accessor);
+            var stone = ItemKey.of(Items.STONE);
+            var output = new dev.kehai.digitalstorage.optimization.BatchTransfer(volume.record(), route,
+                    java.util.List.of(new dev.kehai.digitalstorage.optimization.BatchTransfer.Entry(stone, 20)), true);
+            for (int tick = 0; tick < 40 && output.active(); tick++) output.tick(4);
+            expect(output.moved() == 20 && volume.record().storage().amountOf(stone) == 76
+                    && chest.getItem(0).getCount() == 20, "Placed batch export did not reach the real physical chest");
+            var input = new dev.kehai.digitalstorage.optimization.BatchTransfer(volume.record(), route,
+                    java.util.List.of(new dev.kehai.digitalstorage.optimization.BatchTransfer.Entry(stone, 19)), false);
+            for (int tick = 0; tick < 40 && input.active(); tick++) input.tick(4);
+            expect(input.moved() == 19 && volume.record().storage().amountOf(stone) == 95
+                    && chest.getItem(0).getCount() == 1, "Placed batch import exceeded selected quantity");
             dev.kehai.digitalstorage.forge.tom.ForgeScannerTelemetrySelfTest.verifyBackend(server, accessor, network);
             clear(volume.record().storage());
             chest.setItem(0, new ItemStack(Items.STONE, 16));

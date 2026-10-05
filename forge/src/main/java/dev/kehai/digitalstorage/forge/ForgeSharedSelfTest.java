@@ -12,6 +12,7 @@ public final class ForgeSharedSelfTest {
         ForgeItemKeySelfTest.run();
         ForgeRecoverySelfTest.run();
         ForgeTransferSelfTest.run();
+        ForgeBatchExportSelfTest.run();
         ForgeTransferSessionSelfTest.run(server);
         ForgeRecoveryDeliverySelfTest.run(server);
         ForgeRecoveryReconciliationSelfTest.run();

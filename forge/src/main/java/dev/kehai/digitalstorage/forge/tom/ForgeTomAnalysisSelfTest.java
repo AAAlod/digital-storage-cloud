@@ -76,6 +76,15 @@ public final class ForgeTomAnalysisSelfTest {
         mixed.add(first);
         mixed.add(LazyOptional.of(() -> new ItemStackHandler(1)));
         mixed.refresh();
+        var separated = ForgeTomTopology.physicalHandlers(mixed);
+        expect(separated.size() == 1 && !(separated.get(0) instanceof ForgeDigitalItemStorage),
+                "Forge export route included a digital volume");
+        var rawBox = new ItemStackHandler(1);
+        var denyFilter = new FilteredInventoryHandler(rawBox, stack -> false, false);
+        var preserved = ForgeTomTopology.physicalHandlers(denyFilter);
+        expect(preserved.size() == 1 && preserved.get(0) == denyFilter
+                && preserved.get(0).insertItem(0, new ItemStack(Items.STONE, 4), false).getCount() == 4
+                && rawBox.getStackInSlot(0).isEmpty(), "Forge export route stripped the physical Tom filter");
         boolean refused = false;
         try { ForgeTomTopology.analyze(record, () -> new FilteredInventoryHandler(mixed, stack -> true, false)); }
         catch (IllegalStateException expected) { refused = true; }

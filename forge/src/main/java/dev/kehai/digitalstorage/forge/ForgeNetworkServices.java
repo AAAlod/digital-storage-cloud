@@ -9,6 +9,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 
 /** Forge Tom discovery/analysis and server-owned migration jobs. */
 public final class ForgeNetworkServices implements NetworkServices.Backend {
+    public ForgeNetworkServices() { dev.kehai.digitalstorage.optimization.BatchTransfers.install(new ForgeBatchNetwork()); }
     private final java.util.Map<dev.kehai.digitalstorage.optimization.TopologyToken, ForgeInventoryTransferExecutor.Origin> origins = new java.util.WeakHashMap<>();
     public NetworkAnalysis.Report analyze(BlockEntity entity) {
         if (!(entity instanceof ForgeAccessorBlockEntity accessor) || accessor.getLevel() == null

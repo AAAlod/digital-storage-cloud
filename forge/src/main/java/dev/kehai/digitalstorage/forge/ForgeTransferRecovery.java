@@ -118,6 +118,30 @@ public final class ForgeTransferRecovery {
         return entry;
     }
 
+    /** Exact ledger withdrawal ownership. Intent is persisted before any external insertion. */
+    public Entry holdWithdrawal(UUID owner, UUID volume, ItemKey key, long amount) {
+        if (!available()) throw new IllegalStateException("Recovery store requires reconciliation");
+        // A withdrawal is not a returned stack. Never expose it as HELD: a
+        // failed intent write may roll back the source transaction.
+        var entry = new Entry(UUID.randomUUID(), owner, volume, key, amount, State.DELIVERING,
+                amount, System.currentTimeMillis(), "batch export withdrawal; interrupted source/destination require reconciliation",
+                UUID.randomUUID(), List.of());
+        entries.put(entry.id(), entry);
+        try { write(entry); }
+        catch (RuntimeException failure) { unsaved.put(entry.id(), entry); throw failure; }
+        return entry;
+    }
+
+    /** Both accepted and restored amounts have settled; the whole withdrawal receipt is consumed. */
+    public void finishWithdrawal(UUID id, UUID owner, UUID delivery, long delivered) {
+        Entry previous = requireOwned(id, owner);
+        if (previous.state() != State.DELIVERING || !java.util.Objects.equals(delivery, previous.deliveryId())
+                || delivered < 0 || delivered > previous.amount()) throw new IllegalStateException("Invalid export receipt");
+        var next = new Entry(id, owner, previous.volume(), previous.key(), previous.amount(), State.DELIVERED,
+                0, previous.createdMillis(), previous.reason() + "; settled=" + delivered, null, previous.reconciliations());
+        write(next); entries.put(id, next);
+    }
+
     /** Only after a durable hopper handoff intent; stable identity makes retries idempotent. */
     Entry adoptHopper(UUID id, UUID owner, UUID volume, ItemKey key, long amount) {
         if (!available()) throw new IllegalStateException("Recovery store requires reconciliation");
@@ -195,6 +219,12 @@ public final class ForgeTransferRecovery {
         Entry known = entries.get(id);
         if (known == null) throw new IllegalArgumentException("Unknown recovery entry");
         Entry previous = requireOwned(id, known.owner());
+        if (previous.reason().startsWith("batch export withdrawal")) {
+            // The source may already contain a known rejected remainder, or a
+            // failed intent may have rolled its reservation back entirely.
+            // Import recovery's binary outcome cannot reconstruct that split.
+            throw new IllegalStateException("Batch withdrawal requires source and destination reconciliation; import recovery cannot replay it");
+        }
         if (previous.state() != State.DELIVERING || !expectedDelivery.equals(previous.deliveryId())) {
             throw new IllegalStateException("Recovery delivery attempt changed or is no longer uncertain");
         }

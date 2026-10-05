@@ -91,6 +91,54 @@ public final class TomNetworkIntrospection {
         return parts(network).physical();
     }
 
+    /** Keep a physical filter intact. A filtered mixed aggregate is never a safe write target. */
+    static List<Storage<ItemVariant>> transferParts(Storage<ItemVariant> network) {
+        var result = new ArrayList<Storage<ItemVariant>>();
+        transferParts(network, result, Collections.newSetFromMap(new IdentityHashMap<>()));
+        return identityDistinct(result);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void transferParts(Storage<ItemVariant> storage, List<Storage<ItemVariant>> result,
+                                      Set<Storage<ItemVariant>> path) {
+        if (storage == null || canonicalDigitalEndpoint(storage) != null) return;
+        if (!path.add(storage)) throw new IllegalStateException("Cyclic transfer network");
+        try {
+            var access = ACCESSORS.get(storage.getClass());
+            var delegate = storage.getClass().getName().startsWith(TOM_PACKAGE) ? invokeStorage(storage, access.get()) : null;
+            if (delegate != null && delegate != storage) {
+                if (safePhysical(delegate, Collections.newSetFromMap(new IdentityHashMap<>()))) result.add(storage);
+                return;
+            }
+            var children = storage instanceof net.fabricmc.fabric.api.transfer.v1.storage.base.CombinedStorage<?, ?> combined
+                    ? combined.parts : invokeCollection(storage, access.getStorages());
+            if (children == null) {
+                String type = storage.getClass().getName();
+                if (type.startsWith("net.fabricmc.fabric.") || type.startsWith(TOM_PACKAGE)) result.add(storage);
+                return;
+            }
+            for (var child : children) if (child instanceof Storage<?> port)
+                transferParts((Storage<ItemVariant>) port, result, path);
+        } finally { path.remove(storage); }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean safePhysical(Storage<ItemVariant> storage, Set<Storage<ItemVariant>> path) {
+        if (storage == null || canonicalDigitalEndpoint(storage) != null || !path.add(storage)) return false;
+        try {
+            var access = ACCESSORS.get(storage.getClass());
+            var delegate = storage.getClass().getName().startsWith(TOM_PACKAGE) ? invokeStorage(storage, access.get()) : null;
+            if (delegate != null && delegate != storage) return safePhysical(delegate, path);
+            var children = storage instanceof net.fabricmc.fabric.api.transfer.v1.storage.base.CombinedStorage<?, ?> combined
+                    ? combined.parts : invokeCollection(storage, access.getStorages());
+            if (children != null) {
+                for (var child : children) if (!(child instanceof Storage<?> port) || !safePhysical((Storage<ItemVariant>) port, path)) return false;
+                return true;
+            }
+            return storage.getClass().getName().startsWith("net.fabricmc.fabric.");
+        } finally { path.remove(storage); }
+    }
+
     static NetworkParts parts(Storage<ItemVariant> network) {
         return parts(network, rawDigitalSnapshot(network));
     }

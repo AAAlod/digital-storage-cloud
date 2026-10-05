@@ -12,6 +12,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 
 /** Adapts shared screen operations to the Fabric Tom network and migration lifecycle. */
 public final class FabricNetworkServices implements NetworkServices.Backend {
+    public FabricNetworkServices() { dev.kehai.digitalstorage.optimization.BatchTransfers.install(new dev.kehai.digitalstorage.platform.fabric.tom.FabricBatchNetwork()); }
     @Override
     public NetworkAnalysis.Report analyze(BlockEntity accessor) {
         return accessor instanceof DigitalStorageAccessorBlockEntity digital ? TomNetworkAnalysis.analyze(digital)
