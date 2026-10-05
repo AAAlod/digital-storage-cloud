@@ -13,6 +13,15 @@ public final class FabricScreenNetworking {
     }
 
     public static void register() {
+        ServerPlayNetworking.registerGlobalReceiver(dev.kehai.digitalstorage.screen.BatchScreenProtocol.REQUEST,
+                (server, player, handler, buf, response) -> {
+                    var request = dev.kehai.digitalstorage.screen.BatchScreenProtocol.Request.read(buf);
+                    server.execute(() -> DigitalStorageScreenHandler.handleRequest(player, request));
+                });
+        DigitalStorageScreenHandler.setBatchSender((player, reply) -> {
+            FriendlyByteBuf buf = PacketByteBufs.create(); reply.write(buf);
+            ServerPlayNetworking.send(player, dev.kehai.digitalstorage.screen.BatchScreenProtocol.REPLY, buf);
+        });
         ServerPlayNetworking.registerGlobalReceiver(DigitalStorageScreenProtocol.VOLUME_ICON_PACKET_ID,
                 (server, player, networkHandler, buf, responseSender) -> {
                     var request = DigitalStorageScreenProtocol.VolumeIcon.read(buf);

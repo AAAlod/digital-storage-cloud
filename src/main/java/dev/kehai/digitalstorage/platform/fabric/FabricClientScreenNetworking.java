@@ -14,6 +14,14 @@ public final class FabricClientScreenNetworking implements DigitalStorageScreenP
     }
 
     public static void register() {
+        ClientPlayNetworking.registerGlobalReceiver(dev.kehai.digitalstorage.screen.BatchScreenProtocol.REPLY,
+                (client, handler, buf, response) -> {
+                    var reply = dev.kehai.digitalstorage.screen.BatchScreenProtocol.Reply.read(buf);
+                    client.execute(() -> {
+                        if (client.player != null && client.player.containerMenu instanceof DigitalStorageScreenHandler menu
+                                && menu.containerId == reply.syncId()) menu.applyBatchReply(reply);
+                    });
+                });
         ClientPlayNetworking.registerGlobalReceiver(
                 DigitalStorageScreenProtocol.STATE_PACKET_ID,
                 (client, networkHandler, buf, responseSender) -> {
@@ -47,5 +55,10 @@ public final class FabricClientScreenNetworking implements DigitalStorageScreenP
         FriendlyByteBuf buf = PacketByteBufs.create();
         request.write(buf);
         ClientPlayNetworking.send(DigitalStorageScreenProtocol.VOLUME_ICON_PACKET_ID, buf);
+    }
+
+    @Override public void send(dev.kehai.digitalstorage.screen.BatchScreenProtocol.Request request) {
+        FriendlyByteBuf buf = PacketByteBufs.create(); request.write(buf);
+        ClientPlayNetworking.send(dev.kehai.digitalstorage.screen.BatchScreenProtocol.REQUEST, buf);
     }
 }

@@ -22,6 +22,7 @@ public final class DigitalStorageScreenProtocol {
 
         void send(ManageVolume request);
         void send(VolumeIcon request);
+        default void send(BatchScreenProtocol.Request request) { throw new UnsupportedOperationException("Batch sender unavailable"); }
     }
 
     @FunctionalInterface
@@ -77,6 +78,7 @@ public final class DigitalStorageScreenProtocol {
     }
 
     public static void runCompatibilitySelfTest() {
+        BatchScreenProtocol.runSelfTest();
         // Legacy wire fixtures: syncId 300, UTF-8 Chinese name, and volume UUID ending in 1.
         String createFixture = "ac020ce4b8bbe8a681e4bb93e5ba93";
         String manageFixture = "ac0200000000000000000000000000000000010ce4b8bbe8a681e4bb93e5ba93";

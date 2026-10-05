@@ -17,6 +17,7 @@ public final class ForgeClient {
         public void send(DigitalStorageScreenProtocol.CreateVolume request) { ForgeScreenNetworking.CHANNEL.sendToServer(request); }
         public void send(DigitalStorageScreenProtocol.ManageVolume request) { ForgeScreenNetworking.CHANNEL.sendToServer(request); }
         public void send(DigitalStorageScreenProtocol.VolumeIcon request) { ForgeScreenNetworking.CHANNEL.sendToServer(request); }
+        public void send(dev.kehai.digitalstorage.screen.BatchScreenProtocol.Request request) { ForgeScreenNetworking.CHANNEL.sendToServer(request); }
     };
 
     @SubscribeEvent
@@ -29,5 +30,10 @@ public final class ForgeClient {
         var player = Minecraft.getInstance().player;
         if (player != null && player.containerMenu instanceof DigitalStorageScreenHandler handler
                 && handler.containerId == update.syncId()) handler.applySyncedState(update.state());
+    }
+    public static void applyBatch(dev.kehai.digitalstorage.screen.BatchScreenProtocol.Reply reply) {
+        var player = Minecraft.getInstance().player;
+        if (player != null && player.containerMenu instanceof DigitalStorageScreenHandler handler
+                && handler.containerId == reply.syncId()) handler.applyBatchReply(reply);
     }
 }

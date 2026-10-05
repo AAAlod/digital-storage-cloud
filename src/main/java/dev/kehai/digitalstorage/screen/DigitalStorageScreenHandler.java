@@ -24,6 +24,21 @@ import net.minecraft.world.item.ItemStack;
 
 public final class DigitalStorageScreenHandler extends net.minecraft.world.inventory.AbstractContainerMenu {
     private static DigitalStorageScreenProtocol.StateSender stateSender;
+    private static java.util.function.BiConsumer<ServerPlayer, BatchScreenProtocol.Reply> batchSender;
+    private final BatchScreenSession batchSession = new BatchScreenSession();
+    private BatchScreenProtocol.Reply batchReply;
+    public static void setBatchSender(java.util.function.BiConsumer<ServerPlayer, BatchScreenProtocol.Reply> sender) { batchSender = sender; }
+    public BatchScreenProtocol.Reply batchReply() { return batchReply; }
+    public void applyBatchReply(BatchScreenProtocol.Reply reply) {
+        if (batchReply == null || reply.serial() > batchReply.serial()) batchReply = reply;
+    }
+    public static void handleRequest(ServerPlayer player, BatchScreenProtocol.Request request) {
+        if (player.containerMenu instanceof DigitalStorageScreenHandler handler && handler.containerId == request.syncId()
+                && handler.stillValid(player)) {
+            var reply = handler.batchSession.handle(player, handler.getServerBlockEntity(), request);
+            if (reply != null) batchSender.accept(player, reply);
+        }
+    }
     public static final int RENAME_VOLUME_ACTION = 0;
     public static final int DELETE_VOLUME_ACTION = 1;
     private static final int NETWORK_ANALYSIS_COOLDOWN_TICKS = 40;
@@ -82,8 +97,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         var accessor = getServerBlockEntity();
         var volume = DigitalStorageState.get(player.serverLevel()).volume(request.volumeId()).orElse(null);
         boolean controls = accessor != null && accessor.controllerId().map(player.getUUID()::equals).orElse(true);
-        var bound = accessor == null ? null : accessor.getVolume();
-        boolean target = accessor != null && (!accessor.isBound() || bound != null && bound.id().equals(request.volumeId()));
+        boolean target = accessor != null;
         var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.getOptional(request.itemId()).orElse(null);
         boolean possessed = StorageVolume.PRESET_ICONS.contains(request.itemId());
         if (item != null && !possessed) {
@@ -143,6 +157,12 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
             return true;
         }
 
+        var currentVolume = blockEntity.getVolume();
+        if (currentVolume != null && dev.kehai.digitalstorage.optimization.BatchTransfers.active(serverPlayer.getServer(), currentVolume.id())
+                && id != NETWORK_ANALYSIS_BUTTON_ID) {
+            status = Component.translatable("screen.digitalstorage.batch.reason.already_running");
+            statusSuccessful = false; sendServerState(); return true;
+        }
         if (id == SET_UNSTACKABLE_REJECT_BUTTON_ID || id == SET_UNSTACKABLE_ACCEPT_BUTTON_ID) {
             StorageVolume volume = blockEntity.getVolume();
             if (volume == null || !volume.ownerId().equals(serverPlayer.getUUID())) {
@@ -436,7 +456,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
             return;
         }
         DigitalStorageAccessorBlockEntity blockEntity = getServerBlockEntity();
-        if (blockEntity == null || blockEntity.isBound() || !blockEntity.controllerId()
+        if (blockEntity == null || !blockEntity.controllerId()
                 .map(player.getUUID()::equals)
                 .orElse(true)) {
             status = Component.translatable("screen.digitalstorage.error.unavailable");
@@ -468,7 +488,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
     }
 
     private void manageVolume(ServerPlayer player, int action, java.util.UUID volumeId, String requestedName) {
-        if (!canConfigureUnbound(player)) {
+        if (!canManageVolumes(player)) {
             status = Component.translatable("screen.digitalstorage.error.unavailable");
             statusSuccessful = false;
             sendServerState();
@@ -505,13 +525,12 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         sendServerState();
     }
 
-    private boolean canConfigureUnbound(ServerPlayer player) {
+    private boolean canManageVolumes(ServerPlayer player) {
         if (!stillValid(player)) {
             return false;
         }
         DigitalStorageAccessorBlockEntity blockEntity = getServerBlockEntity();
         return blockEntity != null
-                && !blockEntity.isBound()
                 && blockEntity.controllerId().map(player.getUUID()::equals).orElse(true);
     }
 
@@ -660,6 +679,18 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
             expectResponse(handler.state.statusSuccessful() && handler.getCarried().getCount() == 1,
                     "Carried item icon accepted without consumption");
             handler.setCarried(ItemStack.EMPTY);
+            BatchScreenSession.runSelfTest(player, accessor);
+            handleRequest(player, new DigitalStorageScreenProtocol.CreateVolume(207, "Bound management fixture"));
+            expectResponse(handler.state.statusSuccessful() && accessor.getVolume() == volume, "Creating another volume cleared binding");
+            var other = cloud.volumes(player.getUUID()).stream().filter(v -> v.name().equals("Bound management fixture")).findFirst().orElseThrow();
+            handleRequest(player, new DigitalStorageScreenProtocol.ManageVolume(207, RENAME_VOLUME_ACTION, other.id(), "Bound renamed"));
+            expectResponse(handler.state.statusSuccessful() && other.name().equals("Bound renamed") && accessor.getVolume() == volume, "Bound rename changed active volume");
+            handleRequest(player, new DigitalStorageScreenProtocol.VolumeIcon(207, other.id(), diamond));
+            expectResponse(handler.state.statusSuccessful() && other.icon().equals(diamond), "Other owned volume icon rejected while bound");
+            handleRequest(player, new DigitalStorageScreenProtocol.ManageVolume(207, DELETE_VOLUME_ACTION, volume.id(), ""));
+            expectResponse(!handler.state.statusSuccessful() && accessor.getVolume() == volume, "Mounted active volume was deleted");
+            handleRequest(player, new DigitalStorageScreenProtocol.ManageVolume(207, DELETE_VOLUME_ACTION, other.id(), ""));
+            expectResponse(handler.state.statusSuccessful() && !cloud.ownsVolume(player.getUUID(), other.id()) && accessor.getVolume() == volume, "Other empty volume could not be deleted while bound");
             handler.clickMenuButton(player, CLEAR_BINDING_BUTTON_ID);
             dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Volume icon fixture passed: owner/menu/range checks, inventory and carried item preservation, invalid item rejection, default reset and metadata broadcast");
         } finally {

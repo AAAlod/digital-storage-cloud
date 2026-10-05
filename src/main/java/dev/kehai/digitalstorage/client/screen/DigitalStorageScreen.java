@@ -35,7 +35,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private static final int YELLOW = 0xFF825500;
     private static final int RED = 0xFFA32C2C;
     private static final ItemStack ICON = new ItemStack(DigitalStorageContent.accessorItem());
-    private enum View { HOME, UPGRADE, NETWORK, CREATE, RENAME, DELETE, CLEAR, ICONS }
+    private enum View { HOME, UPGRADE, NETWORK, CREATE, RENAME, DELETE, CLEAR, ICONS, TRANSFER, VOLUMES }
     private record Hint(Component text, int x, int y, int width, int height) {}
 
     private final DigitalStorageScreenProtocol.RequestSender requestSender;
@@ -72,12 +72,15 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private int pendingButtonId = -1;
     private final ScreenOperationTracker operation = new ScreenOperationTracker();
     private Component localStatus = Component.empty();
+    private final BatchTransferPanel batchPanel;
+    private Button toolsClear, networkReview;
 
     public DigitalStorageScreen(DigitalStorageScreenHandler handler, Inventory inventory, Component title,
                                 DigitalStorageScreenProtocol.RequestSender requestSender) {
         super(handler, inventory, title);
         this.requestSender = java.util.Objects.requireNonNull(requestSender, "requestSender");
         this.inventory = inventory;
+        batchPanel = new BatchTransferPanel(handler, requestSender);
         inventoryLabelY = 10000;
     }
 
@@ -96,9 +99,11 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         upgrade = button("upgrade", MARGIN, 113, 98, ignored -> open(View.UPGRADE));
         clearBinding = button("gui.more_short", imageWidth - 38, 113, 26,
                 ignored -> showMenu(true, clearBinding));
-        network = button("gui.details", imageWidth - 90, 149, 78, ignored -> open(View.NETWORK));
+        network = button("batch.open", imageWidth - 104, 149, 92, ignored -> { open(View.TRANSFER); batchPanel.resume(); });
         toggle = addRenderableWidget(new SwitchButton(leftPos + imageWidth - 76, topPos + 187, ignored -> requestToggle()));
         homeButtons.addAll(List.of(upgrade, clearBinding, network, toggle));
+        toolsClear = button("batch.cleanup", imageWidth - 150, 187, 66, ignored -> { open(View.TRANSFER); batchPanel.open(true, true); });
+        networkReview = button("batch.network_details", imageWidth - 112, 4, 78, ignored -> open(View.NETWORK));
         create = button("gui.create", MARGIN, 34, 122, ignored -> {
             nameField.setValue("");
             open(View.CREATE);
@@ -170,11 +175,14 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         }));
         actionMenu.add(button("gui.choose_icon", menuX, menuY + 20, 116, ignored -> {
             iconVolume = boundMenu ? menu.state().volumeId() : selectedVolume;
-            iconReturn = View.HOME;
+            iconReturn = view;
             open(View.ICONS);
         }));
         actionMenu.add(button("delete_volume", menuX, menuY + 40, 116,
                 ignored -> open(boundMenu ? View.CLEAR : View.DELETE)));
+        actionMenu.add(button("batch.my_volumes", menuX, menuY + 60, 116, ignored -> open(View.VOLUMES)));
+        batchPanel.init(font, leftPos, topPos, imageWidth, imageHeight, widget -> addRenderableWidget(widget));
+        batchPanel.show(view == View.TRANSFER);
         updateWidgets();
         nameField.setResponder(ignored -> updateWidgets());
     }
@@ -203,14 +211,15 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     }
 
     private void goBack() {
-        open(view == View.ICONS ? iconReturn : View.HOME);
+        open(view == View.ICONS ? iconReturn : view == View.NETWORK ? View.TRANSFER
+                : menu.state().accessorBound() && (view == View.CREATE || view == View.RENAME || view == View.DELETE) ? View.VOLUMES : View.HOME);
     }
 
     private void showMenu(boolean bound, Button anchor) {
         boundMenu = bound;
         menuOpen = true;
         menuX = Math.max(MARGIN, Math.min(imageWidth - 128, anchor.getX() - leftPos + anchor.getWidth() - 116));
-        int menuHeight = bound ? 40 : 60;
+        int menuHeight = 60;
         int below = anchor.getY() - topPos + anchor.getHeight() + 2;
         int start = below + menuHeight + 2 <= imageHeight - 24 ? below
                 : anchor.getY() - topPos - menuHeight - 2;
@@ -222,12 +231,13 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     @Override
     protected void containerTick() {
+        batchPanel.tick(view == View.TRANSFER);
         if (operation.outstanding()) {
             if (operation.observe(menu.state().responseRevision())) {
                 boolean successful = menu.state().statusSuccessful();
                 boolean sameView = view == requestView;
                 if (view == requestView && successful && (view == View.CREATE || view == View.RENAME || view == View.DELETE
-                        || view == View.CLEAR)) open(View.HOME);
+                        || view == View.CLEAR)) open(menu.state().accessorBound() && view != View.CLEAR ? View.VOLUMES : View.HOME);
                 else if (view == requestView && successful && view == View.ICONS) open(iconReturn);
                 if (sameView) {
                     localStatus = menu.state().status();
@@ -257,6 +267,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private int desiredHeight() {
         return switch (view) {
             case HOME -> 234;
+            case TRANSFER, VOLUMES -> 234;
             case NETWORK -> 208;
             case UPGRADE -> menu.state().hasNextTier() ? 250 : 174;
             case CREATE, RENAME -> 140;
@@ -268,6 +279,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private int desiredWidth() {
         return switch (view) {
             case CREATE, RENAME, NETWORK -> 280;
+            case TRANSFER -> 340;
             case CLEAR, DELETE -> 300;
             default -> 320;
         };
@@ -365,7 +377,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             }
             case CLEAR -> sendButton(DigitalStorageScreenHandler.CLEAR_BINDING_BUTTON_ID);
             case UPGRADE -> sendButton(DigitalStorageScreenHandler.UPGRADE_BUTTON_ID);
-            case NETWORK -> sendButton(DigitalStorageScreenHandler.MIGRATION_BUTTON_ID);
+            case NETWORK -> { open(View.TRANSFER); batchPanel.resume(); }
             case ICONS -> setIcon(new ItemStack(Items.CHEST));
             default -> { }
         }
@@ -383,6 +395,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         boolean home = view == View.HOME;
         boolean boundHome = home && state.accessorBound();
         boolean unboundHome = home && !state.accessorBound();
+        boolean browsingVolumes = unboundHome || view == View.VOLUMES;
         homeScroll = Math.max(0, Math.min(homeScroll, maxHomeScroll()));
         for (int i = 0; i < homeButtons.size(); i++) {
             Button widget = homeButtons.get(i);
@@ -391,7 +404,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             widget.visible = boundHome && y >= 30 && y + 20 <= imageHeight - 24;
             widget.active = !operation.timedOut();
         }
-        upgrade.active &= state.accessorConfigurable() && state.hasNextTier();
+        upgrade.active &= state.accessorConfigurable() && state.hasNextTier() && !batchPanel.running();
         upgrade.setMessage(tr(state.hasNextTier() ? "gui.upgrade" : "maximum_button"));
         clearBinding.active &= state.accessorBound() && state.accessorConfigurable();
         network.active = true;
@@ -399,22 +412,27 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         toggle.setMessage(tr(accept ? "gui.on" : "gui.off"));
         toggle.active = canRequest();
         toggle.active &= state.unstackableItemsConfigurable() && state.unstackableItemsAllowedByServer()
-                && !diagnostic.migrationActive();
+                && !diagnostic.migrationActive() && !batchPanel.running();
+        toolsClear.visible = boundHome && batchPanel.toolsStored() > 0;
+        toolsClear.setY(topPos + 187 - homeScroll);
+        toolsClear.active = canRequest() && state.unstackableItemsConfigurable() && !batchPanel.running();
+        networkReview.visible = view == View.TRANSFER;
+        networkReview.setY(topPos + 4);
         String policyTip = !state.unstackableItemsAllowedByServer() ? "server_disabled"
                 : diagnostic.migrationActive() ? "migration_active"
                 : !state.unstackableItemsConfigurable() ? "not_owner" : accept ? "accept" : "reject";
         boolean policyUnavailable = !state.unstackableItemsAllowedByServer()
                 || diagnostic.migrationActive() || !state.unstackableItemsConfigurable();
         toggle.setTooltip(policyUnavailable ? Tooltip.create(tr("unstackables.tooltip." + policyTip)) : null);
-        create.visible = unboundHome && state.accessorConfigurable();
+        create.visible = browsingVolumes && state.accessorConfigurable();
         create.active = canRequest() && state.accessorConfigurable();
-        volumeSearch.visible = unboundHome && state.accessorConfigurable() && state.ownedVolumes().size() > 8;
+        volumeSearch.visible = browsingVolumes && state.accessorConfigurable() && state.ownedVolumes().size() > 8;
         volumeSearch.setEditable(volumeSearch.visible && canRequest());
         firstVolume = Math.max(0, Math.min(firstVolume,
                 Math.max(0, listedVolumes().size() - bindButtons.size())));
         for (int row = 0; row < bindButtons.size(); row++) {
-            boolean visible = unboundHome && state.accessorConfigurable() && visibleChoice(row) != null;
-            bindButtons.get(row).visible = visible;
+            boolean visible = browsingVolumes && state.accessorConfigurable() && visibleChoice(row) != null;
+            bindButtons.get(row).visible = visible && !state.accessorBound();
             manageButtons.get(row).visible = visible;
             bindButtons.get(row).active = canRequest() && state.accessorConfigurable();
             manageButtons.get(row).active = canRequest() && state.accessorConfigurable();
@@ -424,7 +442,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         nameField.setEditable(editing && canRequest());
         back.visible = !home;
         back.active = true;
-        confirm.visible = !home && view != View.ICONS;
+        confirm.visible = !home && view != View.ICONS && view != View.TRANSFER && view != View.VOLUMES;
         confirm.active = canRequest();
         confirm.setTooltip(null);
         secondary.visible = view == View.NETWORK;
@@ -453,17 +471,17 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             case ICONS -> confirm.setMessage(tr("gui.reset_icon"));
             case CREATE -> {
                 confirm.setMessage(tr("create_volume"));
-                confirm.active &= state.accessorConfigurable() && !state.accessorBound()
+                confirm.active &= state.accessorConfigurable()
                         && !nameField.getValue().isBlank();
             }
             case RENAME -> {
                 confirm.setMessage(tr("gui.save"));
-                confirm.active &= state.accessorConfigurable() && !state.accessorBound() && selected != null
+                confirm.active &= state.accessorConfigurable() && selected != null
                         && !nameField.getValue().isBlank() && !nameField.getValue().strip().equals(selected.name());
             }
             case DELETE -> {
                 confirm.setMessage(tr("gui.confirm_delete"));
-                confirm.active &= state.accessorConfigurable() && !state.accessorBound()
+                confirm.active &= state.accessorConfigurable()
                         && selected != null && selected.usedVariants() == 0;
             }
             case CLEAR -> {
@@ -480,10 +498,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             case NETWORK -> {
                 // Refreshing the report must not restyle an unrelated migration control.
                 confirm.active = !operation.timedOut();
-                confirm.setMessage(tr(diagnostic.migrationActive() ? "migration.cancel" : "gui.optimize"));
-                confirm.active &= state.accessorBound() && state.accessorConfigurable()
-                        && (diagnostic.migrationActive() || diagnostic.available()
-                        && !diagnostic.hasDuplicateTargetEndpoints() && diagnostic.recommendedVariants() > 0);
+                confirm.setMessage(tr("batch.open"));
+                confirm.active &= state.accessorBound() && state.unstackableItemsConfigurable();
                 secondary.setMessage(tr("network.refresh"));
                 secondary.active &= state.accessorBound() && !diagnostic.migrationActive();
             }
@@ -505,16 +521,17 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             Button action = actionMenu.get(i);
             action.setX(leftPos + menuX);
             action.setY(topPos + menuY + i * 20);
-            action.visible = menuOpen && (i > 0 || !boundMenu);
+            action.visible = menuOpen && (i > 0 || !boundMenu) && (i != 3 || boundMenu);
             action.active = canRequest() && state.accessorConfigurable()
-                    && (boundMenu ? i == 2 || state.unstackableItemsConfigurable() : selected != null);
+                    && (boundMenu ? i == 2 || i == 3 || state.unstackableItemsConfigurable() : selected != null);
             if (i == 2) {
                 action.setMessage(tr(boundMenu ? "clear_binding" : "delete_volume"));
-                action.active &= boundMenu || selected != null && selected.usedVariants() == 0;
+                action.active &= boundMenu ? !batchPanel.running() : selected != null && selected.usedVariants() == 0;
                 action.setTooltip(!boundMenu && selected != null && selected.usedVariants() > 0
                         ? Tooltip.create(tr("delete_volume.tooltip.non_empty")) : null);
             }
         }
+        batchPanel.show(view == View.TRANSFER);
     }
 
     @Override
@@ -531,6 +548,10 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             return true;
         }
         if (keyCode == 256 && view != View.HOME) { goBack(); return true; }
+        if (view == View.TRANSFER && batchPanel.focusedInput()) {
+            if (minecraft != null && minecraft.options.keyInventory.matches(keyCode, scanCode)) return true;
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
         if (volumeSearch.visible && volumeSearch.isFocused()) {
             if (minecraft != null && minecraft.options.keyInventory.matches(keyCode, scanCode)) return true;
             return super.keyPressed(keyCode, scanCode, modifiers);
@@ -542,7 +563,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         if (!nameField.visible && hasScroll() && keyCode >= 264 && keyCode <= 269) {
             int direction = keyCode == 264 || keyCode == 267 ? 1 : -1;
             int amount = keyCode == 266 || keyCode == 267 ? 8 : 1;
-            if (view == View.HOME && !menu.state().accessorBound()) {
+            if (view == View.VOLUMES || view == View.HOME && !menu.state().accessorBound()) {
                 firstVolume = keyCode == 268 ? 0 : keyCode == 269 ? listedVolumes().size()
                         : firstVolume + direction * amount;
             } else if (view == View.HOME) {
@@ -572,7 +593,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         if (!inside(mouseX, mouseY, MARGIN, 30, imageWidth - 24, imageHeight - 54))
             return super.mouseScrolled(mouseX, mouseY, amount);
         int step = amount > 0 ? -1 : amount < 0 ? 1 : 0;
-        if (view == View.HOME && !menu.state().accessorBound()) firstVolume += step;
+        if (view == View.VOLUMES || view == View.HOME && !menu.state().accessorBound()) firstVolume += step;
         else if (view == View.HOME) homeScroll += step * 12;
         else detailScroll = Math.max(0, Math.min(maxDetailScroll(), detailScroll + step * 3));
         updateWidgets();
@@ -581,6 +602,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (view == View.TRANSFER && batchPanel.click(mouseX, mouseY, button)) return true;
         if (menuOpen) {
             for (Button action : actionMenu) {
                 if (action.visible && action.isMouseOver(mouseX, mouseY)) {
@@ -620,7 +642,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
 
     private void moveScroll(double mouseY) {
         double fraction = Math.max(0, Math.min(1, (mouseY - topPos - scrollTop()) / scrollHeight()));
-        if (view == View.HOME && !menu.state().accessorBound())
+        if (view == View.VOLUMES || view == View.HOME && !menu.state().accessorBound())
             firstVolume = (int) Math.round(fraction * Math.max(0, listedVolumes().size() - bindButtons.size()));
         else if (view == View.HOME) homeScroll = (int) Math.round(fraction * maxHomeScroll());
         else detailScroll = (int) Math.round(fraction * maxDetailScroll());
@@ -641,10 +663,11 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             graphics.pose().translate(0, 0, 300);
             int offset = boundMenu ? 20 : 0;
             graphics.fill(leftPos + menuX - 2, topPos + menuY + offset - 2,
-                    leftPos + menuX + 118, topPos + menuY + 62, 0xFF555555);
+                    leftPos + menuX + 118, topPos + menuY + (boundMenu ? 82 : 62), 0xFF555555);
             for (Button action : actionMenu) if (action.visible) action.render(graphics, mouseX, mouseY, delta);
             graphics.pose().popPose();
         }
+        if (view == View.TRANSFER) batchPanel.render(graphics, mouseX, mouseY);
         if (!menuOpen) renderTooltip(graphics, mouseX, mouseY);
         for (Hint hint : menuOpen ? List.<Hint>of() : hints) {
             if (inside(mouseX, mouseY, hint.x(), hint.y(), hint.width(), hint.height())) {
@@ -675,7 +698,9 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private void drawContent(GuiGraphics graphics) {
         graphics.renderItem(ICON, 6, 5);
         text(graphics, pageTitle(), 26, 9, imageWidth - 58, TEXT);
-        if (view == View.HOME) {
+        if (view == View.VOLUMES) drawVolumes(graphics);
+        else if (view == View.TRANSFER) { }
+        else if (view == View.HOME) {
             if (menu.state().accessorBound()) drawHome(graphics);
             else drawVolumes(graphics);
         } else drawDetail(graphics);
@@ -710,7 +735,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                 : d.hasDuplicateTargetEndpoints() || d.failingScanners() > 0 ? tr("gui.network_attention") : tr("gui.network_ready");
         text(graphics, summary, MARGIN, 148, imageWidth - 114,
                 !d.available() ? MUTED : d.hasDuplicateTargetEndpoints() ? RED : d.failingScanners() > 0 ? YELLOW : GREEN);
-        Component opportunity = d.migrationActive() ? tr("migration.progress_short", d.completedCandidates(), d.totalCandidates())
+        Component opportunity = batchPanel.hasTaskResult() ? batchPanel.homeProgress()
+                : d.migrationActive() ? tr("migration.progress_short", d.completedCandidates(), d.totalCandidates())
                 : d.available() && d.recommendedVariants() > 0 ? tr("gui.opportunity", d.recommendedVariants()) : tr("gui.no_opportunity");
         text(graphics, opportunity, MARGIN, 163, imageWidth - 114, MUTED);
         text(graphics, tr("gui.unstackables"), MARGIN, 193, imageWidth - 98, TEXT);
@@ -757,6 +783,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             case DELETE -> "gui.delete_title";
             case CLEAR -> "gui.clear_title";
             case ICONS -> "gui.choose_icon";
+            case TRANSFER -> "batch.title";
+            case VOLUMES -> "batch.my_volumes";
             default -> "gui.manage_volume";
         });
     }
@@ -799,6 +827,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                 : d.failingScanners() > 0 ? "gui.network_check_hoppers" : "gui.network_no_action";
         if (!nextStep.equals("gui.network_no_action"))
             text(graphics, tr(nextStep), MARGIN + 28, 62, imageWidth - 65, MUTED);
+        else if (networkDetails)
+            text(graphics, batchPanel.locationText(), MARGIN + 28, 62, imageWidth - 65, MUTED);
         if (networkDetails) {
             int columnWidth = (imageWidth - 32) / 2;
             metric(graphics, MARGIN, 86, columnWidth, "gui.metric_inventories", d.available() ? "" + d.physicalInventories() : "—", TEXT);
@@ -983,20 +1013,20 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                 ? Math.max(0, detailLines - Math.max(1, upgradeCostViewport() / 20)) : 0;
         return 0;
     }
-    private int scrollTop() { return view == View.HOME ? menu.state().accessorBound() ? 30 : 62
+    private int scrollTop() { return view == View.VOLUMES ? 62 : view == View.HOME ? menu.state().accessorBound() ? 30 : 62
             : upgradeCostTop(); }
-    private int scrollHeight() { return view == View.HOME ? imageHeight - 24 - scrollTop()
+    private int scrollHeight() { return view == View.HOME || view == View.VOLUMES ? imageHeight - 24 - scrollTop()
             : upgradeCostViewport(); }
     private boolean hasScroll() {
-        return view == View.HOME ? menu.state().accessorBound() ? maxHomeScroll() > 0
+        return view == View.VOLUMES ? listedVolumes().size() > bindButtons.size() : view == View.HOME ? menu.state().accessorBound() ? maxHomeScroll() > 0
                 : listedVolumes().size() > bindButtons.size() : maxDetailScroll() > 0;
     }
 
     private void drawScrollbar(GuiGraphics graphics) {
         if (!hasScroll()) return;
-        int max = view == View.HOME ? menu.state().accessorBound() ? maxHomeScroll()
+        int max = view == View.VOLUMES ? listedVolumes().size() - bindButtons.size() : view == View.HOME ? menu.state().accessorBound() ? maxHomeScroll()
                 : listedVolumes().size() - bindButtons.size() : maxDetailScroll();
-        int value = view == View.HOME ? menu.state().accessorBound() ? homeScroll : firstVolume : detailScroll;
+        int value = view == View.VOLUMES ? firstVolume : view == View.HOME ? menu.state().accessorBound() ? homeScroll : firstVolume : detailScroll;
         int h = scrollHeight();
         int thumb = Math.max(12, Math.min(h, h / 3));
         int y = scrollTop() + (max <= 0 ? 0 : (int) Math.round((h - thumb) * (double) value / max));
