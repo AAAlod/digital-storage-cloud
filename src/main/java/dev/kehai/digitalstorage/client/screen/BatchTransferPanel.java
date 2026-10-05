@@ -44,8 +44,8 @@ final class BatchTransferPanel {
     BatchTransferPanel(DigitalStorageScreenHandler menu, DigitalStorageScreenProtocol.RequestSender sender) { this.menu = menu; this.sender = sender; }
     void init(Font font, int x, int y, int width, int height, Consumer<AbstractWidget> add) {
         this.font = font; this.x = x; this.y = y; this.width = width; this.height = height; widgets.clear();
-        direction = button(add, "in", 12, 31, 90, () -> open(!exporting, tools));
-        filter = button(add, "tools", 106, 31, 94, () -> open(exporting, !tools));
+        direction = button(add, "in", 96, 31, 20, () -> { open(!exporting, tools); all = false; });
+        filter = button(add, "tools", 36, 161, 20, () -> { open(exporting, !tools); all = false; });
         search = new EditBox(font, x + 12, y + 65, 188, 16, tr("search"));
         search.setHint(tr("search")); search.setMaxLength(128); search.setValue(query);
         search.setResponder(value -> { query = value; searchDelay = 6; }); add.accept(search); widgets.add(search);
@@ -72,26 +72,27 @@ final class BatchTransferPanel {
         updateQuantity(); update();
     }
     private Button button(Consumer<AbstractWidget> add, String key, int dx, int dy, int size, Runnable action) {
-        var button = new StableButton(x + dx, y + dy, Math.max(20, size), tr(key), ignored -> action.run(), key.equals("quantity_desc"));
+        int icon = key.equals("quantity_desc") ? 1 : key.equals("in") ? 2 : key.equals("tools") ? 3 : 0;
+        var button = new StableButton(x + dx, y + dy, Math.max(20, size), tr(key), ignored -> action.run(), icon);
         add.accept(button); widgets.add(button); return button;
     }
     /** Input locks immediately; only sustained work changes the button's appearance. */
     private final class StableButton extends Button {
         private boolean enabledAppearance;
-        private final boolean sortIcon;
-        StableButton(int bx, int by, int bw, Component message, OnPress action, boolean sortIcon) {
+        private final int icon;
+        StableButton(int bx, int by, int bw, Component message, OnPress action, int icon) {
             super(bx, by, bw, 20, message, action, DEFAULT_NARRATION);
-            this.sortIcon = sortIcon;
+            this.icon = icon;
         }
         @Override protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
             boolean logicalActive = active;
             Component message = getMessage();
             if (outstanding == 0 && !running()) enabledAppearance = active;
             else if (busyTicks < 6) active = enabledAppearance;
-            if (sortIcon) setMessage(Component.empty());
+            if (icon != 0) setMessage(Component.empty());
             try {
                 super.renderWidget(graphics, mouseX, mouseY, delta);
-                if (sortIcon) {
+                if (icon == 1) {
                     int color = active ? 0xFFFFFFFF : 0xFFA0A0A0;
                     int ax = getX() + 5, ay = getY() + 6;
                     graphics.fill(ax + 2, ay, ax + 3, ay + 8, color);
@@ -100,6 +101,17 @@ final class BatchTransferPanel {
                         graphics.fill(ax + 2 - i, ry, ax + 3 + i, ry + 1, color);
                     }
                     graphics.drawString(font, "1", getX() + 11, getY() + 6, color, true);
+                } else if (icon == 2) {
+                    int color = active ? 0xFFFFFFFF : 0xFFA0A0A0;
+                    int ax = getX() + 5, ay = getY() + 9;
+                    graphics.fill(ax, ay, ax + 10, ay + 2, color);
+                    for (int i = 0; i < 4; i++) {
+                        int rx = exporting ? ax + 9 - i : ax + i;
+                        graphics.fill(rx, ay - i, rx + 1, ay + 2 + i, color);
+                    }
+                } else if (icon == 3) {
+                    graphics.renderItem(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_SWORD), getX() + 2, getY() + 2);
+                    if (tools) graphics.renderOutline(getX() + 1, getY() + 1, 18, 18, 0xFF245A20);
                 }
             } finally { active = logicalActive; setMessage(message); }
         }
@@ -193,7 +205,7 @@ final class BatchTransferPanel {
         boolean idle = outstanding == 0 && !running();
         direction.active = filter.active = idle;
         direction.setMessage(tr(exporting ? "out" : "in"));
-        filter.setMessage(tr(tools ? "tools_selected" : "tools"));
+        filter.setMessage(tr(tools ? "filter_on" : "filter_off"));
         search.setEditable(idle); selectAll.active = clear.active = idle && entries > 0;
         quantity.setEditable(idle && focused >= 0); maximum.active = idle && focused >= 0;
         previous.active = idle && page > 0; next.active = idle && page + 1 < pages;
@@ -227,7 +239,13 @@ final class BatchTransferPanel {
         updateQuantity(); update(); return true;
     }
     void render(GuiGraphics graphics, int mouseX, int mouseY) {
-        draw(graphics, tr(exporting ? "route_out" : "route_in", font.plainSubstrByWidth(menu.state().volumeName(), 128)), 12, 54, width - 24, 0xFF545454);
+        String volumeName = menu.state().volumeName();
+        String shortenedName = font.width(volumeName) <= 60 ? volumeName
+                : font.plainSubstrByWidth(volumeName, Math.max(1, 60 - font.width("…"))) + "…";
+        var volumeItem = BuiltInRegistries.ITEM.getOptional(menu.state().volumeIcon()).orElse(net.minecraft.world.item.Items.CHEST);
+        graphics.renderItem(new net.minecraft.world.item.ItemStack(volumeItem), x + 12, y + 33);
+        draw(graphics, Component.literal(shortenedName), 32, 37, 60, 0xFF404040);
+        draw(graphics, tr("physical_target"), 122, 37, 78, 0xFF404040);
         net.minecraft.world.item.ItemStack hovered = null;
         for (int i = 0; i < 24; i++) {
             int gx = x + 12 + i % 8 * 23, gy = y + 86 + i / 8 * 23;
@@ -272,6 +290,9 @@ final class BatchTransferPanel {
         if (hovered != null) graphics.renderTooltip(font, hovered, mouseX, mouseY);
         else if (sort.isHovered()) graphics.renderTooltip(font, tr(ascending ? "quantity_asc" : "quantity_desc"), mouseX, mouseY);
         else if (direction.isHovered()) graphics.renderTooltip(font, tr("switch_direction"), mouseX, mouseY);
+        else if (filter.isHovered()) graphics.renderTooltip(font, tr(tools ? "filter_on" : "filter_off"), mouseX, mouseY);
+        else if (mouseX >= x + 12 && mouseX < x + 92 && mouseY >= y + 31 && mouseY < y + 51)
+            graphics.renderTooltip(font, Component.literal(volumeName), mouseX, mouseY);
     }
     private void draw(GuiGraphics graphics, Component value, int dx, int dy, int max, int color) {
         graphics.drawString(font, font.plainSubstrByWidth(value.getString(), Math.max(1, max)), x + dx, y + dy, color, false);

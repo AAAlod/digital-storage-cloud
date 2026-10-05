@@ -283,5 +283,8 @@
   "tier.digitalstorage.digitalstorage.ultimate": "终极",
   "tier.digitalstorage.digitalstorage.maximum": "最高",
   "screen.digitalstorage.batch.switch_direction": "切换移入 / 移出",
-  "screen.digitalstorage.gui.score_reference": "反映规模与扫描负载，仅供参考"
+  "screen.digitalstorage.gui.score_reference": "反映规模与扫描负载，仅供参考",
+  "screen.digitalstorage.batch.filter_on": "只显示不可堆叠物品：开",
+  "screen.digitalstorage.batch.filter_off": "只显示不可堆叠物品：关",
+  "screen.digitalstorage.batch.physical_target": "网络实体容器"
 }

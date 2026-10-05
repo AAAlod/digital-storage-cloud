@@ -283,5 +283,8 @@
   "tier.digitalstorage.digitalstorage.ultimate": "Ultimate",
   "tier.digitalstorage.digitalstorage.maximum": "Maximum",
   "screen.digitalstorage.batch.switch_direction": "Switch import / export",
-  "screen.digitalstorage.gui.score_reference": "Size and scan load; indicative only"
+  "screen.digitalstorage.gui.score_reference": "Size and scan load; indicative only",
+  "screen.digitalstorage.batch.filter_on": "Show only unstackable items: on",
+  "screen.digitalstorage.batch.filter_off": "Show only unstackable items: off",
+  "screen.digitalstorage.batch.physical_target": "Containers"
 }
