@@ -7,7 +7,6 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
@@ -16,18 +15,12 @@ public abstract class InventoryConnectorBlockEntityMixin {
     @Shadow(remap = false)
     private MergedStorage handlers;
 
-    @Inject(method = {"addLinked", "unLink"}, at = @At("HEAD"), remap = false)
-    private void digitalstorage$invalidateTopology(
-            @Coerce Object linked,
-            CallbackInfo callbackInfo
-    ) {
-        TomNetworkCache.invalidate((BlockEntity) (Object) this);
-    }
-
     /**
      * Tom has already rebuilt this collection on these ticks. Computing an
      * structural summary here performs no extra BFS
      * and never enumerates StorageViews.
+     * Cable connectors unLink/addLinked every second even without changes;
+     * only the completed scan determines whether that cycle changed topology.
      */
     @Inject(method = "updateServer", at = @At("TAIL"), remap = false)
     private void digitalstorage$detectRebuiltTopology(CallbackInfo callbackInfo) {

@@ -90,14 +90,19 @@ public final class TomNetworkCache {
 
     /** Called after Tom rebuilds, and shared with the migration regression tests. */
     public static void rebuilt(BlockEntity connector, Storage<ItemVariant> network) {
-        Entry entry = ENTRIES.get(connector);
-        if (entry == null || entry.topology == null) {
-            return;
+        Set<Entry> affected = Collections.newSetFromMap(new IdentityHashMap<>());
+        Entry direct = ENTRIES.get(connector);
+        if (direct != null && direct.topology != null) affected.add(direct);
+        // Accessors may discover this aggregate through a cable connector.
+        // Its cache entry must observe the master's completed scan as well.
+        for (NetworkIdentity identity : NETWORKS_BY_STORAGE.getOrDefault(network, Set.of())) {
+            Entry linked = ENTRIES.get(identity.connector().get());
+            if (linked != null && linked.topology != null) affected.add(linked);
         }
+        if (affected.isEmpty()) return;
         Map<Object, Integer> current = structure(TomNetworkIntrospection.parts(network));
-        if (!current.equals(entry.structure)) {
-            invalidateEntry(entry, "network changed");
-        }
+        for (Entry entry : affected)
+            if (!current.equals(entry.structure)) invalidateEntry(entry, "network changed");
     }
 
     private static Map<Object, Integer> structure(TomNetworkIntrospection.NetworkParts parts) {

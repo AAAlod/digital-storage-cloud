@@ -19,16 +19,28 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
     @Override public void runWorldSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) {
         runChestPreviewSelfTest(player, accessor, false);
         runChestPreviewSelfTest(player, accessor, true);
+        runChestPreviewSelfTest(player, accessor, true, true);
+        runChestPreviewSelfTest(player, accessor, true, true, true);
     }
     private void runChestPreviewSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor, boolean doubleChest) {
+        runChestPreviewSelfTest(player, accessor, doubleChest, false);
+    }
+    private void runChestPreviewSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor, boolean doubleChest, boolean cableNetwork) {
+        runChestPreviewSelfTest(player, accessor, doubleChest, cableNetwork, false);
+    }
+    private void runChestPreviewSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor,
+            boolean doubleChest, boolean cableNetwork, boolean cableDiscovery) {
         var world = player.serverLevel();
         var connectorPos = accessor.getBlockPos().east();
         var chestPos = connectorPos.east();
         var secondChestPos = chestPos.east();
+        var cablePos = connectorPos.south();
+        var cableAccessorPos = cablePos.south();
         var cloud = dev.kehai.digitalstorage.storage.DigitalStorageState.get(world);
         var volume = cloud.createVolume(player.getUUID(), "Physical batch fixture", Integer.MAX_VALUE).orElseThrow();
         if (!world.getBlockState(connectorPos).isAir() || !world.getBlockState(chestPos).isAir()
-                || !world.getBlockState(secondChestPos).isAir())
+                || !world.getBlockState(secondChestPos).isAir() || !world.getBlockState(cablePos).isAir()
+                || !world.getBlockState(cableAccessorPos).isAir())
             throw new IllegalStateException("Physical batch fixture requires untouched positions");
         try {
             world.setBlockAndUpdate(connectorPos, com.tom.storagemod.Content.connector.get().defaultBlockState());
@@ -39,21 +51,40 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                     .setValue(net.minecraft.world.level.block.ChestBlock.TYPE, net.minecraft.world.level.block.state.properties.ChestType.RIGHT));
             var chest = (net.minecraft.world.level.block.entity.ChestBlockEntity) world.getBlockEntity(chestPos);
             for (int i = 0; i < 9; i++) chest.setItem(i, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.OAK_PLANKS, 64));
-            accessor.bind(player, volume.id());
+            if (cableDiscovery) world.setBlockAndUpdate(cableAccessorPos, accessor.getBlockState());
+            var fixtureAccessor = cableDiscovery ? (DigitalStorageAccessorBlockEntity) world.getBlockEntity(cableAccessorPos) : accessor;
+            fixtureAccessor.bind(player, volume.id());
+            if (cableNetwork) world.setBlockAndUpdate(cablePos, com.tom.storagemod.Content.invCableConnector.get().defaultBlockState()
+                    .setValue(com.tom.storagemod.block.InventoryCableConnectorBlock.FACING, net.minecraft.core.Direction.SOUTH)
+                    .setValue(com.tom.storagemod.block.InventoryCableBlock.DIR_TO_PROPERTY[net.minecraft.core.Direction.NORTH.ordinal()], true));
             var connector = (com.tom.storagemod.tile.InventoryConnectorBlockEntity) world.getBlockEntity(connectorPos);
+            var cable = cableNetwork ? (com.tom.storagemod.tile.InventoryCableConnectorBlockEntity) world.getBlockEntity(cablePos) : null;
             long time = world.getGameTime();
             try {
-                world.getServer().getWorldData().overworldData().setGameTime(time - time % 20);
+                if (cable != null) {
+                    world.getServer().getWorldData().overworldData().setGameTime(time - time % 20 + 19);
+                    cable.updateServer();
+                    if (cable.get() == null) throw new IllegalStateException("Cable fixture did not connect to master");
+                }
+                world.getServer().getWorldData().overworldData().setGameTime(time - time % 20 + 20);
                 connector.updateServer();
-                dev.kehai.digitalstorage.screen.BatchScreenSession.runNetworkPreviewSelfTest(player, accessor,
+                dev.kehai.digitalstorage.screen.BatchScreenSession.runNetworkPreviewSelfTest(player, fixtureAccessor,
                         () -> { for (int i = 1; i <= 5; i++) {
-                            world.getServer().getWorldData().overworldData().setGameTime(time - time % 20 + i * 20);
+                            if (cable != null) {
+                                world.getServer().getWorldData().overworldData().setGameTime(time - time % 20 + (i + 1) * 20 - 1);
+                                cable.updateServer();
+                            }
+                            world.getServer().getWorldData().overworldData().setGameTime(time - time % 20 + (i + 1) * 20);
                             connector.updateServer();
                         } }, () -> { world.removeBlock(doubleChest ? secondChestPos : chestPos, false); connector.updateServer(); });
                 if (!chest.isEmpty()) throw new IllegalStateException("Imported chest was not emptied");
             } finally { world.getServer().getWorldData().overworldData().setGameTime(time); }
         } finally {
+            if (cableDiscovery && world.getBlockEntity(cableAccessorPos) instanceof DigitalStorageAccessorBlockEntity mounted)
+                mounted.clearBinding(player);
             accessor.clearBinding(player);
+            if (cableDiscovery) world.removeBlock(cableAccessorPos, false);
+            if (cableNetwork) world.removeBlock(cablePos, false);
             if (doubleChest) world.removeBlock(secondChestPos, false);
             world.removeBlock(chestPos, false); world.removeBlock(connectorPos, false);
             try (var tx = dev.kehai.digitalstorage.storage.LedgerTransaction.open()) {
