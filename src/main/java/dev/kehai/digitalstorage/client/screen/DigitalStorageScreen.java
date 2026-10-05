@@ -103,7 +103,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         toggle = addRenderableWidget(new SwitchButton(leftPos + imageWidth - 76, topPos + 187, ignored -> requestToggle()));
         homeButtons.addAll(List.of(upgrade, clearBinding, network, toggle));
         toolsClear = button("batch.cleanup", imageWidth - 150, 187, 66, ignored -> { open(View.TRANSFER); batchPanel.open(true, true); });
-        networkReview = button("batch.network_details", imageWidth - 112, 4, 78, ignored -> open(View.NETWORK));
+        networkReview = button("batch.network_details", 204, 31, imageWidth - 216, ignored -> open(View.NETWORK));
         create = button("gui.create", MARGIN, 34, 122, ignored -> {
             nameField.setValue("");
             open(View.CREATE);
@@ -154,15 +154,13 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         secondary = button("gui.refresh", imageWidth - 118, imageHeight - 70, 106,
                 ignored -> secondaryAction());
         if (view == View.NETWORK) {
-            int actionWidth = (imageWidth - 32) / 3;
+            int actionWidth = (imageWidth - 28) / 2;
             back.setWidth(actionWidth);
             secondary.setX(leftPos + MARGIN + actionWidth + 4);
             secondary.setY(topPos + imageHeight - 44);
             secondary.setWidth(actionWidth);
-            confirm.setX(leftPos + MARGIN + 2 * (actionWidth + 4));
-            confirm.setWidth(actionWidth);
         }
-        detailToggle = button("gui.details", imageWidth - 112, 36, 100, ignored -> {
+        detailToggle = button("gui.details", MARGIN, 104, 100, ignored -> {
             networkDetails = !networkDetails;
             updateWidgets();
         });
@@ -268,7 +266,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         return switch (view) {
             case HOME -> 234;
             case TRANSFER, VOLUMES -> 234;
-            case NETWORK -> 208;
+            case NETWORK -> 228;
             case UPGRADE -> menu.state().hasNextTier() ? 250 : 174;
             case CREATE, RENAME -> 140;
             case CLEAR, DELETE -> 170;
@@ -377,7 +375,6 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             }
             case CLEAR -> sendButton(DigitalStorageScreenHandler.CLEAR_BINDING_BUTTON_ID);
             case UPGRADE -> sendButton(DigitalStorageScreenHandler.UPGRADE_BUTTON_ID);
-            case NETWORK -> { open(View.TRANSFER); batchPanel.resume(); }
             case ICONS -> setIcon(new ItemStack(Items.CHEST));
             default -> { }
         }
@@ -417,7 +414,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         toolsClear.setY(topPos + 187 - homeScroll);
         toolsClear.active = canRequest() && state.unstackableItemsConfigurable() && !batchPanel.running();
         networkReview.visible = view == View.TRANSFER;
-        networkReview.setY(topPos + 4);
+        networkReview.setY(topPos + 31);
         String policyTip = !state.unstackableItemsAllowedByServer() ? "server_disabled"
                 : diagnostic.migrationActive() ? "migration_active"
                 : !state.unstackableItemsConfigurable() ? "not_owner" : accept ? "accept" : "reject";
@@ -442,7 +439,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         nameField.setEditable(editing && canRequest());
         back.visible = !home;
         back.active = true;
-        confirm.visible = !home && view != View.ICONS && view != View.TRANSFER && view != View.VOLUMES;
+        confirm.visible = !home && view != View.ICONS && view != View.TRANSFER && view != View.VOLUMES && view != View.NETWORK;
         confirm.active = canRequest();
         confirm.setTooltip(null);
         secondary.visible = view == View.NETWORK;
@@ -496,10 +493,6 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                     confirm.setTooltip(Tooltip.create(tr(!state.accessorConfigurable() ? "gui.read_only" : "unaffordable")));
             }
             case NETWORK -> {
-                // Refreshing the report must not restyle an unrelated migration control.
-                confirm.active = !operation.timedOut();
-                confirm.setMessage(tr("batch.open"));
-                confirm.active &= state.accessorBound() && state.unstackableItemsConfigurable();
                 secondary.setMessage(tr("network.refresh"));
                 secondary.active &= state.accessorBound() && !diagnostic.migrationActive();
             }
@@ -509,7 +502,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
                 && pendingButtonId == DigitalStorageScreenHandler.NETWORK_ANALYSIS_BUTTON_ID))
             confirm.setMessage(tr("gui.pending"));
         detailToggle.visible = view == View.NETWORK;
-        detailToggle.setMessage(tr(networkDetails ? "gui.hide_details" : "gui.container_details"));
+        detailToggle.setMessage(tr(networkDetails ? "gui.hide_details" : "gui.details"));
         detailToggle.active = true;
         recovery.visible = operation.timedOut();
         recovery.setY(topPos + imageHeight - 44);
@@ -817,50 +810,30 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         String health = !d.available() ? "gui.network_disconnected"
                 : d.hasDuplicateTargetEndpoints() ? "gui.network_duplicates"
                 : d.failingScanners() > 0 ? "gui.network_scanner_fault" : "gui.network_healthy";
-        panel(graphics, MARGIN, 32, imageWidth - 24, 43);
-        graphics.renderItem(new ItemStack(Items.COMPARATOR), MARGIN + 6, 40);
+        panel(graphics, MARGIN, 32, imageWidth - 24, 64);
+        graphics.renderItem(new ItemStack(Items.COMPARATOR), MARGIN + 6, 39);
         text(graphics, d.failingScanners() > 0 && !d.hasDuplicateTargetEndpoints() && d.available()
                 ? tr("gui.network_stalled", d.failingScanners()) : tr(health),
-                MARGIN + 28, 42, imageWidth - 152, color);
+                MARGIN + 28, 40, imageWidth - 64, color);
         String nextStep = !d.available() ? "gui.network_connect"
                 : d.hasDuplicateTargetEndpoints() ? "gui.network_remove_duplicate"
                 : d.failingScanners() > 0 ? "gui.network_check_hoppers" : "gui.network_no_action";
         if (!nextStep.equals("gui.network_no_action"))
-            text(graphics, tr(nextStep), MARGIN + 28, 62, imageWidth - 65, MUTED);
-        else if (networkDetails)
-            text(graphics, batchPanel.locationText(), MARGIN + 28, 62, imageWidth - 65, MUTED);
-        if (networkDetails) {
-            int columnWidth = (imageWidth - 32) / 2;
-            metric(graphics, MARGIN, 86, columnWidth, "gui.metric_inventories", d.available() ? "" + d.physicalInventories() : "—", TEXT);
-            metric(graphics, MARGIN + columnWidth + 8, 86, columnWidth, "gui.metric_slots",
-                    d.available() ? d.nonEmptyViews() + "/" + d.totalViews() : "—", TEXT);
-        }
-        int y = networkDetails ? 105 : 88;
+            text(graphics, tr(nextStep), MARGIN + 28, 53, imageWidth - 64, MUTED);
+        text(graphics, d.available() ? tr("network.health", d.healthScore(), d.grade())
+                : tr("network.not_connected_short"), MARGIN, 68, imageWidth - 116, TEXT);
+        progress(graphics, imageWidth - 100, 69, 88, 6,
+                d.available() ? d.healthScore() / 100.0 : 0, MUTED);
+        text(graphics, tr("gui.score_reference"), MARGIN, 83, imageWidth - 24, MUTED);
         int column = (imageWidth - 32) / 2;
-        int targetX = MARGIN + column + 8;
-        panel(graphics, MARGIN, y, imageWidth - 24, 55);
-        text(graphics, tr("gui.import_target"), targetX, y + 5, column, MUTED);
-        graphics.renderItem(iconStack(menu.state().volumeIcon()), targetX, y + 21);
-        text(graphics, Component.literal(menu.state().volumeName()), targetX + 22, y + 25, column - 22, TEXT);
-        if (d.migrationActive()) {
-            graphics.renderItem(new ItemStack(Items.HOPPER), MARGIN + 2, y + 3);
-            text(graphics, tr("migration.progress_short", d.completedCandidates(), d.totalCandidates()),
-                    MARGIN + 24, y + 7, column - 24, GREEN);
-            progress(graphics, MARGIN, y + 45, imageWidth - 24, 5,
-                    d.totalCandidates() <= 0 ? 0 : (double) d.completedCandidates() / d.totalCandidates(), GREEN);
-            text(graphics, tr("gui.moved_items", d.movedItems()), MARGIN, y + 28, column, MUTED);
-        } else {
-            boolean hasCandidate = d.available() && d.recommendedVariants() > 0;
-            var candidateId = hasCandidate ? ResourceLocation.tryParse(d.topCandidateId()) : null;
-            var candidateItem = candidateId == null ? Items.HOPPER : BuiltInRegistries.ITEM.getOptional(candidateId).orElse(Items.HOPPER);
-            graphics.renderItem(new ItemStack(candidateItem), MARGIN + 2, y + 3);
-            Component candidate = candidateId == null ? tr("gui.no_opportunity")
-                    : BuiltInRegistries.ITEM.getOptional(candidateId).<Component>map(item -> item.getDescription())
-                            .orElse(Component.literal(d.topCandidateId()));
-            text(graphics, hasCandidate ? candidate : tr("gui.no_opportunity"),
-                    MARGIN + 24, y + 7, column - 24, hasCandidate ? TEXT : MUTED);
-            if (hasCandidate) text(graphics, tr("gui.migration_benefit", d.recommendedVariants(), d.estimatedFreedViews()),
-                    MARGIN, y + 28, column, GREEN);
+        metric(graphics, MARGIN, 134, column, "gui.metric_inventories",
+                d.available() ? "" + d.physicalInventories() : "—", TEXT);
+        metric(graphics, MARGIN + column + 8, 134, column, "gui.metric_slots",
+                d.available() ? d.nonEmptyViews() + "/" + d.totalViews() : "—", TEXT);
+        if (networkDetails) {
+            text(graphics, tr("gui.network_scanners", d.activeScanners(), d.failingScanners(),
+                    d.averageScanIntervalTicks()), MARGIN, 151, imageWidth - 24, MUTED);
+            text(graphics, batchPanel.locationText(), MARGIN, 167, imageWidth - 24, MUTED);
         }
     }
 

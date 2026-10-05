@@ -115,7 +115,7 @@
   "screen.digitalstorage.gui.next_tier": "升级后",
   "screen.digitalstorage.gui.type_capacity": "%s 种物品",
   "screen.digitalstorage.gui.tier_capacity": "%1$s · %2$s 种物品",
-  "screen.digitalstorage.gui.network_title": "网络与物品迁移",
+  "screen.digitalstorage.gui.network_title": "网络详情",
   "screen.digitalstorage.gui.network_disconnected": "未连接存储网络",
   "screen.digitalstorage.gui.network_duplicates": "存在重复入口",
   "screen.digitalstorage.gui.network_scanner_fault": "物品漏斗异常",
@@ -282,5 +282,6 @@
   "tier.digitalstorage.digitalstorage.elite": "精英",
   "tier.digitalstorage.digitalstorage.ultimate": "终极",
   "tier.digitalstorage.digitalstorage.maximum": "最高",
-  "screen.digitalstorage.batch.switch_direction": "切换移入 / 移出"
+  "screen.digitalstorage.batch.switch_direction": "切换移入 / 移出",
+  "screen.digitalstorage.gui.score_reference": "反映规模与扫描负载，仅供参考"
 }

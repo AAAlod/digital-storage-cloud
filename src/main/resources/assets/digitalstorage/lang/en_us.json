@@ -115,7 +115,7 @@
   "screen.digitalstorage.gui.next_tier": "After upgrade",
   "screen.digitalstorage.gui.type_capacity": "%s item types",
   "screen.digitalstorage.gui.tier_capacity": "%1$s · %2$s item types",
-  "screen.digitalstorage.gui.network_title": "Network & item migration",
+  "screen.digitalstorage.gui.network_title": "Network details",
   "screen.digitalstorage.gui.network_disconnected": "Disconnected",
   "screen.digitalstorage.gui.network_duplicates": "Duplicate accessors",
   "screen.digitalstorage.gui.network_scanner_fault": "Scanner failures",
@@ -282,5 +282,6 @@
   "tier.digitalstorage.digitalstorage.elite": "Elite",
   "tier.digitalstorage.digitalstorage.ultimate": "Ultimate",
   "tier.digitalstorage.digitalstorage.maximum": "Maximum",
-  "screen.digitalstorage.batch.switch_direction": "Switch import / export"
+  "screen.digitalstorage.batch.switch_direction": "Switch import / export",
+  "screen.digitalstorage.gui.score_reference": "Size and scan load; indicative only"
 }
