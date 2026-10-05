@@ -14,6 +14,7 @@ public final class MigrationTaskSelfTest {
     }
 
     public static void run() {
+        BatchTransferSelfTest.run();
         ItemKey stone = ItemKey.of(Items.STONE);
         ItemKey dirt = ItemKey.of(Items.DIRT);
         var token = new TestToken();

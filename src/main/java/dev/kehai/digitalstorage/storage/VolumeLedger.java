@@ -212,6 +212,37 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
         return new NonEmptyViewIterator(entries.values().iterator());
     }
 
+    /** A one-shot receipt can restore only its own unaccepted withdrawal, even after insertion is disabled. */
+    public Extraction reserveExtraction(ItemKey key, long maximum, MutationScope mutation) {
+        long reserved = extract(key, maximum, mutation);
+        return new Extraction(entries.get(key), reserved, mutation);
+    }
+
+    public final class Extraction {
+        private final Entry entry;
+        private final long reserved;
+        private final MutationScope mutation;
+        private boolean settled;
+        private Extraction(Entry entry, long reserved, MutationScope mutation) {
+            this.entry = entry; this.reserved = reserved; this.mutation = mutation;
+        }
+        public long amount() { return reserved; }
+        public void settle(long delivered) {
+            if (settled || delivered < 0 || delivered > reserved) throw new IllegalStateException("Invalid withdrawal settlement");
+            if (reserved == 0) { settled = true; return; }
+            if (entries.get(entry.resource) != entry) throw new IllegalStateException("Withdrawal identity changed");
+            mutation.enlist(entry);
+            mutation.enlist(metricsParticipant);
+            long returned = reserved - delivered;
+            if (returned > 0) {
+                if (entry.amount == 0) { variantCount++; totalVariantNbtBytes = Math.addExact(totalVariantNbtBytes, entry.variantNbtBytes); }
+                entry.amount = Math.addExact(entry.amount, returned);
+                totalItemCount = Math.addExact(totalItemCount, returned);
+            }
+            settled = true;
+        }
+    }
+
     /**
      * Lazy live membership, including provisional zero entries. Adapters must
      * filter quantities when visiting and invalidate completed membership caches
