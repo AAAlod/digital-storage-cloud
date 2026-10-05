@@ -31,7 +31,7 @@ final class BatchTransferPanel {
     private boolean exporting, tools, all, editing, ascending;
     private boolean pendingOpen, pendingExport, pendingTools;
     private boolean pendingResume;
-    private int serial, outstanding, waiting, seen, ticks, searchDelay, focused = -1, page, pages, entries;
+    private int serial, outstanding, waiting, seen, ticks, searchDelay, busyTicks, focused = -1, page, pages, entries;
     private long total;
     private long storedTools;
     private UUID toolsVolume = BatchScreenProtocol.EMPTY;
@@ -39,14 +39,13 @@ final class BatchTransferPanel {
     private int x, y, width, height;
     private Font font;
     private EditBox search, quantity;
-    private Button input, output, filter, selectAll, clear, maximum, previous, next, start, refresh, sort;
+    private Button direction, filter, selectAll, clear, maximum, previous, next, start, refresh, sort;
     private final java.util.ArrayList<AbstractWidget> widgets = new java.util.ArrayList<>();
     BatchTransferPanel(DigitalStorageScreenHandler menu, DigitalStorageScreenProtocol.RequestSender sender) { this.menu = menu; this.sender = sender; }
     void init(Font font, int x, int y, int width, int height, Consumer<AbstractWidget> add) {
         this.font = font; this.x = x; this.y = y; this.width = width; this.height = height; widgets.clear();
-        input = button(add, "in", 12, 31, 102, () -> open(false, false));
-        output = button(add, "out", 118, 31, 102, () -> open(true, false));
-        filter = button(add, "tools", 224, 31, width - 236, () -> open(exporting, !tools));
+        direction = button(add, "in", 12, 31, 90, () -> open(!exporting, tools));
+        filter = button(add, "tools", 106, 31, 94, () -> open(exporting, !tools));
         search = new EditBox(font, x + 12, y + 65, 188, 16, tr("search"));
         search.setHint(tr("search")); search.setMaxLength(128); search.setValue(query);
         search.setResponder(value -> { query = value; searchDelay = 6; }); add.accept(search); widgets.add(search);
@@ -62,7 +61,7 @@ final class BatchTransferPanel {
         maximum = button(add, "maximum", 204, 129, width - 216, () -> {
             if (focused >= 0) { amounts.put(focused, available.getOrDefault(focused, 0L)); updateQuantity(); }
         });
-        sort = button(add, "quantity_desc", 12, 161, 88, () -> {
+        sort = button(add, "quantity_desc", 12, 161, 20, () -> {
             ascending = !ascending; request(BatchScreenProtocol.PAGE, 0); update();
         });
         previous = button(add, "previous", 108, 161, 16, () -> request(BatchScreenProtocol.PAGE, page - 1));
@@ -73,8 +72,37 @@ final class BatchTransferPanel {
         updateQuantity(); update();
     }
     private Button button(Consumer<AbstractWidget> add, String key, int dx, int dy, int size, Runnable action) {
-        var button = Button.builder(tr(key), ignored -> action.run()).bounds(x + dx, y + dy, Math.max(20, size), 20).build();
+        var button = new StableButton(x + dx, y + dy, Math.max(20, size), tr(key), ignored -> action.run(), key.equals("quantity_desc"));
         add.accept(button); widgets.add(button); return button;
+    }
+    /** Input locks immediately; only sustained work changes the button's appearance. */
+    private final class StableButton extends Button {
+        private boolean enabledAppearance;
+        private final boolean sortIcon;
+        StableButton(int bx, int by, int bw, Component message, OnPress action, boolean sortIcon) {
+            super(bx, by, bw, 20, message, action, DEFAULT_NARRATION);
+            this.sortIcon = sortIcon;
+        }
+        @Override protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
+            boolean logicalActive = active;
+            Component message = getMessage();
+            if (outstanding == 0 && !running()) enabledAppearance = active;
+            else if (busyTicks < 6) active = enabledAppearance;
+            if (sortIcon) setMessage(Component.empty());
+            try {
+                super.renderWidget(graphics, mouseX, mouseY, delta);
+                if (sortIcon) {
+                    int color = active ? 0xFFFFFFFF : 0xFFA0A0A0;
+                    int ax = getX() + 5, ay = getY() + 6;
+                    graphics.fill(ax + 2, ay, ax + 3, ay + 8, color);
+                    for (int i = 0; i < 3; i++) {
+                        int ry = ascending ? ay + i : ay + 7 - i;
+                        graphics.fill(ax + 2 - i, ry, ax + 3 + i, ry + 1, color);
+                    }
+                    graphics.drawString(font, "1", getX() + 11, getY() + 6, color, true);
+                }
+            } finally { active = logicalActive; setMessage(message); }
+        }
     }
     void open(boolean exporting, boolean tools) {
         if (running()) return;
@@ -145,8 +173,8 @@ final class BatchTransferPanel {
         }
         if (outstanding == 0 && ticks % (running() ? 10 : 40) == 0 && menu.state().accessorBound()
                 && (!visible || running())) request(BatchScreenProtocol.POLL, 0);
+        busyTicks = outstanding != 0 || running() ? busyTicks + 1 : 0;
         for (var widget : widgets) widget.visible = visible;
-        previous.visible = next.visible = sort.visible = visible && !hasProgress();
         if (visible) update();
     }
     private long chosen(int index) { return amounts.getOrDefault(index, all ? available.getOrDefault(index, 0L) : 0L); }
@@ -163,8 +191,8 @@ final class BatchTransferPanel {
     private void update() {
         if (start == null) return;
         boolean idle = outstanding == 0 && !running();
-        input.active = output.active = filter.active = idle;
-        input.setMessage(tr(exporting ? "in" : "in_selected")); output.setMessage(tr(exporting ? "out_selected" : "out"));
+        direction.active = filter.active = idle;
+        direction.setMessage(tr(exporting ? "out" : "in"));
         filter.setMessage(tr(tools ? "tools_selected" : "tools"));
         search.setEditable(idle); selectAll.active = clear.active = idle && entries > 0;
         quantity.setEditable(idle && focused >= 0); maximum.active = idle && focused >= 0;
@@ -177,7 +205,7 @@ final class BatchTransferPanel {
                 && !token.equals(BatchScreenProtocol.EMPTY) && selectedAmount() > 0);
     }
     boolean running() { return status != null && status.volumeId().equals(menu.state().volumeId()) && status.state().equals("RUNNING"); }
-    void show(boolean visible) { for (var widget : widgets) widget.visible = visible; if (previous != null) previous.visible = next.visible = sort.visible = visible && !hasProgress(); if (visible) update(); }
+    void show(boolean visible) { for (var widget : widgets) widget.visible = visible; if (visible) update(); }
     boolean focusedInput() { return search != null && search.visible && search.isFocused() || quantity != null && quantity.visible && quantity.isFocused(); }
     private boolean hasProgress() { return status != null && status.volumeId().equals(menu.state().volumeId()) && status.total() > 0 && !status.state().equals("PREVIEW") && !status.state().equals("ERROR"); }
     long toolsStored() { return toolsVolume.equals(menu.state().volumeId()) ? storedTools : 0; }
@@ -228,13 +256,12 @@ final class BatchTransferPanel {
         if (status != null && status.state().equals("PREVIEW") && rows.isEmpty())
             draw(graphics, tr("empty"), 18, 113, 172, 0xFF545454);
         draw(graphics, hasProgress() ? tr("remaining", Math.max(0, status.total() - status.moved())) : tr("selected", selectedAmount()), 204, 152, width - 216, 0xFF404040);
-        if (!hasProgress()) {
+        {
             String fraction = (pages == 0 ? 0 : page + 1) + "/" + pages;
             draw(graphics, Component.literal(fraction), 152 - font.width(fraction) / 2, 167, 54, 0xFF545454);
         }
-        if (hasProgress())
-            draw(graphics, progressText(), 12, height - 64, width - 142, 0xFF245A20);
-        if (outstanding != 0 && !running()) draw(graphics, tr("loading"), 12, height - 17, width - 24, 0xFF545454);
+        if (running() && busyTicks >= 6) draw(graphics, progressText(), 12, height - 17, width - 24, 0xFF245A20);
+        else if (outstanding != 0 && busyTicks >= 6) draw(graphics, tr("loading"), 12, height - 17, width - 24, 0xFF545454);
         else if (!detail.isEmpty()) draw(graphics, tr("reason." + detail), 12, height - 17, width - 24, 0xFFA32C2C);
         else if (status != null && status.state().equals("COMPLETE")) draw(graphics, tr("completed", status.moved()), 12, height - 17, width - 24, 0xFF245A20);
         else if (status != null && (status.state().equals("STOPPED") || status.state().equals("CANCELLED")))
@@ -243,6 +270,8 @@ final class BatchTransferPanel {
             draw(graphics, result.detail().isEmpty() ? tr("completed", result.moved()) : tr("reason." + result.detail()),
                     12, height - 17, width - 24, result.detail().isEmpty() ? 0xFF245A20 : 0xFFA32C2C);
         if (hovered != null) graphics.renderTooltip(font, hovered, mouseX, mouseY);
+        else if (sort.isHovered()) graphics.renderTooltip(font, tr(ascending ? "quantity_asc" : "quantity_desc"), mouseX, mouseY);
+        else if (direction.isHovered()) graphics.renderTooltip(font, tr("switch_direction"), mouseX, mouseY);
     }
     private void draw(GuiGraphics graphics, Component value, int dx, int dy, int max, int color) {
         graphics.drawString(font, font.plainSubstrByWidth(value.getString(), Math.max(1, max)), x + dx, y + dy, color, false);

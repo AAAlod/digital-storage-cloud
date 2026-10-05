@@ -281,5 +281,6 @@
   "tier.digitalstorage.digitalstorage.advanced": "Advanced",
   "tier.digitalstorage.digitalstorage.elite": "Elite",
   "tier.digitalstorage.digitalstorage.ultimate": "Ultimate",
-  "tier.digitalstorage.digitalstorage.maximum": "Maximum"
+  "tier.digitalstorage.digitalstorage.maximum": "Maximum",
+  "screen.digitalstorage.batch.switch_direction": "Switch import / export"
 }

@@ -281,5 +281,6 @@
   "tier.digitalstorage.digitalstorage.advanced": "高级",
   "tier.digitalstorage.digitalstorage.elite": "精英",
   "tier.digitalstorage.digitalstorage.ultimate": "终极",
-  "tier.digitalstorage.digitalstorage.maximum": "最高"
+  "tier.digitalstorage.digitalstorage.maximum": "最高",
+  "screen.digitalstorage.batch.switch_direction": "切换移入 / 移出"
 }
