@@ -60,6 +60,7 @@ public final class DigitalStorageState {
     private final Set<UUID> dirtyVolumes = new LinkedHashSet<>();
     private final Set<UUID> deletedAccounts = new HashSet<>();
     private final Set<UUID> deletedVolumes = new HashSet<>();
+    private final Set<UUID> retiredVolumeIds = new HashSet<>();
     private final Map<UUID, VolumeLedger.SnapshotCursor> volumeSnapshotCursors = new HashMap<>();
     private final Map<UUID, Integer> volumeSnapshotRestarts = new HashMap<>();
     private final Map<UUID, Long> dirtyVolumeSinceTicks = new HashMap<>();
@@ -76,6 +77,7 @@ public final class DigitalStorageState {
     private long forcedSnapshotCount;
     private boolean flushRequested;
     private volatile String lastNbtEncodeThreadName = "";
+    private volatile java.util.function.Consumer<UUID> beforeVolumeWriteCallbackForTest;
 
     private DigitalStorageState(Path rootDirectory) {
         accountsDirectory = rootDirectory.resolve("accounts");
@@ -152,7 +154,7 @@ public final class DigitalStorageState {
         UUID id;
         do {
             id = UUID.randomUUID();
-        } while (knownVolumeIds.contains(id));
+        } while (knownVolumeIds.contains(id) || retiredVolumeIds.contains(id));
 
         UUID volumeId = id;
         PlayerStorageAccount account = accounts.computeIfAbsent(ownerId, PlayerStorageAccount::new);
@@ -205,6 +207,7 @@ public final class DigitalStorageState {
             return false;
         }
         knownVolumeIds.remove(volumeId);
+        retiredVolumeIds.add(volumeId);
         loadedVolumes.remove(volumeId);
         dirtyVolumeInstances.remove(volumeId);
         dirtyVolumes.remove(volumeId);
@@ -348,6 +351,14 @@ public final class DigitalStorageState {
 
     void closeForTest() {
         close();
+    }
+
+    void beforeVolumeWriteCallbackForTest(java.util.function.Consumer<UUID> callback) {
+        beforeVolumeWriteCallbackForTest = callback;
+    }
+
+    void flushAsyncForTest() {
+        flushAsync(Integer.MAX_VALUE, Integer.MAX_VALUE);
     }
 
     synchronized Set<UUID> drainVolumeSnapshotsForTest(int snapshotBudget, int variantBudget) {
@@ -527,6 +538,14 @@ public final class DigitalStorageState {
         } catch (FutureSchemaException exception) {
             throw exception;
         } catch (IOException | RuntimeException exception) {
+            if (exception instanceof IOException && Files.notExists(path)) {
+                knownVolumeIds.remove(id);
+                loadedVolumes.remove(id);
+                forgetVolumeFileMetrics(id);
+                removeVolumeFromAccounts(id);
+                DigitalStorage.LOGGER.warn("Digital Storage volume file {} is missing", path);
+                return Optional.empty();
+            }
             knownVolumeIds.remove(id);
             loadedVolumes.remove(id);
             forgetVolumeFileMetrics(id);
@@ -753,13 +772,12 @@ public final class DigitalStorageState {
                     nbt.putInt(SCHEMA_VERSION_KEY, VOLUME_SCHEMA_VERSION);
                     return nbt;
                 },
-                measurement -> recordVolumeFileMetrics(
-                        id,
-                        measurement.estimatedNbtBytes(),
-                        measurement.diskBytes(),
-                        snapshot.record().items().size(),
-                        snapshotItemCount(snapshot)
-                ),
+                measurement -> {
+                    var hook = beforeVolumeWriteCallbackForTest;
+                    if (hook != null) hook.accept(id);
+                    recordVolumeFileMetrics(id, measurement.estimatedNbtBytes(), measurement.diskBytes(),
+                            snapshot.record().items().size(), snapshotItemCount(snapshot));
+                },
                 () -> markVolumeDirty(id)
         ));
         batch.accountDeletes().forEach(id -> deleteOrRetry(
@@ -811,7 +829,7 @@ public final class DigitalStorageState {
             int variantCount,
             long totalItemCount
     ) {
-        knownVolumeIds.add(id);
+        if (!knownVolumeIds.contains(id)) return;
         volumeFileMetrics.put(id, new VolumeFileMetrics(
                 estimatedNbtBytes,
                 diskBytes,

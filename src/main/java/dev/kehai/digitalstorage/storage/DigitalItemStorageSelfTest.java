@@ -61,6 +61,7 @@ public final class DigitalItemStorageSelfTest {
         incrementalSnapshotTransactionMatrix();
         incrementalSnapshotDiscardsPartialDataAfterUnexpectedIteratorFailure();
         finalFlushAfterRollbackRoundTrips();
+        deletedVolumeDoesNotReturnAfterPendingWrite();
         continuouslyMutatingVolumeCannotStarvePersistence();
         agedDirtyVolumeForcesSnapshotCompletion();
         DigitalStorageConfig.runSelfTest();
@@ -707,6 +708,52 @@ public final class DigitalItemStorageSelfTest {
                     deleteTemporaryStorageDirectory(root);
                 }
             }
+        }
+    }
+
+    private static void deletedVolumeDoesNotReturnAfterPendingWrite() {
+        var root = temporaryStorageDirectory("delete-pending-write");
+        var state = DigitalStorageState.openForTest(root);
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        try {
+            var owner = java.util.UUID.randomUUID();
+            var deleted = state.createVolume(owner, "Deleted", 0).orElseThrow();
+            var other = state.createVolume(owner, "Retained", 0).orElseThrow();
+            state.beforeVolumeWriteCallbackForTest(id -> {
+                if (!id.equals(deleted.id())) return;
+                entered.countDown();
+                try {
+                    if (!release.await(30, java.util.concurrent.TimeUnit.SECONDS))
+                        throw new IllegalStateException("Timed out waiting for deletion");
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                }
+            });
+            state.flushAsyncForTest();
+            try {
+                expectTrue(entered.await(30, java.util.concurrent.TimeUnit.SECONDS), "writer callback reached");
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+            expectTrue(state.deleteEmptyVolume(owner, deleted.id()), "delete during pending write");
+            release.countDown();
+            state.flushAndWaitForTest();
+            expectTrue(state.volume(deleted.id()).isEmpty(), "deleted volume must not reappear");
+            expectTrue(!java.nio.file.Files.exists(root.resolve("volumes").resolve(deleted.id() + ".dat")), "deleted file absent");
+            expectTrue(state.volume(other.id()).isPresent(), "other volume survives");
+            var restored = DigitalStorageState.openForTest(root);
+            try {
+                expectTrue(restored.volume(deleted.id()).isEmpty(), "deleted volume absent after restart");
+                expectTrue(restored.volume(other.id()).isPresent(), "other volume survives restart");
+            } finally { restored.closeForTest(); }
+        } finally {
+            release.countDown();
+            state.beforeVolumeWriteCallbackForTest(null);
+            state.closeForTest();
+            deleteTemporaryStorageDirectory(root);
         }
     }
 
