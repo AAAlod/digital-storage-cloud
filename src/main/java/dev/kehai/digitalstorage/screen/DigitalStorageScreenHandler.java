@@ -62,6 +62,9 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
     private long lastMetadataVersion = Long.MIN_VALUE;
     private boolean lastServerAllowsUnstackableItems;
     private long nextStateSyncTick;
+    private long nextExternalStateCheckTick;
+    private java.util.Optional<java.util.UUID> lastBoundVolume = java.util.Optional.empty();
+    private java.util.Optional<java.util.UUID> lastController = java.util.Optional.empty();
     private long nextNetworkAnalysisTick;
     private boolean initialStateSyncPending;
     // Advances only for an operation reply, never for inventory/topology broadcasts.
@@ -331,6 +334,13 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         }
         long tick = serverPlayer.serverLevel().getGameTime();
         StorageVolume volume = blockEntity.getVolume();
+        boolean bindingChanged = !lastBoundVolume.equals(blockEntity.boundVolumeId())
+                || !lastController.equals(blockEntity.controllerId());
+        if (bindingChanged) {
+            networkReport = null;
+            migrationWasActive = false;
+        }
+        boolean externalCheckDue = tick >= nextExternalStateCheckTick;
         long contentVersion = volume == null
                 ? Long.MIN_VALUE
                 : volume.record().storage().contentVersion();
@@ -348,7 +358,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         boolean metadataChanged = metadataVersion != lastMetadataVersion;
         boolean serverPolicyChanged = serverAllowsUnstackableItems != lastServerAllowsUnstackableItems;
         int interval = migrationActive ? 4 : 8;
-        if (!topologyInvalid && !migrationFinished
+        if (!bindingChanged && !externalCheckDue && !topologyInvalid && !migrationFinished
                 && (!(contentChanged || policyChanged || serverPolicyChanged || metadataChanged) || tick < nextStateSyncTick)
                 && (!migrationActive || tick < nextStateSyncTick)) {
             return;
@@ -362,6 +372,9 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         lastPolicyVersion = policyVersion;
         lastMetadataVersion = metadataVersion;
         lastServerAllowsUnstackableItems = serverAllowsUnstackableItems;
+        lastBoundVolume = blockEntity.boundVolumeId();
+        lastController = blockEntity.controllerId();
+        nextExternalStateCheckTick = tick + 20;
         nextStateSyncTick = tick + interval;
         if (!Objects.equals(updated, state)) {
             state = updated;
@@ -449,6 +462,8 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
                 : volume.record().policyVersion();
         lastServerAllowsUnstackableItems = DigitalStorageConfig.get().allowUnstackableItems;
         lastMetadataVersion = volume == null ? Long.MIN_VALUE : volume.metadataVersion();
+        lastBoundVolume = blockEntity.boundVolumeId();
+        lastController = blockEntity.controllerId();
     }
 
     private void createVolume(ServerPlayer player, String requestedName) {
