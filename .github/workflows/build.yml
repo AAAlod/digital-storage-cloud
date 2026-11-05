@@ -21,12 +21,30 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Build with Gradle
+      - name: Build Fabric
         run: .\gradlew.bat build --no-daemon
 
-      - name: Upload distributable JARs
+      - name: Build Forge
+        run: .\gradlew.bat -p forge build --no-daemon
+
+      - name: Upload Fabric distributable
         uses: actions/upload-artifact@v4
         with:
-          name: digital-storage-cloud-${{ github.sha }}
-          path: build/libs/*.jar
+          name: digital-storage-cloud-fabric-${{ github.sha }}
+          path: |
+            build/libs/digital-storage-cloud-fabric-*.jar
+            !build/libs/*-sources.jar
+            !build/libs/*-dev.jar
+            !build/libs/*-dev-shadow.jar
+          if-no-files-found: error
+
+      - name: Upload Forge distributable
+        uses: actions/upload-artifact@v4
+        with:
+          name: digital-storage-cloud-forge-${{ github.sha }}
+          path: |
+            forge/build/libs/digital-storage-cloud-forge-*.jar
+            !forge/build/libs/*-sources.jar
+            !forge/build/libs/*-dev.jar
+            !forge/build/libs/*-dev-shadow.jar
           if-no-files-found: error
