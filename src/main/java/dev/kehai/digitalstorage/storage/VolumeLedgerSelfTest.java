@@ -11,6 +11,7 @@ public final class VolumeLedgerSelfTest {
     }
 
     public static void run() {
+        StoragePersistenceSelfTest.run();
         nestedTransactions();
         randomizedConservation();
         closedScopeCannotLeaveProvisionalEntries();
