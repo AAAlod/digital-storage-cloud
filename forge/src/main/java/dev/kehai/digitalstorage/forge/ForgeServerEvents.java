@@ -60,7 +60,7 @@ public final class ForgeServerEvents {
         event.addListener((ResourceManagerReloadListener) DigitalStorageTierRegistry.INSTANCE::reload);
     }
     @SubscribeEvent public static void use(PlayerInteractEvent.RightClickBlock event) {
-        if (event.getEntity() instanceof ServerPlayer player
+        if (event.getEntity() instanceof ServerPlayer player && !player.isSecondaryUseActive()
                 && event.getLevel().getBlockEntity(event.getPos()) instanceof DigitalStorageAccessorBlockEntity accessor) {
             NetworkHooks.openScreen(player, accessor, buf -> {
                 buf.writeBlockPos(accessor.getBlockPos());

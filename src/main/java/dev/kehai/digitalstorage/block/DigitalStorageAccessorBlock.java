@@ -63,6 +63,9 @@ public final class DigitalStorageAccessorBlock extends BaseEntityBlock implement
             InteractionHand hand,
             BlockHitResult hit
     ) {
+        if (player.isSecondaryUseActive()) {
+            return InteractionResult.PASS;
+        }
         if (world.isClientSide) {
             return InteractionResult.SUCCESS;
         }
