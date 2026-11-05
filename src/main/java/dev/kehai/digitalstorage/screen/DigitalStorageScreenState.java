@@ -49,7 +49,7 @@ public record DigitalStorageScreenState(
         ResourceLocation volumeIcon
 ) {
     private static final int MAX_SYNCED_INGREDIENTS = 256;
-    private static final int MAX_SYNCED_VOLUMES = 64;
+    private static final int MAX_SYNCED_VOLUMES = DigitalStorageConfig.HARD_MAX_VOLUMES_PER_PLAYER;
     private static final int MAX_TEXT_LENGTH = 128;
 
     public DigitalStorageScreenState {
@@ -74,7 +74,7 @@ public record DigitalStorageScreenState(
             NetworkDiagnostic networkDiagnostic
     ) {
         DigitalStorageState cloud = DigitalStorageState.get(player.serverLevel());
-        List<VolumeChoice> choices = cloud.volumes(player.getUUID()).stream()
+        List<VolumeChoice> choices = cloud.volumes(player.getUUID(), MAX_SYNCED_VOLUMES).stream()
                 .map(VolumeChoice::from)
                 .toList();
         StorageVolume volume = accessor.getVolume();
@@ -345,6 +345,26 @@ public record DigitalStorageScreenState(
             }
         } finally {
             buf.release();
+        }
+        for (int count : new int[] {0, 1, 64}) {
+            var choices = new java.util.ArrayList<VolumeChoice>();
+            for (int i = 0; i < count; i++) {
+                choices.add(new VolumeChoice(new UUID(0, i + 1), "Volume " + i,
+                        new ResourceLocation("digitalstorage", "basic"), 0, 64, StorageVolume.DEFAULT_ICON));
+            }
+            var test = new DigitalStorageScreenState(expected.accessorBound(), expected.accessorConfigurable(),
+                    expected.controller(), expected.volumeName(), choices, expected.tierId(), expected.usedVariants(),
+                    expected.variantCapacity(), expected.totalItems(), expected.acceptsUnstackableItems(),
+                    expected.unstackableItemsAllowedByServer(), expected.unstackableItemsConfigurable(), expected.hasNextTier(),
+                    expected.nextTierId(), expected.nextVariantCapacity(), expected.upgradeCost(), expected.experienceLevels(),
+                    expected.canAfford(), expected.networkDiagnostic(), expected.statusSuccessful(), expected.status(),
+                    expected.responseRevision(), expected.volumeId(), expected.volumeIcon());
+            var boundary = new FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
+            try {
+                test.write(boundary);
+                if (!test.equals(read(boundary)) || boundary.isReadable())
+                    throw new IllegalStateException("Screen codec volume boundary failed: " + count);
+            } finally { boundary.release(); }
         }
     }
 

@@ -69,6 +69,7 @@ public final class DigitalItemStorageSelfTest {
         stressVariantCapacityAtHardLimit();
         randomizedTransactionsConserveItems();
         accountVolumeLimitAndCanonicalIdentityAreStable();
+        hardVolumeLimitAndLegacyOverflow();
         retainedInventoryKeepsCleanVolumeCanonical();
         forceClearResetsBothBindingFields();
         orphanedBindingSelfHealsAfterVolumeDeletion();
@@ -901,6 +902,45 @@ public final class DigitalItemStorageSelfTest {
         long expectedTotal = expected.values().stream().mapToLong(Long::longValue).sum();
         expectEquals(expected.size(), storage.variantCount(), "randomized cached variant count");
         expectEquals(expectedTotal, storage.totalItemCount(), "randomized cached total item count");
+    }
+
+    private static void hardVolumeLimitAndLegacyOverflow() {
+        var root = temporaryStorageDirectory("volume-hard-limit");
+        var owner = java.util.UUID.randomUUID();
+        var otherOwner = java.util.UUID.randomUUID();
+        java.util.UUID overflowId;
+        var state = DigitalStorageState.openForTest(root);
+        try {
+            for (int i = 0; i < 64; i++)
+                expectTrue(state.createVolume(owner, "Volume " + i, 0).isPresent(), "create within hard limit " + i);
+            expectTrue(state.createVolume(owner, "Overflow zero", 0).isEmpty(), "legacy zero must not bypass hard limit");
+            expectTrue(state.createVolume(owner, "Overflow large", Integer.MAX_VALUE).isEmpty(), "large limit must not bypass hard limit");
+            overflowId = state.createVolume(otherOwner, "Legacy overflow", 1).orElseThrow().id();
+            state.flushAndWaitForTest();
+        } finally { state.closeForTest(); }
+        try {
+            var accountPath = root.resolve("accounts").resolve(owner + ".dat");
+            var volumePath = root.resolve("volumes").resolve(overflowId + ".dat");
+            var account = net.minecraft.nbt.NbtIo.readCompressed(accountPath.toFile());
+            var entry = new net.minecraft.nbt.CompoundTag();
+            entry.putUUID("Id", overflowId);
+            account.getList("Volumes", net.minecraft.nbt.Tag.TAG_COMPOUND).add(entry);
+            net.minecraft.nbt.NbtIo.writeCompressed(account, accountPath.toFile());
+            var volume = net.minecraft.nbt.NbtIo.readCompressed(volumePath.toFile());
+            volume.putUUID("Owner", owner);
+            net.minecraft.nbt.NbtIo.writeCompressed(volume, volumePath.toFile());
+            java.nio.file.Files.delete(root.resolve("accounts").resolve(otherOwner + ".dat"));
+            var restored = DigitalStorageState.openForTest(root);
+            try {
+                expectEquals(65, restored.volumeCount(owner), "legacy overflow remains indexed");
+                expectEquals(64, restored.volumes(owner, 64).size(), "bounded GUI volume list");
+                expectEquals(65, restored.volumes(owner).size(), "all legacy volumes remain accessible");
+                expectTrue(restored.ownsVolume(owner, overflowId), "legacy overflow ownership retained");
+                expectTrue(restored.createVolume(owner, "No new volume", 0).isEmpty(), "legacy overflow cannot grow");
+            } finally { restored.closeForTest(); }
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("Could not construct legacy volume fixture", failure);
+        } finally { deleteTemporaryStorageDirectory(root); }
     }
 
     private static void accountVolumeLimitAndCanonicalIdentityAreStable() {

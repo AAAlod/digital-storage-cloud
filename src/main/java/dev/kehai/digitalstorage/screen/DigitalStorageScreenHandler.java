@@ -131,6 +131,11 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         super(DigitalStorageContent.screenType(), syncId);
         this.playerInventory = playerInventory;
         this.blockPos = blockEntity.getBlockPos().immutable();
+        if (playerInventory.player instanceof ServerPlayer serverPlayer
+                && DigitalStorageState.get(serverPlayer.serverLevel()).volumeCount(serverPlayer.getUUID())
+                > DigitalStorageConfig.HARD_MAX_VOLUMES_PER_PLAYER) {
+            serverPlayer.sendSystemMessage(Component.translatable("screen.digitalstorage.volume_legacy_limit"));
+        }
         this.state = captureServerState(Component.empty());
         rememberContentVersion(blockEntity);
         initialStateSyncPending = true;

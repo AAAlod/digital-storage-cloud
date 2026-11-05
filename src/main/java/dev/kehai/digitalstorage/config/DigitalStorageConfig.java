@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.List;
 
 public final class DigitalStorageConfig {
+    public static final int HARD_MAX_VOLUMES_PER_PLAYER = 64;
     private static final int[] DEFAULT_FAILURE_COOLDOWNS = {20, 40, 100, 200, 400};
     public static final int HARD_MAX_VARIANT_NBT_BYTES = 1_048_576;
     public static final int HARD_MAX_VOLUME_VARIANT_NBT_BYTES = 1_073_741_824;
@@ -80,7 +81,7 @@ public final class DigitalStorageConfig {
                 loaded.itemFilterTags.size(),
                 loaded.maxVariantNbtBytes,
                 loaded.maxVolumeVariantNbtBytes,
-                loaded.defaultVolumesPerPlayer == 0 ? "unlimited" : loaded.defaultVolumesPerPlayer,
+                loaded.defaultVolumesPerPlayer,
                 loaded.migrationViewsScannedPerTick,
                 loaded.digitalViewScoreDivisor,
                 loaded.persistenceFlushIntervalTicks,
@@ -100,7 +101,8 @@ public final class DigitalStorageConfig {
         hopperSuccessCooldown = clamp(hopperSuccessCooldown, 0, 1200);
         maxVariantNbtBytes = clamp(maxVariantNbtBytes, 1_024, HARD_MAX_VARIANT_NBT_BYTES);
         maxVolumeVariantNbtBytes = clamp(maxVolumeVariantNbtBytes, 1_048_576, HARD_MAX_VOLUME_VARIANT_NBT_BYTES);
-        defaultVolumesPerPlayer = clamp(defaultVolumesPerPlayer, 0, 64);
+        defaultVolumesPerPlayer = defaultVolumesPerPlayer == 0 ? HARD_MAX_VOLUMES_PER_PLAYER
+                : clamp(defaultVolumesPerPlayer, 1, HARD_MAX_VOLUMES_PER_PLAYER);
         migrationViewsScannedPerTick = clamp(migrationViewsScannedPerTick, 1, 65_536);
         digitalViewScoreDivisor = clamp(digitalViewScoreDivisor, 256, 8_192);
         persistenceFlushIntervalTicks = clamp(persistenceFlushIntervalTicks, 20, 12_000);
@@ -144,6 +146,16 @@ public final class DigitalStorageConfig {
     }
 
     public static void runSelfTest() {
+        DigitalStorageConfig limits = defaults();
+        limits.defaultVolumesPerPlayer = 0;
+        limits.normalize();
+        if (limits.defaultVolumesPerPlayer != 64) throw new IllegalStateException("Legacy unlimited volume limit was not converted to 64");
+        limits.defaultVolumesPerPlayer = 65;
+        limits.normalize();
+        if (limits.defaultVolumesPerPlayer != 64) throw new IllegalStateException("Volume limit exceeded 64");
+        limits.defaultVolumesPerPlayer = 3;
+        limits.normalize();
+        if (limits.defaultVolumesPerPlayer != 3) throw new IllegalStateException("Configured volume limit changed");
         DigitalStorageConfigLoader.runSelfTest();
     }
 

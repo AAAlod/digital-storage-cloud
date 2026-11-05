@@ -41,7 +41,7 @@ final class DigitalStorageConfigSchema {
                     config -> config.maxVolumeVariantNbtBytes,
                     (config, value) -> config.maxVolumeVariantNbtBytes = (Integer) value),
             integer("storage.defaultVolumesPerPlayer", "Default maximum volumes per player.\n"
-                            + "0 means unlimited. Range: 0-64.",
+                            + "Range: 1-64. Legacy 0 (unlimited) is converted to 64.",
                     config -> config.defaultVolumesPerPlayer,
                     (config, value) -> config.defaultVolumesPerPlayer = (Integer) value),
             integer("storage.volumeNbtWarningBytes", "Soft per-volume NBT warning threshold; it does not reject data.\n"
@@ -142,6 +142,12 @@ final class DigitalStorageConfigSchema {
             Object raw = document.getRaw(option.path());
             Object parsed = option.type().parse(raw);
             Object normalized = option.getter().get(loaded);
+            String existingComment = document.getComment(option.path());
+            if (!futureVersion && option.path().equals("storage.defaultVolumesPerPlayer")
+                    && existingComment != null && existingComment.contains("0 means unlimited")) {
+                document.setComment(option.path(), optionComment(option, option.getter().get(defaults)));
+                changed = true;
+            }
             boolean matches = option.type().matches(raw, normalized);
             if (parsed != Invalid.VALUE && !matches) {
                 warnings.add("Normalized " + option.path() + " from " + displayValue(parsed)

@@ -147,7 +147,9 @@ public final class DigitalStorageState {
     public synchronized Optional<StorageVolume> createVolume(UUID ownerId, String name, int maximumVolumes) {
         PlayerStorageAccount existingAccount = accounts.get(ownerId);
         int currentVolumes = existingAccount == null ? 0 : existingAccount.volumeIds().size();
-        if (maximumVolumes > 0 && currentVolumes >= maximumVolumes) {
+        int effectiveLimit = maximumVolumes <= 0 ? DigitalStorageConfig.HARD_MAX_VOLUMES_PER_PLAYER
+                : Math.min(maximumVolumes, DigitalStorageConfig.HARD_MAX_VOLUMES_PER_PLAYER);
+        if (currentVolumes >= effectiveLimit) {
             return Optional.empty();
         }
 
@@ -179,6 +181,15 @@ public final class DigitalStorageState {
     }
 
     public synchronized List<StorageVolume> volumes(UUID ownerId) {
+        return volumes(ownerId, Integer.MAX_VALUE);
+    }
+
+    public synchronized int volumeCount(UUID ownerId) {
+        PlayerStorageAccount account = accounts.get(ownerId);
+        return account == null ? 0 : account.volumeIds().size();
+    }
+
+    public synchronized List<StorageVolume> volumes(UUID ownerId, int maximum) {
         PlayerStorageAccount account = accounts.get(ownerId);
         if (account == null) {
             return List.of();
@@ -186,6 +197,7 @@ public final class DigitalStorageState {
         return account.volumeIds().stream()
                 .map(this::volume)
                 .flatMap(Optional::stream)
+                .limit(maximum)
                 .toList();
     }
 

@@ -151,6 +151,7 @@
   "block.digitalstorage.digital_storage_accessor": "数字存储访问器",
   "block.digitalstorage.advanced_inventory_hopper": "高级存储漏斗",
   "command.digitalstorage.volume.limit": "已达到存储卷数量上限（%s）。",
+  "screen.digitalstorage.volume_legacy_limit": "你的旧存档有超过 64 个存储卷。界面只显示前 64 个；使用 /dsc volume list 查看全部，并通过 /dsc accessor bind、/dsc volume rename 或 /dsc volume delete 管理其余卷。",
   "command.digitalstorage.volume.created": "已创建存储卷“%1$s”，UUID 为 %2$s。",
   "command.digitalstorage.volume.count": "你的存储卷数量：%s",
   "command.digitalstorage.volume.not_owned": "该存储卷不存在、不属于你，或名称没有变化。",
