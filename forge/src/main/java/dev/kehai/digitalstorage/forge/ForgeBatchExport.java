@@ -13,7 +13,7 @@ public final class ForgeBatchExport {
     private ForgeBatchExport() { }
     public static BatchTransfer.Result move(DigitalStorageRecord record, ItemKey key, long maximum,
             IItemHandler target, int slot, UUID owner, UUID volume, ForgeTransferRecovery recovery, Runnable flush) {
-        if (!recovery.available() || recovery.inFlightCount() != 0) return new BatchTransfer.Result(0, "recovery_required");
+        if (!recovery.available()) return new BatchTransfer.Result(0, "recovery_required");
         int offered = (int) Math.min(maximum, Math.min(record.storage().amountOf(key), key.maximumStackSize()));
         if (offered <= 0) return BatchTransfer.Result.empty();
         var probe = target.insertItem(slot, key.toStack(offered), true);

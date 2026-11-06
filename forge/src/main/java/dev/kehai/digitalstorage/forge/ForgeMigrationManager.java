@@ -85,11 +85,12 @@ public final class ForgeMigrationManager {
             if (report.candidates().isEmpty()) return StartResult.NOTHING_TO_MOVE;
             if (!TopologyToken.isCurrent(report.topology())) return StartResult.NETWORK_CHANGED;
             if (active.containsKey(volume)) return StartResult.ALREADY_RUNNING;
-            if (!session.available()) return StartResult.RECOVERY_REQUIRED;
+            if (!session.recoveryAvailable()) return StartResult.RECOVERY_REQUIRED;
             var job = new Job(owner, volume, binding, record);
-            var executor = session.executor(owner, volume, origin);
+            var executor = session.executorAllowingPending(owner, volume, origin);
             InventoryTransferExecutor guarded = (source, target, key, maximum) -> {
-                if (active.get(volume) != job || binding.get() != record || !TopologyToken.isCurrent(report.topology())) {
+                // MigrationTask validates topology periodically; binding is checked on every move.
+                if (active.get(volume) != job || binding.get() != record) {
                     return new InventoryTransferExecutor.MoveResult(0, 0, "accessor or network changed");
                 }
                 return executor.move(source, target, key, maximum);

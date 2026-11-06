@@ -75,6 +75,11 @@ public final class ForgeTransferSessions {
         }
         public boolean available() { return initialized && recovery.available() && recovery.inFlightCount() == 0
                 && incidents.available() && hoppers.available(); }
+        public boolean recoveryAvailable() { return initialized && recovery.available() && incidents.available(); }
+        public ForgeInventoryTransferExecutor executorAllowingPending(UUID owner, UUID volume, ForgeInventoryTransferExecutor.Origin origin) {
+            if (!recoveryAvailable()) throw new IllegalStateException("Forge transfer recovery requires reconciliation");
+            return new ForgeInventoryTransferExecutor(owner, volume, recovery, incidents::record, this::recoveryAvailable, origin);
+        }
         public ForgeInventoryTransferExecutor executor(UUID owner, UUID volume) {
             return executor(owner, volume, ForgeInventoryTransferExecutor.Origin.unknown());
         }

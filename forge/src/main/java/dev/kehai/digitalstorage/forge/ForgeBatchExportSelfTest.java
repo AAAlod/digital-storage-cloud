@@ -55,12 +55,15 @@ public final class ForgeBatchExportSelfTest {
             result = ForgeBatchExport.move(record, stone, 5, broken, 0, owner, volume, uncertain, () -> { });
             expect(result.detail().equals("recovery_required") && result.moved() == 0
                     && record.storage().amountOf(stone) == 8 && broken.getStackInSlot(0).getCount() == 5
-                    && new ForgeTransferRecovery(root.resolve("uncertain")).inFlightCount() == 1,
+                    && uncertain.inFlightCount() == 1 && new ForgeTransferRecovery(root.resolve("uncertain")).inFlightCount() == 1,
                     "Unknown delivery restored or replayed possibly delivered items");
-            expect(ForgeBatchExport.move(record, stone, 5, broken, 0, owner, volume, uncertain, () -> { }).moved() == 0
-                    && record.storage().amountOf(stone) == 8 && broken.getStackInSlot(0).getCount() == 5,
-                    "Uncertain delivery did not block another output");
-            var receipt = uncertain.entries(owner).get(0);
+            var goodTarget = new ItemStackHandler(1);
+            var next = ForgeBatchExport.move(record, stone, 5, goodTarget, 0, owner, volume, uncertain, () -> { });
+            expect(next.moved() == 5 && goodTarget.getStackInSlot(0).getCount() == 5
+                    && record.storage().amountOf(stone) == 3 && uncertain.inFlightCount() == 1,
+                    "Pending delivery blocked another output or lost its original receipt");
+            var receipt = uncertain.entries(owner).stream()
+                    .filter(entry -> entry.state() == ForgeTransferRecovery.State.DELIVERING).findFirst().orElseThrow();
             boolean replayDenied = false;
             try { uncertain.reconcile(receipt.id(), receipt.deliveryId(), owner, ForgeTransferRecovery.Outcome.CONFIRMED_NOT_DELIVERED, "fixture"); }
             catch (IllegalStateException expected) { replayDenied = true; }

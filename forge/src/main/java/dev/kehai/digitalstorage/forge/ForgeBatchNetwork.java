@@ -17,7 +17,7 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
         if (!(accessor instanceof ForgeAccessorBlockEntity)) return null;
         var volume = accessor.getVolume();
         var session = ForgeTransferSessions.get(player.getServer());
-        if (!session.available()) throw new IllegalStateException("recovery_required");
+        if (!session.recoveryAvailable()) throw new IllegalStateException("recovery_required");
         for (var direction : Direction.values()) {
             var position = accessor.getBlockPos().relative(direction);
             if (!accessor.getLevel().hasChunkAt(position)) continue;
@@ -30,7 +30,7 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
             var report = ForgeTomTopology.analyze(volume.record(), current);
             var origin = new ForgeInventoryTransferExecutor.Origin(true, player.serverLevel().dimension().location().toString(),
                     accessor.getBlockPos().asLong(), position.asLong());
-            var executor = session.executor(player.getUUID(), volume.id(), origin);
+            var executor = session.executorAllowingPending(player.getUUID(), volume.id(), origin);
             var ports = new ArrayList<BatchTransfer.Port>(ForgeTomTopology.physicalHandlers(root).stream()
                     .map(handler -> (BatchTransfer.Port) new Port(handler, player.getUUID(), volume.id(), session.recovery(),
                             () -> DigitalStorageState.get(player.serverLevel()).flushNow(), executor)).toList());
