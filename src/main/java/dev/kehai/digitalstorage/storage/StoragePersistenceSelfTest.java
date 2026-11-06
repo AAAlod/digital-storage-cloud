@@ -8,6 +8,8 @@ public final class StoragePersistenceSelfTest {
         deletedVolumeDoesNotReturnAfterPendingWrite();
         deletionMarkerFailureKeepsVolume();
         hardVolumeLimitAndLegacyOverflow();
+        futureSchemaAccountDoesNotBlockStartup();
+        itemsTagOfWrongTypeIsUnreadableNotEmpty();
     }
 
     private static void deletionMarkerFailureKeepsVolume() {
@@ -110,9 +112,14 @@ public final class StoragePersistenceSelfTest {
         var state = DigitalStorageState.openForTest(root);
         try {
             for (int i = 0; i < 64; i++)
-                expectTrue(state.createVolume(owner, "Volume " + i, 0).isPresent(), "create within hard limit " + i);
-            expectTrue(state.createVolume(owner, "Overflow zero", 0).isEmpty(), "legacy zero must not bypass hard limit");
-            expectTrue(state.createVolume(owner, "Overflow large", Integer.MAX_VALUE).isEmpty(), "large limit must not bypass hard limit");
+                expectTrue(state.createVolume(owner, "Volume " + i, 65).isPresent(), "create within configured limit " + i);
+            var unlimitedOwner = java.util.UUID.randomUUID();
+            for (int i = 0; i < 65; i++)
+                expectTrue(state.createVolume(unlimitedOwner, "Unlimited " + i, 0).isPresent(), "unlimited volume " + i);
+            var limitedOwner = java.util.UUID.randomUUID();
+            for (int i = 0; i < 65; i++)
+                expectTrue(state.createVolume(limitedOwner, "Limited " + i, 65).isPresent(), "configured 65 volume " + i);
+            expectTrue(state.createVolume(limitedOwner, "Limited overflow", 65).isEmpty(), "configured 65 blocks 66th volume");
             var overflow = state.createVolume(otherOwner, "Legacy overflow", 1).orElseThrow();
             overflowId = overflow.id();
             try (var transaction = LedgerTransaction.open()) {
@@ -139,7 +146,7 @@ public final class StoragePersistenceSelfTest {
                 expectEquals(64, restored.volumes(owner, 64).size(), "bounded GUI volume list");
                 expectEquals(65, restored.volumes(owner).size(), "all legacy volumes remain accessible");
                 expectTrue(restored.ownsVolume(owner, overflowId), "legacy overflow ownership retained");
-                expectTrue(restored.createVolume(owner, "No new volume", 0).isEmpty(), "legacy overflow cannot grow");
+                expectTrue(restored.createVolume(owner, "No new volume", 65).isEmpty(), "configured limit blocks 66th volume");
                 var ledger = restored.volume(overflowId).orElseThrow().record().storage();
                 expectEquals(19, ledger.totalItemCount(), "legacy overflow items retained");
                 try (var transaction = LedgerTransaction.open()) {
@@ -154,6 +161,52 @@ public final class StoragePersistenceSelfTest {
         } catch (java.io.IOException failure) {
             throw new IllegalStateException("Could not construct legacy volume fixture", failure);
         } finally { deleteTemporaryStorageDirectory(root); }
+    }
+
+    private static void futureSchemaAccountDoesNotBlockStartup() {
+        var root = temporaryStorageDirectory("future-account");
+        var owner = java.util.UUID.randomUUID();
+        try {
+            var directory = root.resolve("accounts");
+            java.nio.file.Files.createDirectories(directory);
+            var file = directory.resolve(owner + ".dat");
+            var nbt = new net.minecraft.nbt.CompoundTag();
+            nbt.putInt("SchemaVersion", DigitalStorageState.ACCOUNT_SCHEMA_VERSION + 1);
+            net.minecraft.nbt.NbtIo.writeCompressed(nbt, file.toFile());
+            byte[] original = java.nio.file.Files.readAllBytes(file);
+            var invalidFile = directory.resolve("not-a-uuid.dat");
+            net.minecraft.nbt.NbtIo.writeCompressed(nbt, invalidFile.toFile());
+            byte[] invalidOriginal = java.nio.file.Files.readAllBytes(invalidFile);
+            var state = DigitalStorageState.openForTest(root);
+            try {
+                expectEquals(0, state.volumeCount(owner), "future account skipped");
+                expectTrue(state.createVolume(owner, "No overwrite", 0).isEmpty(), "future account accepted create");
+            } finally { state.closeForTest(); }
+            expectTrue(java.util.Arrays.equals(original, java.nio.file.Files.readAllBytes(file)), "future account changed");
+            expectTrue(java.util.Arrays.equals(invalidOriginal, java.nio.file.Files.readAllBytes(invalidFile)), "invalid future account changed");
+        } catch (java.io.IOException failure) { throw new IllegalStateException(failure); }
+        finally { deleteTemporaryStorageDirectory(root); }
+    }
+
+    private static void itemsTagOfWrongTypeIsUnreadableNotEmpty() {
+        var root = temporaryStorageDirectory("invalid-items");
+        var id = java.util.UUID.randomUUID();
+        try {
+            var directory = root.resolve("volumes");
+            java.nio.file.Files.createDirectories(directory);
+            var file = directory.resolve(id + ".dat");
+            var nbt = new net.minecraft.nbt.CompoundTag();
+            nbt.putUUID("Id", id);
+            nbt.putUUID("Owner", java.util.UUID.randomUUID());
+            nbt.putString("Items", "invalid");
+            net.minecraft.nbt.NbtIo.writeCompressed(nbt, file.toFile());
+            byte[] original = java.nio.file.Files.readAllBytes(file);
+            var state = DigitalStorageState.openForTest(root);
+            try { expectTrue(state.volume(id).isEmpty(), "invalid Items accepted"); }
+            finally { state.closeForTest(); }
+            expectTrue(java.util.Arrays.equals(original, java.nio.file.Files.readAllBytes(file)), "invalid Items file changed");
+        } catch (java.io.IOException failure) { throw new IllegalStateException(failure); }
+        finally { deleteTemporaryStorageDirectory(root); }
     }
 
     private static java.nio.file.Path temporaryStorageDirectory(String name) {

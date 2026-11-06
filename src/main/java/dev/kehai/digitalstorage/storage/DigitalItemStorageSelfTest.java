@@ -48,7 +48,8 @@ public final class DigitalItemStorageSelfTest {
         capturedSnapshotIsStableAfterLaterMutation(stone);
         missingTierFallsBackWithoutReducingCapacity(stone);
         duplicateStoredVariantsAreMergedWithoutLoss(stone);
-        futureStorageSchemaIsRejected();
+        futureStorageSchemaIsPreservedAndUnavailable();
+        unknownVariantsSurviveRoundTrip();
         corruptStorageRecordIsQuarantinedAndPreserved(stone);
         filterAppliesOnlyWhenCreatingANewVariant(stone);
         insertionPolicyAppliesToExistingVariantsButNeverExtraction(stone);
@@ -1195,7 +1196,7 @@ public final class DigitalItemStorageSelfTest {
         expectEquals(30, onlyView(FabricDigitalItemStorage.of(record.storage())).getAmount(), "duplicate stored variant merge");
     }
 
-    private static void futureStorageSchemaIsRejected() {
+    private static void futureStorageSchemaIsPreservedAndUnavailable() {
         java.nio.file.Path root = temporaryStorageDirectory("future-schema");
         try {
             java.util.UUID id = java.util.UUID.randomUUID();
@@ -1205,23 +1206,49 @@ public final class DigitalItemStorageSelfTest {
             future.putInt("SchemaVersion", DigitalStorageState.VOLUME_SCHEMA_VERSION + 1);
             future.putUUID("Id", id);
             net.minecraft.nbt.NbtIo.writeCompressed(future, volumes.resolve(id + ".dat").toFile());
+            byte[] original = java.nio.file.Files.readAllBytes(volumes.resolve(id + ".dat"));
             DigitalStorageState state = DigitalStorageState.openForTest(root);
             try {
-                state.volume(id);
-                throw new IllegalStateException("future volume schema was accepted");
-            } catch (IllegalStateException expected) {
-                expectTrue(expected.getMessage().contains("newer than supported"),
-                        "future schema failure did not explain the downgrade risk");
+                expectTrue(state.volume(id).isEmpty() && state.volume(id).isEmpty(), "future volume must be unavailable");
             } finally {
                 state.closeForTest();
             }
             expectTrue(java.nio.file.Files.isRegularFile(volumes.resolve(id + ".dat")),
                     "future-schema file was moved or overwritten");
+            expectTrue(java.util.Arrays.equals(original, java.nio.file.Files.readAllBytes(volumes.resolve(id + ".dat"))), "future volume bytes changed");
         } catch (java.io.IOException exception) {
             throw new IllegalStateException("Could not create future-schema self-test file", exception);
         } finally {
             deleteTemporaryStorageDirectory(root);
         }
+    }
+
+    private static void unknownVariantsSurviveRoundTrip() {
+        var nbt = new net.minecraft.nbt.CompoundTag();
+        var items = new net.minecraft.nbt.ListTag();
+        var stone = new net.minecraft.nbt.CompoundTag();
+        stone.put("Variant", ItemKeyCodec.write(ItemKey.of(Items.STONE)));
+        stone.putLong("Amount", 7);
+        items.add(stone);
+        var unknown = new net.minecraft.nbt.CompoundTag();
+        var variant = new net.minecraft.nbt.CompoundTag();
+        variant.putString("item", "missingmod:missing_item");
+        unknown.put("Variant", variant);
+        unknown.putLong("Amount", 9);
+        items.add(unknown);
+        nbt.put("Items", items);
+        var record = DigitalStorageRecord.fromNbt(nbt, () -> { });
+        expectEquals(16, record.storage().totalItemCount(), "unknown item total");
+        expectEquals(2, record.storage().variantCount(), "unknown variant count");
+        expectEquals(2, record.storage().snapshotEntries().size(), "unknown snapshot count");
+        var saved = new net.minecraft.nbt.CompoundTag();
+        record.snapshot().writeNbt(saved);
+        var restored = DigitalStorageRecord.fromNbt(saved, () -> { });
+        expectEquals(16, restored.storage().totalItemCount(), "unknown round trip total");
+        expectEquals(2, restored.storage().variantCount(), "unknown round trip variants");
+        expectTrue(restored.storage().snapshotEntries().stream().anyMatch(e -> e.amount() == 9 && e.serializedVariant().equals(variant)), "unknown variant lost");
+        var cursor = record.storage().snapshotCursor().advance(100);
+        expectTrue(cursor.complete() && cursor.snapshots().stream().anyMatch(e -> e.amount() == 9 && e.serializedVariant().equals(variant)), "incremental snapshot lost unknown variant");
     }
 
     private static void corruptStorageRecordIsQuarantinedAndPreserved(ItemVariant stone) {

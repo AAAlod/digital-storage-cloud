@@ -58,6 +58,8 @@ public final class DigitalStorageState {
     private final ReferenceQueue<StorageVolume> unloadedVolumes = new ReferenceQueue<>();
     private final Map<UUID, StorageVolume> dirtyVolumeInstances = new HashMap<>();
     private final Set<UUID> knownVolumeIds = new HashSet<>();
+    private final Map<UUID, String> unreadableVolumes = new HashMap<>();
+    private final Set<UUID> futureSchemaAccounts = new HashSet<>();
     private final Set<UUID> dirtyAccounts = new HashSet<>();
     private final Set<UUID> dirtyVolumes = new LinkedHashSet<>();
     private final Set<UUID> deletedAccounts = new HashSet<>();
@@ -150,11 +152,10 @@ public final class DigitalStorageState {
     }
 
     public synchronized Optional<StorageVolume> createVolume(UUID ownerId, String name, int maximumVolumes) {
+        if (futureSchemaAccounts.contains(ownerId)) return Optional.empty();
         PlayerStorageAccount existingAccount = accounts.get(ownerId);
         int currentVolumes = existingAccount == null ? 0 : existingAccount.volumeIds().size();
-        int effectiveLimit = maximumVolumes <= 0 ? DigitalStorageConfig.HARD_MAX_VOLUMES_PER_PLAYER
-                : Math.min(maximumVolumes, DigitalStorageConfig.HARD_MAX_VOLUMES_PER_PLAYER);
-        if (currentVolumes >= effectiveLimit) {
+        if (maximumVolumes > 0 && currentVolumes >= maximumVolumes) {
             return Optional.empty();
         }
 
@@ -192,6 +193,11 @@ public final class DigitalStorageState {
     public synchronized int volumeCount(UUID ownerId) {
         PlayerStorageAccount account = accounts.get(ownerId);
         return account == null ? 0 : account.volumeIds().size();
+    }
+
+    public synchronized List<UUID> volumeIds(UUID ownerId) {
+        PlayerStorageAccount account = accounts.get(ownerId);
+        return account == null ? List.of() : account.volumeIds();
     }
 
     public synchronized List<StorageVolume> volumes(UUID ownerId, int maximum) {
@@ -530,7 +536,13 @@ public final class DigitalStorageState {
                 }
                 accountDiskBytes.put(fileId, diskBytes);
             } catch (FutureSchemaException exception) {
-                throw exception;
+                try {
+                    futureSchemaAccounts.add(uuidFromFile(path));
+                } catch (IllegalArgumentException invalidName) {
+                    DigitalStorage.LOGGER.error("Digital Storage future-schema account {} has an invalid filename; file left untouched", path, invalidName);
+                    continue;
+                }
+                DigitalStorage.LOGGER.error("Digital Storage account {} uses a newer schema; file left untouched and account skipped this session", path, exception);
             } catch (IOException | RuntimeException exception) {
                 quarantinedAccountFiles++;
                 Path quarantined = quarantineFile(path, quarantinedAccountsDirectory);
@@ -583,7 +595,7 @@ public final class DigitalStorageState {
     }
 
     private Optional<StorageVolume> loadVolume(UUID id) {
-        if (!knownVolumeIds.contains(id)) {
+        if (unreadableVolumes.containsKey(id) || !knownVolumeIds.contains(id)) {
             return Optional.empty();
         }
         Path path = volumesDirectory.resolve(id + ".dat");
@@ -608,7 +620,11 @@ public final class DigitalStorageState {
             repairLoadedVolumeAccount(volume);
             return Optional.of(volume);
         } catch (FutureSchemaException exception) {
-            throw exception;
+            markUnreadable(id, exception.getMessage());
+            return Optional.empty();
+        } catch (InvalidStorageDataException exception) {
+            markUnreadable(id, exception.getMessage());
+            return Optional.empty();
         } catch (IOException | RuntimeException exception) {
             if (exception instanceof IOException && Files.notExists(path)) {
                 knownVolumeIds.remove(id);
@@ -634,7 +650,14 @@ public final class DigitalStorageState {
         }
     }
 
+    private void markUnreadable(UUID id, String reason) {
+        if (unreadableVolumes.putIfAbsent(id, reason) == null) {
+            DigitalStorage.LOGGER.error("Digital Storage volume {} is unreadable: {}; file {} was not modified", id, reason, volumesDirectory.resolve(id + ".dat"));
+        }
+    }
+
     private void repairLoadedVolumeAccount(StorageVolume volume) {
+        if (futureSchemaAccounts.contains(volume.ownerId())) return;
         for (PlayerStorageAccount account : List.copyOf(accounts.values())) {
             if (!account.ownerId().equals(volume.ownerId()) && account.removeVolume(volume.id())) {
                 markAccountDirty(account.ownerId());

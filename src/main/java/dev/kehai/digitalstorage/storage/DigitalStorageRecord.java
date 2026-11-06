@@ -89,7 +89,13 @@ public final class DigitalStorageRecord {
 
     static DigitalStorageRecord fromNbt(UUID volumeId, CompoundTag nbt, Runnable dirtyCallback) {
         DigitalStorageTierRegistry tiers = DigitalStorageTierRegistry.INSTANCE;
-        ListTag items = nbt.getList(ITEMS_KEY, Tag.TAG_COMPOUND);
+        if (nbt.contains(ITEMS_KEY) && !(nbt.get(ITEMS_KEY) instanceof ListTag)) {
+            throw new InvalidStorageDataException("Items tag is not a list");
+        }
+        ListTag items = nbt.contains(ITEMS_KEY) ? (ListTag) nbt.get(ITEMS_KEY) : new ListTag();
+        if (!items.isEmpty() && items.getElementType() != Tag.TAG_COMPOUND) {
+            throw new InvalidStorageDataException("Items list does not contain compounds");
+        }
         boolean hasStoredTier = nbt.contains(TIER_KEY, Tag.TAG_STRING);
         ResourceLocation storedTierId = hasStoredTier
                 ? ResourceLocation.tryParse(nbt.getString(TIER_KEY))
@@ -141,10 +147,24 @@ public final class DigitalStorageRecord {
         );
         for (int itemIndex = 0; itemIndex < items.size(); itemIndex++) {
             CompoundTag itemNbt = items.getCompound(itemIndex);
-            CompoundTag serializedVariant = itemNbt.getCompound(VARIANT_KEY);
-            ItemKey variant = ItemKeyCodec.read(serializedVariant);
             long amount = itemNbt.getLong(AMOUNT_KEY);
-            record.storage.load(variant, amount, serializedVariant);
+            if (amount <= 0) continue;
+            if (!itemNbt.contains(VARIANT_KEY, Tag.TAG_COMPOUND) || itemNbt.getCompound(VARIANT_KEY).isEmpty()) {
+                throw new InvalidStorageDataException("Stored item has no Variant compound");
+            }
+            CompoundTag serializedVariant = itemNbt.getCompound(VARIANT_KEY);
+            ItemKey variant = ItemKeyCodec.tryRead(serializedVariant);
+            if (variant == null) record.storage.loadOpaque(serializedVariant, amount);
+            else if (variant.isBlank()) {
+                DigitalStorage.LOGGER.debug("Skipping blank stored item variant: {}", serializedVariant);
+                continue;
+            }
+            else record.storage.load(variant, amount, serializedVariant);
+        }
+
+        if (record.storage.opaqueVariantCount() > 0) {
+            DigitalStorage.LOGGER.warn("Storage volume {} preserved {} unreadable item variant(s) / {} item(s); they will not be modified",
+                    volumeId, record.storage.opaqueVariantCount(), record.storage.opaqueItemCount());
         }
 
         if (migrated || missingMetadata || missingUnstackablePolicy) {
@@ -303,12 +323,13 @@ public final class DigitalStorageRecord {
     }
 
     private static int migratedCapacity(ListTag items) {
-        Set<ItemKey> variants = new HashSet<>();
+        Set<CompoundTag> variants = new HashSet<>();
         for (int itemIndex = 0; itemIndex < items.size(); itemIndex++) {
             CompoundTag itemNbt = items.getCompound(itemIndex);
-            ItemKey variant = ItemKeyCodec.read(itemNbt.getCompound(VARIANT_KEY));
-            if (!variant.isBlank() && itemNbt.getLong(AMOUNT_KEY) > 0) {
-                variants.add(variant);
+            if (itemNbt.contains(VARIANT_KEY, Tag.TAG_COMPOUND) && itemNbt.getLong(AMOUNT_KEY) > 0) {
+                CompoundTag serialized = itemNbt.getCompound(VARIANT_KEY);
+                ItemKey variant = ItemKeyCodec.tryRead(serialized);
+                if (variant == null || !variant.isBlank()) variants.add(serialized);
             }
         }
         return Math.max(DEFAULT_VARIANT_CAPACITY, variants.size());

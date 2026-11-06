@@ -24,6 +24,7 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
     public static final long MAX_AMOUNT_PER_VARIANT = Integer.MAX_VALUE;
 
     private final Map<ItemKey, Entry> entries = new HashMap<>();
+    private final Map<CompoundTag, Long> opaqueEntries = new java.util.LinkedHashMap<>();
     private final UUID volumeId;
     private final Runnable dirtyCallback;
     private final IntSupplier variantCapacitySupplier;
@@ -111,6 +112,26 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
     public void load(ItemKey resource, long amount) {
         load(resource, amount, ItemKeyCodec.write(resource));
     }
+
+    public void loadOpaque(CompoundTag rawVariant, long amount) {
+        if (rawVariant == null || amount <= 0) return;
+        CompoundTag raw = rawVariant.copy();
+        Long previous = opaqueEntries.get(raw);
+        long newTotal = checkedAdd(totalItemCount, amount);
+        if (previous == null) {
+            long newBytes = Math.addExact(totalVariantNbtBytes, raw.sizeInBytes());
+            opaqueEntries.put(raw, amount);
+            variantCount++;
+            structureVersion++;
+            totalVariantNbtBytes = newBytes;
+        } else {
+            opaqueEntries.put(raw, Math.addExact(previous, amount));
+        }
+        totalItemCount = newTotal;
+    }
+
+    public int opaqueVariantCount() { return opaqueEntries.size(); }
+    public long opaqueItemCount() { return opaqueEntries.values().stream().mapToLong(Long::longValue).sum(); }
 
     void load(ItemKey resource, long amount, CompoundTag serializedVariant) {
         if (resource.isBlank() || amount <= 0) {
@@ -322,6 +343,7 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
                 snapshots.add(new StoredEntrySnapshot(entry.serializedVariant, entry.amount));
             }
         });
+        opaqueEntries.forEach((raw, amount) -> snapshots.add(new StoredEntrySnapshot(raw.copy(), amount)));
         return List.copyOf(snapshots);
     }
 
@@ -363,6 +385,7 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
                     }
                 }
                 if (!iterator.hasNext()) {
+                    opaqueEntries.forEach((raw, amount) -> snapshots.add(new StoredEntrySnapshot(raw.copy(), amount)));
                     snapshots = List.copyOf(snapshots);
                     complete = true;
                 }

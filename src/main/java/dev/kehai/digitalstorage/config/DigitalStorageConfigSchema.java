@@ -41,7 +41,7 @@ final class DigitalStorageConfigSchema {
                     config -> config.maxVolumeVariantNbtBytes,
                     (config, value) -> config.maxVolumeVariantNbtBytes = (Integer) value),
             integer("storage.defaultVolumesPerPlayer", "Default maximum volumes per player.\n"
-                            + "Range: 1-64. Legacy 0 (unlimited) is converted to 64.",
+                            + "0 = unlimited; otherwise 1-1000000.",
                     config -> config.defaultVolumesPerPlayer,
                     (config, value) -> config.defaultVolumesPerPlayer = (Integer) value),
             integer("storage.volumeNbtWarningBytes", "Soft per-volume NBT warning threshold; it does not reject data.\n"

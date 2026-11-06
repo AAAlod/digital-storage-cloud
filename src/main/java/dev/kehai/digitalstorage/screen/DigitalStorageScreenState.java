@@ -49,7 +49,9 @@ public record DigitalStorageScreenState(
         ResourceLocation volumeIcon
 ) {
     private static final int MAX_SYNCED_INGREDIENTS = 256;
-    private static final int MAX_SYNCED_VOLUMES = DigitalStorageConfig.HARD_MAX_VOLUMES_PER_PLAYER;
+    // Transport safety limit, not a limit on owned volumes.
+    private static final int MAX_SYNCED_VOLUMES = 4096;
+    private static final int SYNC_VOLUME_BYTE_BUDGET = 28_000;
     private static final int MAX_TEXT_LENGTH = 128;
 
     public DigitalStorageScreenState {
@@ -74,9 +76,19 @@ public record DigitalStorageScreenState(
             NetworkDiagnostic networkDiagnostic
     ) {
         DigitalStorageState cloud = DigitalStorageState.get(player.serverLevel());
-        List<VolumeChoice> choices = cloud.volumes(player.getUUID(), MAX_SYNCED_VOLUMES).stream()
-                .map(VolumeChoice::from)
-                .toList();
+        List<VolumeChoice> choices = new ArrayList<>();
+        int bytes = 0;
+        for (UUID volumeId : cloud.volumeIds(player.getUUID())) {
+            if (choices.size() >= MAX_SYNCED_VOLUMES) break;
+            StorageVolume candidate = cloud.volume(volumeId).orElse(null);
+            if (candidate == null) continue;
+            VolumeChoice choice = VolumeChoice.from(candidate);
+            int estimate = 16 + 8 + choice.name().length() * 3 + 8 + choice.tierId().toString().length() * 3
+                    + 8 + choice.icon().toString().length() * 3;
+            if (!choices.isEmpty() && bytes + estimate > SYNC_VOLUME_BYTE_BUDGET) break;
+            choices.add(choice);
+            bytes += estimate;
+        }
         StorageVolume volume = accessor.getVolume();
         boolean bound = accessor.isBound();
         boolean configurable = accessor.controllerId().isEmpty()
@@ -346,7 +358,7 @@ public record DigitalStorageScreenState(
         } finally {
             buf.release();
         }
-        for (int count : new int[] {0, 1, 64}) {
+        for (int count : new int[] {0, 1, 64, 128}) {
             var choices = new java.util.ArrayList<VolumeChoice>();
             for (int i = 0; i < count; i++) {
                 choices.add(new VolumeChoice(new UUID(0, i + 1), "Volume " + i,

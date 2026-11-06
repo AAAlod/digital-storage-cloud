@@ -151,7 +151,7 @@
   "block.digitalstorage.digital_storage_accessor": "Digital Storage Accessor",
   "block.digitalstorage.advanced_inventory_hopper": "Advanced Inventory Hopper",
   "command.digitalstorage.volume.limit": "Storage volume limit reached (%s).",
-  "screen.digitalstorage.volume_legacy_limit": "Your existing save has more than 64 volumes. The screen shows the first 64; use /dsc volume list to see all volumes and /dsc accessor bind, /dsc volume rename or /dsc volume delete to manage the rest.",
+  "screen.digitalstorage.volume_legacy_limit": "Only some volumes were synced to this screen. Use /dsc volume list to see all volumes and /dsc accessor bind, /dsc volume rename or /dsc volume delete to manage the rest.",
   "command.digitalstorage.volume.created": "Created storage volume '%1$s' with UUID %2$s.",
   "command.digitalstorage.volume.count": "Your storage volumes: %s",
   "command.digitalstorage.volume.not_owned": "That volume does not exist, is not yours, or already has that name.",

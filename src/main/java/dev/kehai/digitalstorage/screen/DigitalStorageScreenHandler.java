@@ -131,12 +131,12 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         super(DigitalStorageContent.screenType(), syncId);
         this.playerInventory = playerInventory;
         this.blockPos = blockEntity.getBlockPos().immutable();
+        this.state = captureServerState(Component.empty());
         if (playerInventory.player instanceof ServerPlayer serverPlayer
                 && DigitalStorageState.get(serverPlayer.serverLevel()).volumeCount(serverPlayer.getUUID())
-                > DigitalStorageConfig.HARD_MAX_VOLUMES_PER_PLAYER) {
+                > state.ownedVolumes().size()) {
             serverPlayer.sendSystemMessage(Component.translatable("screen.digitalstorage.volume_legacy_limit"));
         }
-        this.state = captureServerState(Component.empty());
         rememberContentVersion(blockEntity);
         initialStateSyncPending = true;
     }
@@ -354,7 +354,7 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
                 : volume.record().policyVersion();
         boolean serverAllowsUnstackableItems = DigitalStorageConfig.get().allowUnstackableItems;
         boolean migrationActive = volume != null && NetworkServices.get().status(volume.id()).active();
-        boolean topologyInvalid = networkReport != null && networkReport.available()
+        boolean topologyInvalid = externalCheckDue && networkReport != null && networkReport.available()
                 && !TopologyToken.isCurrent(networkReport.topology());
         boolean migrationFinished = migrationWasActive && !migrationActive;
         boolean contentChanged = contentVersion != lastContentVersion;
