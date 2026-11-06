@@ -61,6 +61,7 @@ public final class BatchTransfer {
     }
     public void tick(int budget) {
         if (!active()) return;
+        // Validate the topology once per tick, not once per move.
         if (!route.current().getAsBoolean()) { stop("network_changed"); return; }
         int steps = 0;
         while (active() && steps++ < Math.max(1, budget)) {
@@ -83,7 +84,6 @@ public final class BatchTransfer {
             }
             if (cursor == null) cursor = route.ports().get(portIndex).cursor(exporting);
             if (!cursor.hasNext()) { portIndex++; cursor = null; continue; }
-            if (!route.current().getAsBoolean()) { stop("network_changed"); return; }
             Result result = cursor.next(record, item.key(), item.amount() - itemMoved);
             if (result.moved() > item.amount() - itemMoved) throw new IllegalStateException("Settlement exceeds requested quantity");
             itemMoved += result.moved(); moved += result.moved();

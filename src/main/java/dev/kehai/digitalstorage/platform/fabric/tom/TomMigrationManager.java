@@ -240,7 +240,20 @@ public final class TomMigrationManager {
             network.clear();
             network.add(net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(inventory, net.minecraft.core.Direction.DOWN));
             TomNetworkCache.rebuilt(connector, network);
-            if (TomNetworkCache.isCurrent(topology.token()) || job.tick(record, 128) != State.STOPPED) {
+            if (TomNetworkCache.isCurrent(topology.token())) {
+                throw new IllegalStateException("Migration retained a changed access direction token");
+            }
+            State changed = State.RUNNING;
+            for (int i = 0; i < 12 && changed != State.STOPPED; i++) {
+                changed = job.tick(record, 128);
+            }
+            long remaining = 0;
+            for (int i = 0; i < inventory.getContainerSize(); i++) {
+                var stack = inventory.getItem(i);
+                if (stack.is(net.minecraft.world.item.Items.STONE)) remaining += stack.getCount();
+            }
+            if (changed != State.STOPPED || record.storage().amountOf(ItemKey.of(net.minecraft.world.item.Items.STONE)) + remaining != 96
+                    || record.storage().amountOf(ItemKey.of(net.minecraft.world.item.Items.STONE)) != job.task.movedItems()) {
                 throw new IllegalStateException("Migration accepted a changed access direction");
             }
             var sideTopology = TomNetworkCache.topology(connector, network);

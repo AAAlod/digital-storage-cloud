@@ -26,6 +26,7 @@ public final class MigrationTask {
     private long scannedViews;
     private long inventoryOperations;
     private boolean blocked;
+    private int topologyCheckCountdown;
     private String stopDetail = "";
 
     public MigrationTask(List<ItemKey> candidates, int estimatedFreedViews, TopologyToken topology,
@@ -43,9 +44,12 @@ public final class MigrationTask {
             stopDetail = "target unavailable";
             return State.STOPPED;
         }
-        if (!TopologyToken.isCurrent(topology)) {
-            stopDetail = topology == null ? "network changed" : topology.staleDetail();
-            return State.STOPPED;
+        if (topologyCheckCountdown-- <= 0) {
+            topologyCheckCountdown = 9;
+            if (!TopologyToken.isCurrent(topology)) {
+                stopDetail = topology == null ? "network changed" : topology.staleDetail();
+                return State.STOPPED;
+            }
         }
         VolumeLedger target = record.storage();
         int scannedThisTick = 0;

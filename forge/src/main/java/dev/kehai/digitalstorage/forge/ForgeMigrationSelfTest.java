@@ -73,16 +73,25 @@ public final class ForgeMigrationSelfTest {
 
             var changed = new ForgeMigrationManager.Jobs();
             var network = new AtomicReference<IItemHandler>();
-            var changingSource = new Source(160, () -> network.set(null));
+            var changingSource = new Source(1024, () -> network.set(null));
             changingSource.setStackInSlot(1, new ItemStack(Items.STONE, 10));
             network.set(changingSource);
             report = ForgeTomTopology.analyze(record, network::get);
             changed.start(owner, volume.id(), report, session, origin, binding::get, 7);
-            changed.tick(8, 8);
+            changed.tick(8, 1);
+            expect(network.get() == null && changed.status(volume.id()).state() == MigrationTask.State.RUNNING,
+                    "Topology change did not occur during the first running tick");
+            changed.tick(9, 1);
+            expect(changed.status(volume.id()).state() == MigrationTask.State.RUNNING,
+                    "Topology change was checked before the next scheduled check");
+            for (int tick = 10; tick <= 18 && changed.status(volume.id()).state() == MigrationTask.State.RUNNING; tick++) {
+                changed.tick(tick, 1);
+            }
+            long moved = record.storage().amountOf(key);
             expect(changed.status(volume.id()).state() == MigrationTask.State.STOPPED
-                    && changed.status(volume.id()).movedItems().equals("64") && record.storage().amountOf(key) == 64
-                    && changingSource.getStackInSlot(0).getCount() == 96 && changingSource.getStackInSlot(1).getCount() == 10,
-                    "Mid-tick topology change continued extraction or lost settled items");
+                    && changed.status(volume.id()).movedItems().equals(Long.toString(moved))
+                    && moved + changingSource.getStackInSlot(0).getCount() + changingSource.getStackInSlot(1).getCount() == 1034,
+                    "Topology change did not stop within 11 ticks or lost items");
             clear(record, key);
 
             var unloaded = new ForgeMigrationManager.Jobs();

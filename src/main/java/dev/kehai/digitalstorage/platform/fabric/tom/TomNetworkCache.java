@@ -130,15 +130,7 @@ public final class TomNetworkCache {
         }
         BlockEntity connector = token.identity().connector().get();
         Entry entry = connector == null ? null : ENTRIES.get(connector);
-        if (connector == null || connector.isRemoved() || entry == null || entry.version != token.version()) {
-            return false;
-        }
-        Topology topology = entry.topology;
-        Storage<ItemVariant> network = topology == null ? null : topology.network().get();
-        if (topology != null && network != null
-                && topology.digitalEndpointFingerprint()
-                != TomNetworkIntrospection.rawDigitalSnapshot(network).fingerprint()) {
-            invalidateEntry(entry, "digital endpoint topology changed");
+        if (connector == null || connector.isRemoved() || entry == null || entry.version != token.version() || entry.topology == null) {
             return false;
         }
         return true;
@@ -223,6 +215,7 @@ public final class TomNetworkCache {
             trackedNetwork.add(canonical);
             Token singleEndpointToken = topology(connector, trackedNetwork).token();
             trackedNetwork.add(alias);
+            rebuilt(connector, trackedNetwork);
             if (isCurrent(singleEndpointToken)) {
                 throw new IllegalStateException("Tom duplicate endpoint change did not invalidate topology");
             }
