@@ -12,6 +12,7 @@ public final class VolumeLedgerSelfTest {
 
     public static void run() {
         StoragePersistenceSelfTest.run();
+        dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.runSelfTest();
         nestedTransactions();
         randomizedConservation();
         closedScopeCannotLeaveProvisionalEntries();

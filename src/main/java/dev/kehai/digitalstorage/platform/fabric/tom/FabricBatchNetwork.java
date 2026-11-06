@@ -169,7 +169,16 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
         var parts = TomNetworkIntrospection.parts(root).physical();
         var candidates = parts.stream().filter(part -> part.getClass().getName().equals(
                 "net.p3pp3rf1y.sophisticatedcore.inventory.CachedFailedInsertInventoryHandler")).toList();
-        if (candidates.isEmpty()) return null;
+        if (candidates.isEmpty()) {
+            var level = connector.getLevel();
+            if (level != null) for (var direction : net.minecraft.core.Direction.values()) {
+                var pos = connector.getBlockPos().relative(direction);
+                if (level.hasChunkAt(pos) && dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isSupportedBlock(level.getBlockEntity(pos))) {
+                    dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.report("HANDLER_UNSUPPORTED", "fabric"); break;
+                }
+            }
+            return null;
+        }
         if (!(root instanceof com.tom.storagemod.util.MergedStorage merged)) return null;
         int directMatches = 0;
         for (var child : merged.getStorages()) {
@@ -188,15 +197,14 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
             var block = level.getBlockEntity(pos);
             if (!dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isSupportedBlock(block)) continue;
             var mods = net.fabricmc.loader.api.FabricLoader.getInstance();
-            // This inspected Fabric port predates linked-storage endpoints and lacks
-            // isLinkedStorage(); unknown versions without that method fail closed.
-            boolean verifiedLegacy = mods.getModContainer("sophisticatedstorage").map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("").equals("1.20.1-1.3.5.11.142")
-                    && mods.getModContainer("sophisticatedcore").map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("").equals("1.20.1-1.2.7.15.166");
+            boolean verifiedLegacy = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.knownLegacy(
+                    mods.getModContainer("sophisticatedstorage").map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse(""),
+                    mods.getModContainer("sophisticatedcore").map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse(""), true, block.getClass().getClassLoader());
             var upgrades = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.upgradeInventory(block, !verifiedLegacy);
             boolean eligible = upgrades instanceof Storage<?>;
             if (upgrades instanceof Storage<?> upgradeStorage) for (var view : upgradeStorage) if (!view.isResourceBlank()
                     && (!(view.getResource() instanceof ItemVariant variant)
-                    || !dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isStackUpgrade(variant.getItem()))) { eligible = false; break; }
+                    || !dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isStackUpgrade(variant.getItem()))) { dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.report("UPGRADE_NOT_ALLOWED", block.getClass().getName()); eligible = false; break; }
             for (var side : net.minecraft.core.Direction.values()) {
                 var direct = net.fabricmc.fabric.api.transfer.v1.item.ItemStorage.SIDED.find(level, pos, side);
                 for (var candidate : candidates) if (direct == candidate) {
@@ -206,7 +214,7 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                 }
             }
         }
-        if (matched.size() != candidates.size() || new java.util.HashSet<>(matched.values()).size() != candidates.size()) return null;
+        if (matched.size() != candidates.size() || new java.util.HashSet<>(matched.values()).size() != candidates.size()) { dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.report("HANDLER_MISMATCH", "fabric"); return null; }
         var result = candidates.stream().filter(allowed::contains).toList();
         return result.isEmpty() ? null : result;
     }

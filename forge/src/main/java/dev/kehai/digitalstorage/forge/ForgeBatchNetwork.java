@@ -55,7 +55,16 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
         var parts = ForgeTomTopology.allPhysicalHandlers(root);
         var candidates = parts.stream().filter(part -> part.getClass().getName().equals(
                 "net.p3pp3rf1y.sophisticatedcore.inventory.CachedFailedInsertInventoryHandler")).toList();
-        if (candidates.isEmpty()) return null;
+        if (candidates.isEmpty()) {
+            var level = connector.getLevel();
+            if (level != null) for (var direction : Direction.values()) {
+                var pos = connector.getBlockPos().relative(direction);
+                if (level.hasChunkAt(pos) && dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isSupportedBlock(level.getBlockEntity(pos))) {
+                    dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.report("HANDLER_UNSUPPORTED", "forge"); break;
+                }
+            }
+            return null;
+        }
         for (var part : parts) if (candidates.stream().noneMatch(candidate -> part == candidate) && !ForgeTomTopology.trustedPhysical(part)) return null;
         var level = connector.getLevel();
         if (level == null) return null;
@@ -66,11 +75,15 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
             if (!level.hasChunkAt(pos)) continue;
             var block = level.getBlockEntity(pos);
             if (!dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isSupportedBlock(block)) continue;
-            var upgrades = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.upgradeInventory(block, true);
+            var mods = net.minecraftforge.fml.ModList.get();
+            boolean verifiedLegacy = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.knownLegacy(
+                    mods.getModContainerById("sophisticatedstorage").map(c -> c.getModInfo().getVersion().toString()).orElse(""),
+                    mods.getModContainerById("sophisticatedcore").map(c -> c.getModInfo().getVersion().toString()).orElse(""), false, block.getClass().getClassLoader());
+            var upgrades = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.upgradeInventory(block, !verifiedLegacy);
             boolean eligible = upgrades instanceof IItemHandler;
             if (upgrades instanceof IItemHandler upgradeHandler) for (int i = 0; i < upgradeHandler.getSlots(); i++) {
                 var upgrade = upgradeHandler.getStackInSlot(i);
-                if (!upgrade.isEmpty() && !dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isStackUpgrade(upgrade.getItem())) { eligible = false; break; }
+                if (!upgrade.isEmpty() && !dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isStackUpgrade(upgrade.getItem())) { dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.report("UPGRADE_NOT_ALLOWED", block.getClass().getName()); eligible = false; break; }
             }
             if (block == null) continue;
             for (var side : Direction.values()) {
@@ -82,7 +95,7 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
                 }
             }
         }
-        if (matched.size() != candidates.size() || new java.util.HashSet<>(matched.values()).size() != candidates.size()) return null;
+        if (matched.size() != candidates.size() || new java.util.HashSet<>(matched.values()).size() != candidates.size()) { dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.report("HANDLER_MISMATCH", "forge"); return null; }
         var result = candidates.stream().filter(allowed::contains).toList();
         return result.isEmpty() ? null : result;
     }

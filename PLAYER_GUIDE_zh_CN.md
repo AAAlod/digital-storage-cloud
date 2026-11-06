@@ -101,7 +101,7 @@ Digital Storage Cloud 是 Tom's Simple Storage 的大宗物品存储后端。它
 
 批量转移可识别直接贴着 Tom 存储连接器、未连接精妙控制器的精妙箱子、木桶和单格有限木桶，支持安装精妙堆叠升级。可以与普通箱子或多个符合条件的精妙容器共同使用。过滤包装、控制器连接、其他升级组件、背包、其他容器类型及经过线缆间接连接的精妙容器尚不在此支持范围；不符合条件的精妙端点不会参加批量转移。任务执行期间端点状态发生变化时，任务会停止。
 
-此兼容检查实际端点和容器状态；其他版本改变相关接口或包装方式时，相应容器可能无法参加批量转移。对于没有远程关联检查接口的版本，仅允许已核查的 Fabric 非官方移植版组合。Minecraft 1.20.1 下实际验证过 Forge 的 Sophisticated Storage 1.5.15.2220 与 Sophisticated Core 1.5.26.2457，以及 Fabric 非官方移植版的 Sophisticated Storage 1.3.5.11.142 与 Sophisticated Core 1.2.7.15.166；上述 Fabric 移植版要求 Fabric Loader 0.16.9 或更新版本。
+此兼容检查实际端点和容器状态；其他版本改变相关接口或包装方式时，相应容器可能无法参加批量转移。没有远程关联接口的版本须属于已核查的旧版范围且核心不含新版关联端点 API；未知版本会被保守排除。端点被排除的原因会记录在服务器日志中。Minecraft 1.20.1 下此前验证过 Forge 的 Sophisticated Storage 1.5.15.2220 与 Sophisticated Core 1.5.26.2457，以及 Fabric 非官方移植版的 Sophisticated Storage 1.3.5.11.142 与 Sophisticated Core 1.2.7.15.166；上述 Fabric 移植版要求 Fabric Loader 0.16.9 或更新版本。
 
 ## 物品限制
 
