@@ -191,11 +191,9 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
         if (level == null || connector.isRemoved()) return null;
         var matched = new java.util.IdentityHashMap<Storage<ItemVariant>, net.minecraft.core.BlockPos>();
         var allowed = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Storage<ItemVariant>, Boolean>());
-        for (var direction : net.minecraft.core.Direction.values()) {
-            var pos = connector.getBlockPos().relative(direction);
-            if (!level.hasChunkAt(pos)) continue;
-            var block = level.getBlockEntity(pos);
-            if (!dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isSupportedBlock(block)) continue;
+        var denied = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Storage<ItemVariant>, Boolean>());
+        for (var block : dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.connectedContainers(connector, tomRange())) {
+            var pos = block.getBlockPos();
             var mods = net.fabricmc.loader.api.FabricLoader.getInstance();
             boolean verifiedLegacy = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.knownLegacy(
                     mods.getModContainer("sophisticatedstorage").map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse(""),
@@ -209,14 +207,25 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                 var direct = net.fabricmc.fabric.api.transfer.v1.item.ItemStorage.SIDED.find(level, pos, side);
                 for (var candidate : candidates) if (direct == candidate) {
                     var prior = matched.putIfAbsent(candidate, pos);
-                    if (prior != null && !prior.equals(pos)) return null;
-                    if (eligible) allowed.add(candidate);
+                    if (prior != null && !prior.equals(pos)
+                            && !dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.sameDoubleChest(level.getBlockEntity(prior), block)) return null;
+                    if (!eligible) { denied.add(candidate); allowed.remove(candidate); }
+                    else if (!denied.contains(candidate)) allowed.add(candidate);
                 }
             }
         }
         if (matched.size() != candidates.size() || new java.util.HashSet<>(matched.values()).size() != candidates.size()) { dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.report("HANDLER_MISMATCH", "fabric"); return null; }
         var result = candidates.stream().filter(allowed::contains).toList();
         return result.isEmpty() ? null : result;
+    }
+    private static int tomRange() {
+        try {
+            var config = Class.forName("com.tom.storagemod.Config").getMethod("get").invoke(null);
+            return config.getClass().getField("invRange").getInt(config);
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.report("NETWORK_RANGE_UNKNOWN", failure.getClass().getSimpleName());
+            return 1;
+        }
     }
     public static final class Port implements BatchTransfer.Port {
         private final Storage<ItemVariant> storage;

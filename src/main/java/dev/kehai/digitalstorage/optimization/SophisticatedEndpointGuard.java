@@ -81,6 +81,56 @@ public final class SophisticatedEndpointGuard {
         if (!supported && id != null && id.getNamespace().equals("sophisticatedstorage")) report("UNSUPPORTED_BLOCK", id.toString());
         return supported;
     }
+    /** Discover contiguous physical storage blocks without loading additional chunks. */
+    public static java.util.List<BlockEntity> connectedContainers(BlockEntity connector, int range) {
+        var level = connector.getLevel();
+        if (level == null || connector.isRemoved()) return java.util.List.of();
+        var origin = connector.getBlockPos();
+        double maxDistance = (double) Math.max(1, range) * Math.max(1, range);
+        var seen = new java.util.HashSet<net.minecraft.core.BlockPos>();
+        var pending = new java.util.ArrayDeque<net.minecraft.core.BlockPos>();
+        var result = new java.util.ArrayList<BlockEntity>();
+        for (var direction : net.minecraft.core.Direction.values()) pending.add(origin.relative(direction));
+        while (!pending.isEmpty()) {
+            var pos = pending.removeFirst();
+            if (!seen.add(pos) || pos.distSqr(origin) > maxDistance || !level.hasChunkAt(pos)) continue;
+            var block = level.getBlockEntity(pos);
+            if (!isSupportedBlock(block)) continue;
+            result.add(block);
+            for (var direction : net.minecraft.core.Direction.values()) pending.addLast(pos.relative(direction));
+        }
+        return result;
+    }
+    /** Only the two mutually connected halves of a real double chest may share a handler. */
+    public static boolean sameDoubleChest(BlockEntity first, BlockEntity second) {
+        if (!isSupportedBlock(first) || !isSupportedBlock(second) || first.getLevel() != second.getLevel()) return false;
+        var leftState = first.getBlockState();
+        var rightState = second.getBlockState();
+        if (leftState.getBlock() != rightState.getBlock()) return false;
+        var id = BuiltInRegistries.BLOCK.getKey(leftState.getBlock());
+        if (id == null || !(id.getPath().equals("chest") || id.getPath().endsWith("_chest"))) return false;
+        var type = leftState.getBlock().getStateDefinition().getProperty("type");
+        var facing = leftState.getBlock().getStateDefinition().getProperty("facing");
+        if (type == null || facing == null) return false;
+        var firstType = leftState.getValues().get(type);
+        var secondType = rightState.getValues().get(type);
+        if (!(firstType instanceof net.minecraft.world.level.block.state.properties.ChestType aType)
+                || !(secondType instanceof net.minecraft.world.level.block.state.properties.ChestType bType)
+                || aType == bType || aType == net.minecraft.world.level.block.state.properties.ChestType.SINGLE
+                || bType == net.minecraft.world.level.block.state.properties.ChestType.SINGLE
+                || !java.util.Objects.equals(leftState.getValues().get(facing), rightState.getValues().get(facing))) return false;
+        try {
+            var direction = leftState.getBlock().getClass().getMethod("getConnectedDirection", net.minecraft.world.level.block.state.BlockState.class);
+            Object fromFirst = direction.invoke(null, leftState);
+            Object fromSecond = direction.invoke(null, rightState);
+            return fromFirst instanceof net.minecraft.core.Direction a && fromSecond instanceof net.minecraft.core.Direction b
+                    && first.getBlockPos().relative(a).equals(second.getBlockPos())
+                    && second.getBlockPos().relative(b).equals(first.getBlockPos());
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            report("DOUBLE_CHEST_CHECK_FAILED", failure.getClass().getSimpleName());
+            return false;
+        }
+    }
     public static Object upgradeInventory(BlockEntity block, boolean requireRemoteLinkCheck) {
         if (!isSupportedBlock(block)) return null;
         try {

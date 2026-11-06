@@ -70,11 +70,9 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
         if (level == null) return null;
         var matched = new java.util.IdentityHashMap<IItemHandler, net.minecraft.core.BlockPos>();
         var allowed = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<IItemHandler, Boolean>());
-        for (var direction : Direction.values()) {
-            var pos = connector.getBlockPos().relative(direction);
-            if (!level.hasChunkAt(pos)) continue;
-            var block = level.getBlockEntity(pos);
-            if (!dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isSupportedBlock(block)) continue;
+        var denied = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<IItemHandler, Boolean>());
+        for (var block : dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.connectedContainers(connector, tomRange())) {
+            var pos = block.getBlockPos();
             var mods = net.minecraftforge.fml.ModList.get();
             boolean verifiedLegacy = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.knownLegacy(
                     mods.getModContainerById("sophisticatedstorage").map(c -> c.getModInfo().getVersion().toString()).orElse(""),
@@ -90,14 +88,19 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
                 var direct = block.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ITEM_HANDLER, side).orElse(null);
                 for (var candidate : candidates) if (direct == candidate) {
                     var prior = matched.putIfAbsent(candidate, pos);
-                    if (prior != null && !prior.equals(pos)) return null;
-                    if (eligible) allowed.add(candidate);
+                    if (prior != null && !prior.equals(pos)
+                            && !dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.sameDoubleChest(level.getBlockEntity(prior), block)) return null;
+                    if (!eligible) { denied.add(candidate); allowed.remove(candidate); }
+                    else if (!denied.contains(candidate)) allowed.add(candidate);
                 }
             }
         }
         if (matched.size() != candidates.size() || new java.util.HashSet<>(matched.values()).size() != candidates.size()) { dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.report("HANDLER_MISMATCH", "forge"); return null; }
         var result = candidates.stream().filter(allowed::contains).toList();
         return result.isEmpty() ? null : result;
+    }
+    private static int tomRange() {
+        return com.tom.storagemod.Config.get().invRange;
     }
     static final class Port implements BatchTransfer.Port {
         private final IItemHandler handler;
