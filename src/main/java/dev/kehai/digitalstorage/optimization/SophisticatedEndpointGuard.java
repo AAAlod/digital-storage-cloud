@@ -15,11 +15,14 @@ public final class SophisticatedEndpointGuard {
                 .contains(id.getPath())
                 && item.getClass().getName().equals("net.p3pp3rf1y.sophisticatedcore.upgrades.stack.StackUpgradeItem");
     }
-    public static Object upgradeInventory(BlockEntity block, boolean requireRemoteLinkCheck) {
-        if (block == null || block.isRemoved()) return null;
+    public static boolean isSupportedBlock(BlockEntity block) {
+        if (block == null || block.isRemoved()) return false;
         var id = BuiltInRegistries.BLOCK.getKey(block.getBlockState().getBlock());
-        if (id == null || !id.getNamespace().equals("sophisticatedstorage")
-                || !(id.getPath().equals("chest") || id.getPath().equals("barrel") || id.getPath().equals("limited_barrel_1"))) return null;
+        return id != null && id.getNamespace().equals("sophisticatedstorage")
+                && (id.getPath().equals("chest") || id.getPath().equals("barrel") || id.getPath().equals("limited_barrel_1"));
+    }
+    public static Object upgradeInventory(BlockEntity block, boolean requireRemoteLinkCheck) {
+        if (!isSupportedBlock(block)) return null;
         try {
             var type = block.getClass();
             if (Boolean.TRUE.equals(type.getMethod("isLinked").invoke(block))) return null;

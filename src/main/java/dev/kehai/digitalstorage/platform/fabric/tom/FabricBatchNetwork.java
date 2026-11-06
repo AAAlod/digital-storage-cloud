@@ -186,6 +186,7 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
             var pos = connector.getBlockPos().relative(direction);
             if (!level.hasChunkAt(pos)) continue;
             var block = level.getBlockEntity(pos);
+            if (!dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isSupportedBlock(block)) continue;
             var mods = net.fabricmc.loader.api.FabricLoader.getInstance();
             // This inspected Fabric port predates linked-storage endpoints and lacks
             // isLinkedStorage(); unknown versions without that method fail closed.

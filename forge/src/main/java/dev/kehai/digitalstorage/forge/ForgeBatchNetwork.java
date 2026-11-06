@@ -65,6 +65,7 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
             var pos = connector.getBlockPos().relative(direction);
             if (!level.hasChunkAt(pos)) continue;
             var block = level.getBlockEntity(pos);
+            if (!dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isSupportedBlock(block)) continue;
             var upgrades = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.upgradeInventory(block, true);
             boolean eligible = upgrades instanceof IItemHandler;
             if (upgrades instanceof IItemHandler upgradeHandler) for (int i = 0; i < upgradeHandler.getSlots(); i++) {
