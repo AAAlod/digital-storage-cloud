@@ -49,6 +49,7 @@ public final class DigitalStorageState {
 
     private final Path accountsDirectory;
     private final Path volumesDirectory;
+    private final Path deletedVolumeMarkersDirectory;
     private final Path quarantinedAccountsDirectory;
     private final Path quarantinedVolumesDirectory;
     private final Map<UUID, PlayerStorageAccount> accounts = new HashMap<>();
@@ -82,11 +83,13 @@ public final class DigitalStorageState {
     private DigitalStorageState(Path rootDirectory) {
         accountsDirectory = rootDirectory.resolve("accounts");
         volumesDirectory = rootDirectory.resolve("volumes");
+        deletedVolumeMarkersDirectory = rootDirectory.resolve("deleted-volumes");
         quarantinedAccountsDirectory = rootDirectory.resolve("quarantine").resolve("accounts");
         quarantinedVolumesDirectory = rootDirectory.resolve("quarantine").resolve("volumes");
         try {
             Files.createDirectories(accountsDirectory);
             Files.createDirectories(volumesDirectory);
+            Files.createDirectories(deletedVolumeMarkersDirectory);
             Files.createDirectories(quarantinedAccountsDirectory);
             Files.createDirectories(quarantinedVolumesDirectory);
         } catch (IOException exception) {
@@ -218,6 +221,7 @@ public final class DigitalStorageState {
                 || volume.record().storage().variantCount() != 0) {
             return false;
         }
+        if (!persistVolumeDeletion(volumeId)) return false;
         knownVolumeIds.remove(volumeId);
         retiredVolumeIds.add(volumeId);
         loadedVolumes.remove(volumeId);
@@ -420,6 +424,7 @@ public final class DigitalStorageState {
     }
 
     private void loadAllFiles() {
+        loadDeletedVolumeMarkers();
         indexVolumeFiles();
         loadAccountFiles();
         repairAccountIndex();
@@ -433,10 +438,43 @@ public final class DigitalStorageState {
         );
     }
 
+    // Commit the marker before acknowledging deletion; never remove it while stale
+    // account or volume snapshots could still be recovered after a process crash.
+    private boolean persistVolumeDeletion(UUID id) {
+        Path marker = deletedVolumeMarkersDirectory.resolve(id + ".dat");
+        Path temporary = null;
+        try {
+            temporary = Files.createTempFile(deletedVolumeMarkersDirectory, id.toString(), ".tmp");
+            try (var file = java.nio.channels.FileChannel.open(temporary,
+                    java.nio.file.StandardOpenOption.WRITE)) {
+                file.force(true);
+            }
+            try {
+                Files.move(temporary, marker, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, marker);
+            }
+            return true;
+        } catch (IOException exception) {
+            if (temporary != null) try { Files.deleteIfExists(temporary); } catch (IOException ignored) { }
+            DigitalStorage.LOGGER.error("Could not persist Digital Storage deletion for {}", id, exception);
+            return false;
+        }
+    }
+
+    private void loadDeletedVolumeMarkers() {
+        for (Path path : dataFiles(deletedVolumeMarkersDirectory)) {
+            UUID id = uuidFromFile(path);
+            retiredVolumeIds.add(id);
+            deletedVolumes.add(id);
+        }
+    }
+
     private void indexVolumeFiles() {
         for (Path path : dataFiles(volumesDirectory)) {
             try {
                 UUID fileId = uuidFromFile(path);
+                if (retiredVolumeIds.contains(fileId)) continue;
                 long diskBytes = Files.size(path);
                 if (!knownVolumeIds.add(fileId)) {
                     throw new IllegalArgumentException("Duplicate volume UUID " + fileId);

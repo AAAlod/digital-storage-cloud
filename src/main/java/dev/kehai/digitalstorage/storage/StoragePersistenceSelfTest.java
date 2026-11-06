@@ -6,7 +6,29 @@ public final class StoragePersistenceSelfTest {
 
     public static void run() {
         deletedVolumeDoesNotReturnAfterPendingWrite();
+        deletionMarkerFailureKeepsVolume();
         hardVolumeLimitAndLegacyOverflow();
+    }
+
+    private static void deletionMarkerFailureKeepsVolume() {
+        var root = temporaryStorageDirectory("delete-marker-failure");
+        var state = DigitalStorageState.openForTest(root);
+        var markerDirectory = root.resolve("deleted-volumes");
+        try {
+            var owner = java.util.UUID.randomUUID();
+            var volume = state.createVolume(owner, "Retained", 0).orElseThrow();
+            java.nio.file.Files.delete(markerDirectory);
+            java.nio.file.Files.writeString(markerDirectory, "not a directory");
+            expectTrue(!state.deleteEmptyVolume(owner, volume.id()), "deletion rejected if marker cannot be persisted");
+            expectTrue(state.volume(volume.id()).isPresent() && state.ownsVolume(owner, volume.id()), "failed deletion preserves volume and ownership");
+            java.nio.file.Files.delete(markerDirectory);
+            java.nio.file.Files.createDirectory(markerDirectory);
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("Could not construct marker failure fixture", failure);
+        } finally {
+            state.closeForTest();
+            deleteTemporaryStorageDirectory(root);
+        }
     }
 
     private static void deletedVolumeDoesNotReturnAfterPendingWrite() {
@@ -37,6 +59,25 @@ public final class StoragePersistenceSelfTest {
                 throw new IllegalStateException(interrupted);
             }
             expectTrue(state.deleteEmptyVolume(owner, deleted.id()), "delete during pending write");
+            // Snapshot the exact crash window before the old writer callback is released.
+            var crashImage = temporaryStorageDirectory("delete-crash-image");
+            try {
+                try (var paths = java.nio.file.Files.walk(root)) {
+                    for (var source : paths.toList()) {
+                        var target = crashImage.resolve(root.relativize(source));
+                        if (java.nio.file.Files.isDirectory(source)) java.nio.file.Files.createDirectories(target);
+                        else java.nio.file.Files.copy(source, target);
+                    }
+                }
+                expectTrue(java.nio.file.Files.exists(crashImage.resolve("volumes").resolve(deleted.id() + ".dat")), "crash image contains stale volume");
+                var afterCrash = DigitalStorageState.openForTest(crashImage);
+                try {
+                    expectTrue(afterCrash.volume(deleted.id()).isEmpty(), "committed deletion survives crash window");
+                    expectTrue(!afterCrash.ownsVolume(owner, deleted.id()), "deleted account entry removed on recovery");
+                } finally { afterCrash.closeForTest(); }
+            } catch (java.io.IOException failure) {
+                throw new IllegalStateException("Could not snapshot deletion crash window", failure);
+            } finally { deleteTemporaryStorageDirectory(crashImage); }
             release.countDown();
             state.flushAndWaitForTest();
             expectTrue(state.volume(deleted.id()).isEmpty(), "deleted volume must not reappear");
