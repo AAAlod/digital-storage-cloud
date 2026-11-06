@@ -14,6 +14,7 @@ public final class ForgeLedgerSelfTest {
         AtomicInteger dirty = new AtomicInteger();
         VolumeLedger ledger = new VolumeLedger(dirty::incrementAndGet, 2);
         var handler = ForgeDigitalItemStorage.of(ledger);
+        System.gc();
         expect(ForgeDigitalItemStorage.of(ledger) == handler && handler.getSlots() == 2, "Canonical handler or tier capacity changed");
         ItemStack stone = new ItemStack(Items.STONE, 32);
         expect(handler.insertItem(1, stone, true).isEmpty() && ledger.variantCount() == 0

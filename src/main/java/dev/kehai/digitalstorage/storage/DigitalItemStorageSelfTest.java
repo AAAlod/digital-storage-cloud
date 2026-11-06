@@ -1062,10 +1062,13 @@ public final class DigitalItemStorageSelfTest {
             expectFalse(accessor.clearOrphanedBinding(state), "valid binding was cleared");
             expectTrue(accessor.isBound(), "valid binding no longer appeared bound");
             expectTrue(state.deleteEmptyVolume(ownerId, volume.id()), "orphan test volume deletion failed");
-            expectTrue(accessor.clearOrphanedBinding(state), "missing volume binding was not cleared");
+            expectEquals(DigitalStorageState.VolumeStatus.CONFIRMED_DELETED, state.lookupVolume(volume.id()).status(), "deleted volume was not confirmed");
+            expectTrue(accessor.clearOrphanedBinding(state), "confirmed deleted volume binding was not cleared");
             expectFalse(accessor.isBound(), "orphaned accessor remained bound");
             expectTrue(accessor.controllerId().isEmpty(), "orphan self-heal left controller UUID");
             expectTrue(accessor.boundVolumeId().isEmpty(), "orphan self-heal left volume UUID");
+            var savedBinding = accessor.saveWithoutMetadata();
+            expectFalse(savedBinding.hasUUID("BoundVolumeId") || savedBinding.hasUUID("ControllerId"), "confirmed deletion was not reflected in saved binding");
             expectFalse(accessor.clearOrphanedBinding(state), "orphan self-heal was not idempotent");
         } finally {
             state.closeForTest();
@@ -1270,18 +1273,18 @@ public final class DigitalItemStorageSelfTest {
             try {
                 expectEquals(1, state.volumeCount(), "corrupt record was not lazily indexed");
                 expectTrue(state.volume(id).isEmpty(), "corrupt record was returned after lazy load");
-                expectEquals(0, state.volumeCount(), "corrupt record remained in the live volume index");
-                expectEquals(1, state.quarantinedRecordCount(), "corrupt record quarantine count");
+                expectEquals(1, state.volumeCount(), "corrupt record reference was removed");
+                expectEquals(0, state.quarantinedRecordCount(), "corrupt record was quarantined");
             } finally {
                 state.closeForTest();
             }
-            expectFalse(java.nio.file.Files.exists(corruptFile), "corrupt volume remained in the live directory");
+            expectTrue(java.nio.file.Files.exists(corruptFile), "corrupt volume file was moved");
             java.nio.file.Path quarantineDirectory = root.resolve("quarantine").resolve("volumes");
             try (java.util.stream.Stream<java.nio.file.Path> quarantined = java.nio.file.Files.list(quarantineDirectory)) {
                 java.util.List<java.nio.file.Path> files = quarantined.filter(java.nio.file.Files::isRegularFile).toList();
-                expectEquals(1, files.size(), "quarantined volume file count");
-                expectEquals(originalSize, java.nio.file.Files.size(files.get(0)),
-                        "quarantined volume file size changed");
+                expectEquals(0, files.size(), "quarantined volume file count");
+                expectEquals(originalSize, java.nio.file.Files.size(corruptFile),
+                        "preserved volume file size changed");
             }
         } catch (java.io.IOException exception) {
             throw new IllegalStateException("Could not create corrupt-volume self-test file", exception);

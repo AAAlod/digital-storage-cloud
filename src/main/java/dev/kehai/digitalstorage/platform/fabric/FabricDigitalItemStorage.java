@@ -5,7 +5,6 @@ import dev.kehai.digitalstorage.storage.VolumeLedger;
 import dev.kehai.digitalstorage.storage.MutationParticipant;
 import dev.kehai.digitalstorage.storage.MutationScope;
 
-import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.ConcurrentModificationException;
 import java.util.IdentityHashMap;
@@ -15,7 +14,6 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.WeakHashMap;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
@@ -28,15 +26,13 @@ import net.fabricmc.fabric.api.transfer.v1.transaction.base.SnapshotParticipant;
 /** Fabric Transfer adapter. Quantities, policy, versions and persistence belong to the ledger. */
 public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
     public static final long MAX_AMOUNT_PER_VARIANT = VolumeLedger.MAX_AMOUNT_PER_VARIANT;
-    private static final Map<VolumeLedger, WeakReference<FabricDigitalItemStorage>> CANONICAL = new WeakHashMap<>();
     private final VolumeLedger ledger;
     // The ledger already owns attached participants. Adapter-local strong bridges
     // survive GC between transactions; detached participants are removed below.
-    // CANONICAL remains weak, so this adapter/ledger cycle cannot root a volume.
+    // The ledger retains the canonical adapter for its lifetime.
     private final Map<MutationParticipant<?>, Bridge<?>> bridges = new IdentityHashMap<>();
     private FabricMutationScope spareScope;
-    // Adapter-owned live views do not root the weak canonical cache. Reuse their
-    // ItemVariants without a weak-reference lookup or repeated NBT copies.
+    // Reuse view ItemVariants without repeated NBT copies.
     private final Map<VolumeLedger.View, FabricView> views = new IdentityHashMap<>();
     private long viewStructureVersion = Long.MIN_VALUE;
     private FabricView[] attachedViews;
@@ -69,18 +65,12 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
 
     private FabricDigitalItemStorage(VolumeLedger ledger) {
         this.ledger = ledger;
-        synchronized (CANONICAL) {
-            CANONICAL.put(ledger, new WeakReference<>(this));
-        }
+        ledger.registerAdapter(FabricDigitalItemStorage.class, this);
     }
 
-    /** Live views/transactions retain the adapter; weak values break the adapter -> ledger cycle. */
+    /** The ledger owns its canonical adapter for as long as the ledger is live. */
     public static FabricDigitalItemStorage of(VolumeLedger ledger) {
-        synchronized (CANONICAL) {
-            WeakReference<FabricDigitalItemStorage> reference = CANONICAL.get(ledger);
-            FabricDigitalItemStorage existing = reference == null ? null : reference.get();
-            return existing == null ? new FabricDigitalItemStorage(ledger) : existing;
-        }
+        return ledger.canonicalAdapter(FabricDigitalItemStorage.class, () -> new FabricDigitalItemStorage(ledger));
     }
 
     public VolumeLedger ledger() {

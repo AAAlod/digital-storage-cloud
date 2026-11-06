@@ -166,6 +166,10 @@ public final class DigitalStorageRecord {
             DigitalStorage.LOGGER.warn("Storage volume {} preserved {} unreadable item variant(s) / {} item(s); they will not be modified",
                     volumeId, record.storage.opaqueVariantCount(), record.storage.opaqueItemCount());
         }
+        if (record.storage.totalVariantNbtBytes() > DigitalStorageConfig.get().maxVolumeVariantNbtBytes) {
+            DigitalStorage.LOGGER.warn("Storage volume {} has {} bytes of variant NBT, above the configured limit {}; existing items remain accessible",
+                    volumeId, record.storage.totalVariantNbtBytes(), DigitalStorageConfig.get().maxVolumeVariantNbtBytes);
+        }
 
         if (migrated || missingMetadata || missingUnstackablePolicy) {
             dirtyCallback.run();

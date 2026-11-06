@@ -4,11 +4,9 @@ import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
 import dev.kehai.digitalstorage.storage.ItemKey;
 import dev.kehai.digitalstorage.storage.LedgerTransaction;
 import dev.kehai.digitalstorage.storage.VolumeLedger;
-import java.lang.ref.WeakReference;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.WeakHashMap;
 import java.util.function.BooleanSupplier;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.items.IItemHandler;
@@ -16,7 +14,6 @@ import net.minecraftforge.items.IItemHandler;
 /** Stable virtual slots over one canonical ledger. This is not an external-inventory transaction. */
 public final class ForgeDigitalItemStorage implements IItemHandler {
     private static final int SLOTS = DigitalStorageRecord.ABSOLUTE_MAX_VARIANTS;
-    private static final Map<VolumeLedger, WeakReference<ForgeDigitalItemStorage>> CANONICAL = new WeakHashMap<>();
     private final VolumeLedger ledger;
     private final ItemKey[] slots = new ItemKey[SLOTS];
     private final Map<ItemKey, Integer> positions = new HashMap<>();
@@ -26,12 +23,7 @@ public final class ForgeDigitalItemStorage implements IItemHandler {
     private ForgeDigitalItemStorage(VolumeLedger ledger) { this.ledger = ledger; }
 
     public static synchronized ForgeDigitalItemStorage of(VolumeLedger ledger) {
-        var reference = CANONICAL.get(ledger);
-        var existing = reference == null ? null : reference.get();
-        if (existing != null) return existing;
-        var created = new ForgeDigitalItemStorage(ledger);
-        CANONICAL.put(ledger, new WeakReference<>(created));
-        return created;
+        return ledger.canonicalAdapter(ForgeDigitalItemStorage.class, () -> new ForgeDigitalItemStorage(ledger));
     }
 
     public VolumeLedger ledger() { return ledger; }

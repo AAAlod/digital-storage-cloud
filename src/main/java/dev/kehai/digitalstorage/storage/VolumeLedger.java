@@ -25,6 +25,23 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
 
     private final Map<ItemKey, Entry> entries = new HashMap<>();
     private final Map<CompoundTag, Long> opaqueEntries = new java.util.LinkedHashMap<>();
+    private final Map<Class<?>, Object> platformAdapters = new HashMap<>();
+    private java.util.function.BooleanSupplier active = () -> true;
+
+    void setActivePredicate(java.util.function.BooleanSupplier active) { this.active = active; }
+
+    public synchronized <T> T canonicalAdapter(Class<T> type, java.util.function.Supplier<T> factory) {
+        Object adapter = platformAdapters.get(type);
+        if (adapter == null) {
+            adapter = factory.get();
+            platformAdapters.put(type, adapter);
+        }
+        return type.cast(adapter);
+    }
+
+    public synchronized <T> void registerAdapter(Class<T> type, T adapter) {
+        platformAdapters.putIfAbsent(type, adapter);
+    }
     private final UUID volumeId;
     private final Runnable dirtyCallback;
     private final IntSupplier variantCapacitySupplier;
@@ -142,7 +159,7 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
         if (existing == null) {
             CompoundTag storedVariant = serializedVariant.copy();
             int variantNbtBytes = storedVariant.sizeInBytes();
-            long newVariantNbtBytes = checkedVariantNbtTotal(variantNbtBytes);
+            long newVariantNbtBytes = Math.addExact(totalVariantNbtBytes, variantNbtBytes);
             long newItemCount = checkedAdd(totalItemCount, amount);
             entries.put(resource, new Entry(resource, amount, storedVariant, variantNbtBytes));
             structureVersion++;
@@ -163,7 +180,7 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
     }
 
     public long insert(ItemKey resource, long maxAmount, MutationScope mutation) {
-        if (resource.isBlank() || maxAmount <= 0 || !insertValidator.test(resource)) {
+        if (!active.getAsBoolean() || resource.isBlank() || maxAmount <= 0 || !insertValidator.test(resource)) {
             return 0;
         }
 
@@ -207,7 +224,7 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
     }
 
     public long extract(ItemKey resource, long maxAmount, MutationScope mutation) {
-        if (resource.isBlank() || maxAmount <= 0) {
+        if (!active.getAsBoolean() || resource.isBlank() || maxAmount <= 0) {
             return 0;
         }
 
@@ -296,13 +313,6 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
     private boolean isVariantNbtWithinBudget(int addedBytes) {
         long maximum = variantNbtBudgetSupplier.getAsLong();
         return addedBytes <= maximum && totalVariantNbtBytes <= maximum - addedBytes;
-    }
-
-    private long checkedVariantNbtTotal(int addedBytes) {
-        if (!isVariantNbtWithinBudget(addedBytes)) {
-            throw new IllegalArgumentException("Stored variant NBT exceeds the per-volume hard limit");
-        }
-        return Math.addExact(totalVariantNbtBytes, addedBytes);
     }
 
     public long amountOf(ItemKey variant) {

@@ -78,7 +78,25 @@ public final class ForgeAccessorSelfTest {
                     "Revival reactivated a revoked lease or lost volume contents");
             expect(revived.extractItem(17, 8, false).getCount() == 8 && volumeA.record().storage().totalItemCount() == 0,
                     "Revived accessor failed to extract its ledger contents");
+            expect(!dev.kehai.digitalstorage.security.DigitalStorageMountTracker.mounts(volumeA.id()).isEmpty(), "Fixture volume is not mounted");
+            state.flushNow();
+            var storageRoot = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).resolve("digitalstorage");
+            var marker = storageRoot.resolve("deleted-volumes").resolve(volumeA.id() + ".dat");
+            var volumeFile = storageRoot.resolve("volumes").resolve(volumeA.id() + ".dat");
+            var accountFile = storageRoot.resolve("accounts").resolve(owner + ".dat");
+            expect(java.nio.file.Files.exists(volumeFile) && java.nio.file.Files.exists(accountFile), "Mounted fixture was not saved");
+            expect(!state.deleteEmptyVolume(owner, volumeA.id())
+                            && dev.kehai.digitalstorage.storage.VolumeManagementService.delete(state, owner, volumeA.id())
+                            == dev.kehai.digitalstorage.storage.VolumeManagementService.DeleteResult.MOUNTED
+                            && state.ownsVolume(owner, volumeA.id()) && state.volume(volumeA.id()).isPresent()
+                            && java.nio.file.Files.exists(volumeFile) && java.nio.file.Files.exists(accountFile)
+                            && !java.nio.file.Files.exists(marker),
+                    "Mounted volume deletion changed ownership, volume or marker");
+            // Remove only the fixture's mount index entry, leaving its binding for the confirmed-deletion check below.
+            dev.kehai.digitalstorage.security.DigitalStorageMountTracker.untrack(world, alias.getBlockPos());
             expect(state.deleteEmptyVolume(owner, volumeA.id()), "Could not remove the empty test volume");
+            expect(state.lookupVolume(volumeA.id()).status() == DigitalStorageState.VolumeStatus.CONFIRMED_DELETED,
+                    "Removed fixture volume was not confirmed deleted");
             expect(!alias.getCapability(ForgeCapabilities.ITEM_HANDLER).isPresent() && !alias.isBound()
                             && revived.getSlots() == 0, "Orphan self-heal did not revoke the capability");
         } finally {

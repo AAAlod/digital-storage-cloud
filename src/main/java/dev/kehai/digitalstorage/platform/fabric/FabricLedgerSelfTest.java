@@ -42,6 +42,8 @@ public final class FabricLedgerSelfTest {
         VolumeLedger ledger = new VolumeLedger(dirty::incrementAndGet, 2);
         ItemVariant stone = ItemVariant.of(Items.STONE);
         FabricDigitalItemStorage canonical = FabricDigitalItemStorage.of(ledger);
+        System.gc();
+        expect(FabricDigitalItemStorage.of(ledger) == canonical, "Fabric adapter changed after GC");
         try (Transaction outer = Transaction.openOuter()) {
             try (Transaction inner = outer.openNested()) {
                 FabricDigitalItemStorage.of(ledger).insert(stone, 12, inner);

@@ -21,6 +21,31 @@ public final class VolumeLedgerSelfTest {
         attachedIteratorKeepsProvisionalZeroHandles();
         volumeIconPersistence();
         volumeIconDiskRoundTrip();
+        overBudgetStoredVariantsRemainAccessible();
+    }
+
+    private static void overBudgetStoredVariantsRemainAccessible() {
+        var budget = new java.util.concurrent.atomic.AtomicLong(1);
+        var ledger = new VolumeLedger(null, () -> { }, () -> 16, budget::get, key -> true, key -> true);
+        var stone = ItemKey.of(Items.STONE);
+        var dirt = ItemKey.of(Items.DIRT);
+        ledger.load(stone, 5);
+        expect(ledger.totalVariantNbtBytes() > 1 && ledger.totalItemCount() == 5, "Over-budget stored variant was not loaded");
+        var saved = ledger.snapshotEntries();
+        var reopened = new VolumeLedger(null, () -> { }, () -> 16, budget::get, key -> true, key -> true);
+        for (var entry : saved) reopened.load(ItemKeyCodec.tryRead(entry.serializedVariant()), entry.amount(), entry.serializedVariant());
+        expect(reopened.amountOf(stone) == 5 && reopened.totalVariantNbtBytes() > 1, "Over-budget snapshot did not round trip");
+        try (var transaction = LedgerTransaction.open()) {
+            expect(ledger.insert(dirt, 1, transaction) == 0, "Over-budget ledger accepted a new variant");
+            expect(ledger.extract(stone, 5, transaction) == 5, "Over-budget ledger rejected extraction");
+            transaction.commit();
+        }
+        expect(ledger.totalVariantNbtBytes() == 0, "Extraction did not release variant budget");
+        budget.set(1024);
+        try (var transaction = LedgerTransaction.open()) {
+            expect(ledger.insert(dirt, 1, transaction) == 1, "New variant remained blocked after budget recovered");
+            transaction.commit();
+        }
     }
 
     private static void volumeIconDiskRoundTrip() {

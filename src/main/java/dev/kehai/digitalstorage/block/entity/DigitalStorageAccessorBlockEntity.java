@@ -54,8 +54,9 @@ public class DigitalStorageAccessorBlockEntity extends BlockEntity implements Me
         }
         DigitalStorageState state = DigitalStorageState.get(serverWorld);
         UUID requestedVolumeId = boundVolumeId;
-        StorageVolume volume = state.volume(requestedVolumeId).orElse(null);
-        if (volume == null && clearOrphanedBinding(requestedVolumeId)) {
+        var lookup = state.lookupVolume(requestedVolumeId);
+        StorageVolume volume = lookup.volume();
+        if (lookup.status() == DigitalStorageState.VolumeStatus.CONFIRMED_DELETED && clearOrphanedBinding(requestedVolumeId)) {
             DigitalStorageMountTracker.update(this, serverWorld);
         }
         return volume;
@@ -63,7 +64,7 @@ public class DigitalStorageAccessorBlockEntity extends BlockEntity implements Me
 
     public boolean clearOrphanedBinding(DigitalStorageState state) {
         UUID requestedVolumeId = boundVolumeId;
-        if (requestedVolumeId == null || state.volume(requestedVolumeId).isPresent()) {
+        if (requestedVolumeId == null || state.lookupVolume(requestedVolumeId).status() != DigitalStorageState.VolumeStatus.CONFIRMED_DELETED) {
             return false;
         }
         return clearOrphanedBinding(requestedVolumeId);
