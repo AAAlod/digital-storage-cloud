@@ -31,15 +31,53 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
             var origin = new ForgeInventoryTransferExecutor.Origin(true, player.serverLevel().dimension().location().toString(),
                     accessor.getBlockPos().asLong(), position.asLong());
             var executor = session.executor(player.getUUID(), volume.id(), origin);
-            var ports = ForgeTomTopology.physicalHandlers(root).stream()
+            var ports = new ArrayList<BatchTransfer.Port>(ForgeTomTopology.physicalHandlers(root).stream()
                     .map(handler -> (BatchTransfer.Port) new Port(handler, player.getUUID(), volume.id(), session.recovery(),
-                            () -> DigitalStorageState.get(player.serverLevel()).flushNow(), executor)).toList();
+                            () -> DigitalStorageState.get(player.serverLevel()).flushNow(), executor)).toList());
+            var soph = safeDirectSoph(connector, root);
+            if (soph != null) for (var handler : soph) ports.add(new Port(handler, player.getUUID(), volume.id(), session.recovery(),
+                    () -> DigitalStorageState.get(player.serverLevel()).flushNow(), executor));
             return new BatchTransfer.Route(ports, () -> !accessor.isRemoved() && player.serverLevel() == accessor.getLevel()
                     && accessor.getLevel().hasChunkAt(accessor.getBlockPos())
                     && accessor.getLevel().getBlockEntity(accessor.getBlockPos()) == accessor
-                    && accessor.getVolume() == volume && volume.ownerId().equals(player.getUUID()) && report.topology().isCurrent(), position.toShortString());
+                    && accessor.getVolume() == volume && volume.ownerId().equals(player.getUUID()) && report.topology().isCurrent()
+                    && (soph == null || sameSoph(soph, safeDirectSoph(connector, current.get()))), position.toShortString());
         }
         return null;
+    }
+    private static boolean sameSoph(java.util.List<IItemHandler> a, java.util.List<IItemHandler> b) {
+        if (b == null || a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) if (a.get(i) != b.get(i)) return false;
+        return true;
+    }
+    static java.util.List<IItemHandler> safeDirectSoph(com.tom.storagemod.tile.InventoryConnectorBlockEntity connector, IItemHandler root) {
+        if (root == null || connector.isRemoved()) return null;
+        var parts = ForgeTomTopology.allPhysicalHandlers(root);
+        var candidates = parts.stream().filter(part -> part.getClass().getName().equals(
+                "net.p3pp3rf1y.sophisticatedcore.inventory.CachedFailedInsertInventoryHandler")).toList();
+        if (candidates.isEmpty()) return null;
+        for (var part : parts) if (candidates.stream().noneMatch(candidate -> part == candidate) && !ForgeTomTopology.trustedPhysical(part)) return null;
+        var level = connector.getLevel();
+        if (level == null) return null;
+        var matched = new java.util.IdentityHashMap<IItemHandler, net.minecraft.core.BlockPos>();
+        for (var direction : Direction.values()) {
+            var pos = connector.getBlockPos().relative(direction);
+            if (!level.hasChunkAt(pos)) continue;
+            var block = level.getBlockEntity(pos);
+            var upgrades = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.upgradeInventory(block, true);
+            if (!(upgrades instanceof IItemHandler upgradeHandler)) continue;
+            boolean empty = true;
+            for (int i = 0; i < upgradeHandler.getSlots(); i++) if (!upgradeHandler.getStackInSlot(i).isEmpty()) { empty = false; break; }
+            if (!empty) continue;
+            for (var side : Direction.values()) {
+                var direct = block.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ITEM_HANDLER, side).orElse(null);
+                for (var candidate : candidates) if (direct == candidate) {
+                    var prior = matched.putIfAbsent(candidate, pos);
+                    if (prior != null && !prior.equals(pos)) return null;
+                }
+            }
+        }
+        return matched.size() == candidates.size() && new java.util.HashSet<>(matched.values()).size() == candidates.size() ? candidates : null;
     }
     static final class Port implements BatchTransfer.Port {
         private final IItemHandler handler;

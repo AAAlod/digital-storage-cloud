@@ -148,13 +148,57 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
         if (discovery == null) return null;
         var volume = accessor.getVolume();
         var topology = TomNetworkCache.topology(discovery.connector(), discovery.storage());
-        var ports = TomNetworkIntrospection.transferParts(discovery.storage()).stream()
-                .map(storage -> (BatchTransfer.Port) new Port(storage)).toList();
+        var ports = new ArrayList<BatchTransfer.Port>();
+        TomNetworkIntrospection.transferParts(discovery.storage()).stream()
+                .map(storage -> (BatchTransfer.Port) new Port(storage)).forEach(ports::add);
+        var soph = safeDirectSoph(discovery.connector(), discovery.storage());
+        if (soph != null) for (var storage : soph) ports.add(new Port(storage));
         return new BatchTransfer.Route(ports, () -> !accessor.isRemoved() && player.serverLevel() == accessor.getLevel()
                 && accessor.getLevel().hasChunkAt(accessor.getBlockPos())
                 && accessor.getLevel().getBlockEntity(accessor.getBlockPos()) == accessor
                 && accessor.getVolume() == volume && volume.ownerId().equals(player.getUUID())
-                && topology.token().isCurrent(), discovery.connector().getBlockPos().toShortString());
+                    && topology.token().isCurrent()
+                    && (soph == null || sameSoph(soph, safeDirectSoph(discovery.connector(), discovery.storage()))), discovery.connector().getBlockPos().toShortString());
+    }
+    private static boolean sameSoph(java.util.List<Storage<ItemVariant>> a, java.util.List<Storage<ItemVariant>> b) {
+        if (b == null || a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) if (a.get(i) != b.get(i)) return false;
+        return true;
+    }
+    static java.util.List<Storage<ItemVariant>> safeDirectSoph(net.minecraft.world.level.block.entity.BlockEntity connector, Storage<ItemVariant> root) {
+        var parts = TomNetworkIntrospection.parts(root).physical();
+        var candidates = parts.stream().filter(part -> part.getClass().getName().equals(
+                "net.p3pp3rf1y.sophisticatedcore.inventory.CachedFailedInsertInventoryHandler")).toList();
+        if (candidates.isEmpty()) return null;
+        if (!(root instanceof com.tom.storagemod.util.MergedStorage merged)) return null;
+        int directMatches = 0;
+        for (var child : merged.getStorages()) {
+            if (candidates.stream().anyMatch(candidate -> child == candidate)) directMatches++;
+            else if (TomNetworkIntrospection.canonicalDigitalEndpoint(child) == null
+                    && !TomNetworkIntrospection.safePhysical(child, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) return null;
+        }
+        if (directMatches != candidates.size()) return null;
+        var level = connector.getLevel();
+        if (level == null || connector.isRemoved()) return null;
+        var matched = new java.util.IdentityHashMap<Storage<ItemVariant>, net.minecraft.core.BlockPos>();
+        for (var direction : net.minecraft.core.Direction.values()) {
+            var pos = connector.getBlockPos().relative(direction);
+            if (!level.hasChunkAt(pos)) continue;
+            var block = level.getBlockEntity(pos);
+            var upgrades = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.upgradeInventory(block, false);
+            if (!(upgrades instanceof Storage<?> upgradeStorage)) continue;
+            boolean empty = true;
+            for (var view : upgradeStorage) if (!view.isResourceBlank()) { empty = false; break; }
+            if (!empty) continue;
+            for (var side : net.minecraft.core.Direction.values()) {
+                var direct = net.fabricmc.fabric.api.transfer.v1.item.ItemStorage.SIDED.find(level, pos, side);
+                for (var candidate : candidates) if (direct == candidate) {
+                    var prior = matched.putIfAbsent(candidate, pos);
+                    if (prior != null && !prior.equals(pos)) return null;
+                }
+            }
+        }
+        return matched.size() == candidates.size() && new java.util.HashSet<>(matched.values()).size() == candidates.size() ? candidates : null;
     }
     public static final class Port implements BatchTransfer.Port {
         private final Storage<ItemVariant> storage;

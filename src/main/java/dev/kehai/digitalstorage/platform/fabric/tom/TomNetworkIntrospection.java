@@ -123,7 +123,7 @@ public final class TomNetworkIntrospection {
     }
 
     @SuppressWarnings("unchecked")
-    private static boolean safePhysical(Storage<ItemVariant> storage, Set<Storage<ItemVariant>> path) {
+    static boolean safePhysical(Storage<ItemVariant> storage, Set<Storage<ItemVariant>> path) {
         if (storage == null || canonicalDigitalEndpoint(storage) != null || !path.add(storage)) return false;
         try {
             var access = ACCESSORS.get(storage.getClass());

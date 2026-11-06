@@ -25,7 +25,10 @@ public final class ForgeTomTopology {
     public static List<IItemHandler> physicalHandlers(IItemHandler root) {
         return inspect(root).physical.stream().filter(ForgeTomTopology::trustedPhysical).toList();
     }
-    private static boolean trustedPhysical(IItemHandler handler) {
+    public static List<IItemHandler> allPhysicalHandlers(IItemHandler root) {
+        return List.copyOf(inspect(root).physical);
+    }
+    public static boolean trustedPhysical(IItemHandler handler) {
         if (handler instanceof ForgeTomEndpoints.FilteredEndpoint filtered) return trustedPhysical(filtered.digitalstorage$parent());
         if (handler instanceof IProxy proxy) return trustedPhysical(proxy.get());
         if (handler instanceof MultiItemHandler multi) return multi.getHandlers().stream()
