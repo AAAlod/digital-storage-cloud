@@ -70,10 +70,16 @@ public final class StoragePersistenceSelfTest {
                     }
                 }
                 expectTrue(java.nio.file.Files.exists(crashImage.resolve("volumes").resolve(deleted.id() + ".dat")), "crash image contains stale volume");
+                java.nio.file.Files.writeString(crashImage.resolve("deleted-volumes").resolve("invalid.dat"), "invalid");
                 var afterCrash = DigitalStorageState.openForTest(crashImage);
                 try {
                     expectTrue(afterCrash.volume(deleted.id()).isEmpty(), "committed deletion survives crash window");
                     expectTrue(!afterCrash.ownsVolume(owner, deleted.id()), "deleted account entry removed on recovery");
+                    expectTrue(java.nio.file.Files.exists(crashImage.resolve("deleted-volumes").resolve(deleted.id() + ".dat")), "marker retained until disk cleanup");
+                    expectTrue(!java.nio.file.Files.exists(crashImage.resolve("deleted-volumes").resolve("invalid.dat")), "invalid marker removed from active directory");
+                    try (var quarantined = java.nio.file.Files.list(crashImage.resolve("quarantine").resolve("deleted-volumes"))) {
+                        expectTrue(quarantined.anyMatch(path -> path.getFileName().toString().startsWith("invalid.dat.broken-")), "invalid marker quarantined");
+                    }
                 } finally { afterCrash.closeForTest(); }
             } catch (java.io.IOException failure) {
                 throw new IllegalStateException("Could not snapshot deletion crash window", failure);

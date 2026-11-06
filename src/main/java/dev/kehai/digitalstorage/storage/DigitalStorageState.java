@@ -52,6 +52,7 @@ public final class DigitalStorageState {
     private final Path deletedVolumeMarkersDirectory;
     private final Path quarantinedAccountsDirectory;
     private final Path quarantinedVolumesDirectory;
+    private final Path quarantinedDeletedVolumesDirectory;
     private final Map<UUID, PlayerStorageAccount> accounts = new HashMap<>();
     private final Map<UUID, VolumeReference> loadedVolumes = new HashMap<>();
     private final ReferenceQueue<StorageVolume> unloadedVolumes = new ReferenceQueue<>();
@@ -61,7 +62,6 @@ public final class DigitalStorageState {
     private final Set<UUID> dirtyVolumes = new LinkedHashSet<>();
     private final Set<UUID> deletedAccounts = new HashSet<>();
     private final Set<UUID> deletedVolumes = new HashSet<>();
-    private final Set<UUID> retiredVolumeIds = new HashSet<>();
     private final Map<UUID, VolumeLedger.SnapshotCursor> volumeSnapshotCursors = new HashMap<>();
     private final Map<UUID, Integer> volumeSnapshotRestarts = new HashMap<>();
     private final Map<UUID, Long> dirtyVolumeSinceTicks = new HashMap<>();
@@ -86,12 +86,14 @@ public final class DigitalStorageState {
         deletedVolumeMarkersDirectory = rootDirectory.resolve("deleted-volumes");
         quarantinedAccountsDirectory = rootDirectory.resolve("quarantine").resolve("accounts");
         quarantinedVolumesDirectory = rootDirectory.resolve("quarantine").resolve("volumes");
+        quarantinedDeletedVolumesDirectory = rootDirectory.resolve("quarantine").resolve("deleted-volumes");
         try {
             Files.createDirectories(accountsDirectory);
             Files.createDirectories(volumesDirectory);
             Files.createDirectories(deletedVolumeMarkersDirectory);
             Files.createDirectories(quarantinedAccountsDirectory);
             Files.createDirectories(quarantinedVolumesDirectory);
+            Files.createDirectories(quarantinedDeletedVolumesDirectory);
         } catch (IOException exception) {
             throw new IllegalStateException("Could not create Digital Storage data directories", exception);
         }
@@ -159,7 +161,7 @@ public final class DigitalStorageState {
         UUID id;
         do {
             id = UUID.randomUUID();
-        } while (knownVolumeIds.contains(id) || retiredVolumeIds.contains(id));
+        } while (knownVolumeIds.contains(id) || hasDeletionMarker(id));
 
         UUID volumeId = id;
         PlayerStorageAccount account = accounts.computeIfAbsent(ownerId, PlayerStorageAccount::new);
@@ -223,7 +225,6 @@ public final class DigitalStorageState {
         }
         if (!persistVolumeDeletion(volumeId)) return false;
         knownVolumeIds.remove(volumeId);
-        retiredVolumeIds.add(volumeId);
         loadedVolumes.remove(volumeId);
         dirtyVolumeInstances.remove(volumeId);
         dirtyVolumes.remove(volumeId);
@@ -464,9 +465,24 @@ public final class DigitalStorageState {
 
     private void loadDeletedVolumeMarkers() {
         for (Path path : dataFiles(deletedVolumeMarkersDirectory)) {
-            UUID id = uuidFromFile(path);
-            retiredVolumeIds.add(id);
-            deletedVolumes.add(id);
+            try {
+                uuidFromFile(path);
+                // A valid marker is retained on disk as the source of truth.
+            } catch (IllegalArgumentException invalid) {
+                Path quarantined = quarantineFile(path, quarantinedDeletedVolumesDirectory);
+                DigitalStorage.LOGGER.error("Quarantined invalid Digital Storage deletion marker {} to {}", path, quarantined, invalid);
+            }
+        }
+    }
+
+    private boolean hasDeletionMarker(UUID id) {
+        try {
+            Files.readAttributes(deletedVolumeMarkersDirectory.resolve(id + ".dat"), java.nio.file.attribute.BasicFileAttributes.class);
+            return true;
+        } catch (java.nio.file.NoSuchFileException missing) {
+            return false;
+        } catch (IOException failure) {
+            throw new IllegalStateException("Could not inspect Digital Storage deletion marker for " + id, failure);
         }
     }
 
@@ -474,12 +490,18 @@ public final class DigitalStorageState {
         for (Path path : dataFiles(volumesDirectory)) {
             try {
                 UUID fileId = uuidFromFile(path);
-                if (retiredVolumeIds.contains(fileId)) continue;
+                if (hasDeletionMarker(fileId)) {
+                    deletedVolumes.add(fileId);
+                    continue;
+                }
                 long diskBytes = Files.size(path);
                 if (!knownVolumeIds.add(fileId)) {
                     throw new IllegalArgumentException("Duplicate volume UUID " + fileId);
                 }
                 volumeFileMetrics.put(fileId, new VolumeFileMetrics(0, diskBytes, 0, 0, false));
+            } catch (IllegalStateException failure) {
+                // Inability to read deletion markers must not quarantine a valid volume.
+                throw failure;
             } catch (IOException | RuntimeException exception) {
                 quarantinedVolumeFiles++;
                 Path quarantined = quarantineFile(path, quarantinedVolumesDirectory);
