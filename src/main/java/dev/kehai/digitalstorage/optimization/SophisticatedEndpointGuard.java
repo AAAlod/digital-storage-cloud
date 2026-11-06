@@ -53,6 +53,18 @@ public final class SophisticatedEndpointGuard {
                 || knownLegacy("1.4.47.1744", "1.9.0", false, absent)) {
             throw new IllegalStateException("Sophisticated legacy version policy failed");
         }
+        for (String tier : new String[]{"", "copper_", "iron_", "gold_", "diamond_", "netherite_"}) {
+            for (String kind : new String[]{"chest", "barrel", "shulker_box"})
+                if (!supportedStoragePath(tier + kind)) throw new IllegalStateException("Sophisticated container tier omitted");
+            for (int slots = 1; slots <= 4; slots++)
+                if (!supportedStoragePath("limited_" + tier + "barrel_" + slots)) throw new IllegalStateException("Sophisticated limited barrel omitted");
+        }
+        for (String other : new String[]{"controller", "storage_link", "storage_input", "storage_io", "limited_barrel_5", "fake_chest"})
+            if (supportedStoragePath(other)) throw new IllegalStateException("Sophisticated non-container accepted");
+    }
+    private static boolean supportedStoragePath(String path) {
+        return path.matches("(?:(?:copper|iron|gold|diamond|netherite)_)?(?:chest|barrel|shulker_box)")
+                || path.matches("limited_(?:(?:copper|iron|gold|diamond|netherite)_)?barrel_[1-4]");
     }
     public static boolean isStackUpgrade(net.minecraft.world.item.Item item) {
         var id = BuiltInRegistries.ITEM.getKey(item);
@@ -65,9 +77,7 @@ public final class SophisticatedEndpointGuard {
     public static boolean isSupportedBlock(BlockEntity block) {
         if (block == null || block.isRemoved()) return false;
         var id = BuiltInRegistries.BLOCK.getKey(block.getBlockState().getBlock());
-        boolean supported = id != null && id.getNamespace().equals("sophisticatedstorage")
-                && (id.getPath().equals("chest") || id.getPath().equals("barrel")
-                    || id.getPath().equals("diamond_barrel") || id.getPath().equals("limited_barrel_1"));
+        boolean supported = id != null && id.getNamespace().equals("sophisticatedstorage") && supportedStoragePath(id.getPath());
         if (!supported && id != null && id.getNamespace().equals("sophisticatedstorage")) report("UNSUPPORTED_BLOCK", id.toString());
         return supported;
     }
