@@ -71,6 +71,15 @@ public final class ItemSecurityPolicy {
         return variantNbtBytes(variant) <= current.maxNbtBytes();
     }
 
+    private static boolean evaluateInsert(ItemKey variant, boolean volumeAcceptsUnstackables, Snapshot policy) {
+        return isInsertAllowed(variant, policy, volumeAcceptsUnstackables);
+    }
+
+    private static boolean evaluateNewVariant(ItemKey variant, Snapshot policy) {
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(variant.item());
+        return passesFilter(variant, policy, itemId) && variantNbtBytes(variant) <= policy.maxNbtBytes();
+    }
+
     public static boolean allowsNewVariant(ItemKey variant) {
         Snapshot current = snapshot;
         ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(variant.item());
@@ -132,19 +141,14 @@ public final class ItemSecurityPolicy {
     }
 
     public static void runSelfTest() {
-        Snapshot original = snapshot;
-        long originalFilterRejections = FILTER_REJECTIONS.get();
-        long originalNbtRejections = NBT_REJECTIONS.get();
-        long originalUnstackableRejections = UNSTACKABLE_REJECTIONS.get();
-        try {
             ResourceLocation diamondId = new ResourceLocation("minecraft", "diamond");
-            snapshot = new Snapshot(true, Set.of(diamondId), Set.of(), 65_536, false, false);
-            expect(allowsNewVariant(ItemKey.of(net.minecraft.world.item.Items.DIAMOND)),
+            Snapshot policy = new Snapshot(true, Set.of(diamondId), Set.of(), 65_536, false, false);
+            expect(evaluateNewVariant(ItemKey.of(net.minecraft.world.item.Items.DIAMOND), policy),
                     "whitelist rejected its listed item");
-            expect(!allowsNewVariant(ItemKey.of(net.minecraft.world.item.Items.DIRT)),
+            expect(!evaluateNewVariant(ItemKey.of(net.minecraft.world.item.Items.DIRT), policy),
                     "whitelist accepted an unlisted item");
 
-            snapshot = new Snapshot(
+            policy = new Snapshot(
                     false,
                     Set.of(),
                     Set.of(new ResourceLocation("minecraft", "logs")),
@@ -152,34 +156,28 @@ public final class ItemSecurityPolicy {
                     false,
                     false
             );
-            expect(!allowsNewVariant(ItemKey.of(net.minecraft.world.item.Items.OAK_LOG)),
+            expect(!evaluateNewVariant(ItemKey.of(net.minecraft.world.item.Items.OAK_LOG), policy),
                     "blacklist tag accepted a tagged item");
-            expect(allowsNewVariant(ItemKey.of(net.minecraft.world.item.Items.DIAMOND)),
+            expect(evaluateNewVariant(ItemKey.of(net.minecraft.world.item.Items.DIAMOND), policy),
                     "blacklist tag rejected an unrelated item");
 
             net.minecraft.nbt.CompoundTag oversizedNbt = new net.minecraft.nbt.CompoundTag();
             oversizedNbt.putString("Payload", "x".repeat(2_000));
-            snapshot = new Snapshot(false, Set.of(), Set.of(), 1_024, false, false);
-            expect(!allowsNewVariant(ItemKey.of(net.minecraft.world.item.Items.PAPER, oversizedNbt)),
+            policy = new Snapshot(false, Set.of(), Set.of(), 1_024, false, false);
+            expect(!evaluateNewVariant(ItemKey.of(net.minecraft.world.item.Items.PAPER, oversizedNbt), policy),
                     "NBT guard accepted an oversized new variant");
 
             ItemKey pickaxe = ItemKey.of(net.minecraft.world.item.Items.IRON_PICKAXE);
             ItemKey diamond = ItemKey.of(net.minecraft.world.item.Items.DIAMOND);
-            snapshot = new Snapshot(false, Set.of(), Set.of(), 65_536, false, false);
-            expect(!canInsert(pickaxe, false), "server deny + volume reject accepted a tool");
-            expect(!canInsert(pickaxe, true), "server deny + volume accept accepted a tool");
-            expect(canInsert(diamond, false), "server deny rejected a stackable item");
+            policy = new Snapshot(false, Set.of(), Set.of(), 65_536, false, false);
+            expect(!evaluateInsert(pickaxe, false, policy), "server deny + volume reject accepted a tool");
+            expect(!evaluateInsert(pickaxe, true, policy), "server deny + volume accept accepted a tool");
+            expect(evaluateInsert(diamond, false, policy), "server deny rejected a stackable item");
 
-            snapshot = new Snapshot(false, Set.of(), Set.of(), 65_536, true, false);
-            expect(!canInsert(pickaxe, false), "volume reject accepted a tool");
-            expect(canInsert(pickaxe, true), "server and volume allow rejected a tool");
-            expect(allowsInsert(diamond, false), "volume reject rejected a stackable item");
-        } finally {
-            snapshot = original;
-            FILTER_REJECTIONS.set(originalFilterRejections);
-            NBT_REJECTIONS.set(originalNbtRejections);
-            UNSTACKABLE_REJECTIONS.set(originalUnstackableRejections);
-        }
+            policy = new Snapshot(false, Set.of(), Set.of(), 65_536, true, false);
+            expect(!evaluateInsert(pickaxe, false, policy), "volume reject accepted a tool");
+            expect(evaluateInsert(pickaxe, true, policy), "server and volume allow rejected a tool");
+            expect(evaluateInsert(diamond, false, policy), "volume reject rejected a stackable item");
     }
 
     private static Set<ResourceLocation> parseIdentifiers(Iterable<String> values, String type) {
