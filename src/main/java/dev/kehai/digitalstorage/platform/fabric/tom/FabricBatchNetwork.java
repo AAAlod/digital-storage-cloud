@@ -181,24 +181,33 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
         var level = connector.getLevel();
         if (level == null || connector.isRemoved()) return null;
         var matched = new java.util.IdentityHashMap<Storage<ItemVariant>, net.minecraft.core.BlockPos>();
+        var allowed = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Storage<ItemVariant>, Boolean>());
         for (var direction : net.minecraft.core.Direction.values()) {
             var pos = connector.getBlockPos().relative(direction);
             if (!level.hasChunkAt(pos)) continue;
             var block = level.getBlockEntity(pos);
-            var upgrades = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.upgradeInventory(block, false);
-            if (!(upgrades instanceof Storage<?> upgradeStorage)) continue;
-            boolean empty = true;
-            for (var view : upgradeStorage) if (!view.isResourceBlank()) { empty = false; break; }
-            if (!empty) continue;
+            var mods = net.fabricmc.loader.api.FabricLoader.getInstance();
+            // This inspected Fabric port predates linked-storage endpoints and lacks
+            // isLinkedStorage(); unknown versions without that method fail closed.
+            boolean verifiedLegacy = mods.getModContainer("sophisticatedstorage").map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("").equals("1.20.1-1.3.5.11.142")
+                    && mods.getModContainer("sophisticatedcore").map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("").equals("1.20.1-1.2.7.15.166");
+            var upgrades = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.upgradeInventory(block, !verifiedLegacy);
+            boolean eligible = upgrades instanceof Storage<?>;
+            if (upgrades instanceof Storage<?> upgradeStorage) for (var view : upgradeStorage) if (!view.isResourceBlank()
+                    && (!(view.getResource() instanceof ItemVariant variant)
+                    || !dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isStackUpgrade(variant.getItem()))) { eligible = false; break; }
             for (var side : net.minecraft.core.Direction.values()) {
                 var direct = net.fabricmc.fabric.api.transfer.v1.item.ItemStorage.SIDED.find(level, pos, side);
                 for (var candidate : candidates) if (direct == candidate) {
                     var prior = matched.putIfAbsent(candidate, pos);
                     if (prior != null && !prior.equals(pos)) return null;
+                    if (eligible) allowed.add(candidate);
                 }
             }
         }
-        return matched.size() == candidates.size() && new java.util.HashSet<>(matched.values()).size() == candidates.size() ? candidates : null;
+        if (matched.size() != candidates.size() || new java.util.HashSet<>(matched.values()).size() != candidates.size()) return null;
+        var result = candidates.stream().filter(allowed::contains).toList();
+        return result.isEmpty() ? null : result;
     }
     public static final class Port implements BatchTransfer.Port {
         private final Storage<ItemVariant> storage;

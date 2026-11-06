@@ -60,24 +60,30 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
         var level = connector.getLevel();
         if (level == null) return null;
         var matched = new java.util.IdentityHashMap<IItemHandler, net.minecraft.core.BlockPos>();
+        var allowed = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<IItemHandler, Boolean>());
         for (var direction : Direction.values()) {
             var pos = connector.getBlockPos().relative(direction);
             if (!level.hasChunkAt(pos)) continue;
             var block = level.getBlockEntity(pos);
             var upgrades = dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.upgradeInventory(block, true);
-            if (!(upgrades instanceof IItemHandler upgradeHandler)) continue;
-            boolean empty = true;
-            for (int i = 0; i < upgradeHandler.getSlots(); i++) if (!upgradeHandler.getStackInSlot(i).isEmpty()) { empty = false; break; }
-            if (!empty) continue;
+            boolean eligible = upgrades instanceof IItemHandler;
+            if (upgrades instanceof IItemHandler upgradeHandler) for (int i = 0; i < upgradeHandler.getSlots(); i++) {
+                var upgrade = upgradeHandler.getStackInSlot(i);
+                if (!upgrade.isEmpty() && !dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.isStackUpgrade(upgrade.getItem())) { eligible = false; break; }
+            }
+            if (block == null) continue;
             for (var side : Direction.values()) {
                 var direct = block.getCapability(net.minecraftforge.common.capabilities.ForgeCapabilities.ITEM_HANDLER, side).orElse(null);
                 for (var candidate : candidates) if (direct == candidate) {
                     var prior = matched.putIfAbsent(candidate, pos);
                     if (prior != null && !prior.equals(pos)) return null;
+                    if (eligible) allowed.add(candidate);
                 }
             }
         }
-        return matched.size() == candidates.size() && new java.util.HashSet<>(matched.values()).size() == candidates.size() ? candidates : null;
+        if (matched.size() != candidates.size() || new java.util.HashSet<>(matched.values()).size() != candidates.size()) return null;
+        var result = candidates.stream().filter(allowed::contains).toList();
+        return result.isEmpty() ? null : result;
     }
     static final class Port implements BatchTransfer.Port {
         private final IItemHandler handler;
