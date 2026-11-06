@@ -66,7 +66,8 @@ public final class SophisticatedEndpointGuard {
         if (block == null || block.isRemoved()) return false;
         var id = BuiltInRegistries.BLOCK.getKey(block.getBlockState().getBlock());
         boolean supported = id != null && id.getNamespace().equals("sophisticatedstorage")
-                && (id.getPath().equals("chest") || id.getPath().equals("barrel") || id.getPath().equals("limited_barrel_1"));
+                && (id.getPath().equals("chest") || id.getPath().equals("barrel")
+                    || id.getPath().equals("diamond_barrel") || id.getPath().equals("limited_barrel_1"));
         if (!supported && id != null && id.getNamespace().equals("sophisticatedstorage")) report("UNSUPPORTED_BLOCK", id.toString());
         return supported;
     }
