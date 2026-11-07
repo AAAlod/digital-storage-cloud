@@ -4,6 +4,7 @@ import dev.kehai.digitalstorage.storage.ItemKey;
 import dev.kehai.digitalstorage.storage.VolumeLedger;
 import dev.kehai.digitalstorage.storage.MutationParticipant;
 import dev.kehai.digitalstorage.storage.MutationScope;
+import dev.kehai.digitalstorage.storage.TransactionId;
 
 import java.util.ArrayList;
 import java.util.ConcurrentModificationException;
@@ -25,6 +26,10 @@ import net.fabricmc.fabric.api.transfer.v1.transaction.base.SnapshotParticipant;
 
 /** Fabric Transfer adapter. Quantities, policy, versions and persistence belong to the ledger. */
 public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
+    // Fabric itself confines each TransactionContext to its owning thread; IDs are
+    // still keyed by the actual context, never inferred from the current thread.
+    private static final ThreadLocal<Map<TransactionContext, TransactionId>> TRANSACTION_IDS =
+            ThreadLocal.withInitial(IdentityHashMap::new);
     public static final long MAX_AMOUNT_PER_VARIANT = VolumeLedger.MAX_AMOUNT_PER_VARIANT;
     private final VolumeLedger ledger;
     // The ledger already owns attached participants. Adapter-local strong bridges
@@ -90,7 +95,7 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
     long insertKey(ItemKey resource, long maxAmount, TransactionContext transaction) {
         FabricMutationScope scope = acquireScope(transaction);
         try {
-            return ledger.insert(resource, maxAmount, scope);
+            return scope.denied ? 0 : ledger.insert(resource, maxAmount, scope);
         } finally {
             releaseScope(scope);
         }
@@ -104,7 +109,7 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
     private long extractKey(ItemKey resource, long maxAmount, TransactionContext transaction) {
         FabricMutationScope scope = acquireScope(transaction);
         try {
-            return ledger.extract(resource, maxAmount, scope);
+            return scope.denied ? 0 : ledger.extract(resource, maxAmount, scope);
         } finally {
             releaseScope(scope);
         }
@@ -114,20 +119,36 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
         // Shared transactions can remove entries without Fabric callbacks. Prune
         // when the cache exceeds live variants plus the one metrics participant;
         // ordinary growth need not scan every earlier bridge on each insertion.
-        if (bridges.size() > (long) ledger.variantCount() + 1) {
-            bridges.keySet().removeIf(participant -> !participant.isAttached());
-        }
         FabricMutationScope scope = spareScope;
         spareScope = null;
         if (scope == null) scope = new FabricMutationScope();
         scope.transaction = transaction;
+        scope.denied = !ledger.enterScope(scope);
+        if (!scope.denied && bridges.size() > (long) ledger.variantCount() + 1) {
+            bridges.keySet().removeIf(participant -> !participant.isAttached());
+        }
         return scope;
+    }
+
+    private static TransactionId transactionId(TransactionContext context, int depth) {
+        TransactionContext current = context.getOpenTransaction(depth);
+        Map<TransactionContext, TransactionId> ids = TRANSACTION_IDS.get();
+        TransactionId existing = ids.get(current);
+        if (existing != null) return existing;
+        TransactionId created = new TransactionId();
+        current.addCloseCallback((closed, result) -> {
+            ids.remove(current, created);
+            if (ids.isEmpty()) TRANSACTION_IDS.remove();
+        });
+        ids.put(current, created);
+        return created;
     }
 
     private void releaseScope(FabricMutationScope scope) {
         // Ledger mutations enlist synchronously. Never retain a closed transaction
         // or reuse an active scope if a validator reenters this adapter.
         scope.transaction = null;
+        scope.denied = false;
         spareScope = scope;
     }
 
@@ -248,10 +269,34 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
     }
 
     public List<VolumeLedger.StoredEntrySnapshot> snapshotEntries() { return ledger.snapshotEntries(); }
-    public VolumeLedger.SnapshotCursor snapshotCursor() { return ledger.snapshotCursor(); }
 
     private final class FabricMutationScope implements MutationScope {
         private TransactionContext transaction;
+        private boolean denied;
+
+        @Override public TransactionId transactionId() { return FabricDigitalItemStorage.transactionId(transaction, transaction.nestingDepth()); }
+
+        @Override public TransactionId parentTransactionId() {
+            int depth = transaction.nestingDepth();
+            return depth == 0 ? null : FabricDigitalItemStorage.transactionId(transaction, depth - 1);
+        }
+
+        @Override public java.util.List<TransactionId> transactionPath() {
+            var path = new ArrayList<TransactionId>();
+            for (int depth = 0; depth <= transaction.nestingDepth(); depth++) path.add(FabricDigitalItemStorage.transactionId(transaction, depth));
+            return java.util.List.copyOf(path);
+        }
+
+        @Override public void onCompletion(TransactionId id, java.util.function.Consumer<Boolean> observer) {
+            for (int depth = transaction.nestingDepth(); depth >= 0; depth--) {
+                if (FabricDigitalItemStorage.transactionId(transaction, depth) == id) {
+                    if (depth == 0) transaction.addOuterCloseCallback(result -> observer.accept(result.wasCommitted()));
+                    else transaction.getOpenTransaction(depth).addCloseCallback((ignored, result) -> observer.accept(result.wasCommitted()));
+                    return;
+                }
+            }
+            throw new IllegalArgumentException("Transaction is not an ancestor");
+        }
 
         @Override
         @SuppressWarnings("unchecked")
@@ -327,7 +372,10 @@ public final class FabricDigitalItemStorage implements Storage<ItemVariant> {
         public long extract(ItemVariant requested, long maxAmount, TransactionContext transaction) {
             // Equality has already established the exact immutable variant. The
             // live handle owns its ledger key; avoid converting it back from Fabric.
-            return resource.equals(requested) ? extractKey(view.getResource(), maxAmount, transaction) : 0;
+            if (!resource.equals(requested)) return 0;
+            FabricMutationScope scope = acquireScope(transaction);
+            try { return scope.denied ? 0 : ledger.extract(view.getResource(), maxAmount, scope); }
+            finally { releaseScope(scope); }
         }
     }
 

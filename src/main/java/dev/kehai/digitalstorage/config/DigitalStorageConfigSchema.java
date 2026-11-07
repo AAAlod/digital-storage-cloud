@@ -40,6 +40,11 @@ final class DigitalStorageConfigSchema {
                             + "Unit: bytes. Range: 1048576-1073741824.",
                     config -> config.maxVolumeVariantNbtBytes,
                     (config, value) -> config.maxVolumeVariantNbtBytes = (Integer) value),
+            new Option("storage.maxTotalVariantNbtBytes", "Aggregate serialized variant-NBT budget across all accounts and volumes.\n"
+                            + "Unit: bytes. Range: 1048576-67108864; 0 is not unlimited.",
+                    Type.TOTAL_INTEGER,
+                    config -> config.maxTotalVariantNbtBytes,
+                    (config, value) -> config.maxTotalVariantNbtBytes = (Integer) value),
             integer("storage.defaultVolumesPerPlayer", "Default maximum volumes per player.\n"
                             + "0 = unlimited; otherwise 1-1000000.",
                     config -> config.defaultVolumesPerPlayer,
@@ -251,6 +256,15 @@ final class DigitalStorageConfigSchema {
                 Number number = (Number) raw;
                 long value = number.longValue();
                 return value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE ? (int) value : Invalid.VALUE;
+            }
+        },
+        TOTAL_INTEGER {
+            @Override Object parse(Object raw) {
+                if (!isIntegerNumber(raw)) return Invalid.VALUE;
+                java.math.BigInteger value = new java.math.BigInteger(raw.toString());
+                if (value.compareTo(java.math.BigInteger.valueOf(Integer.MIN_VALUE)) < 0) return Integer.MIN_VALUE;
+                if (value.compareTo(java.math.BigInteger.valueOf(Integer.MAX_VALUE)) > 0) return Integer.MAX_VALUE;
+                return value.intValue();
             }
         },
         STRING {

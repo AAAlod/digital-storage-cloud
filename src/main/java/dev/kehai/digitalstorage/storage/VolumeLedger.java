@@ -1,7 +1,6 @@
 package dev.kehai.digitalstorage.storage;
 
 import java.util.ArrayList;
-import java.util.ConcurrentModificationException;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -27,6 +26,51 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
     private final Map<CompoundTag, Long> opaqueEntries = new java.util.LinkedHashMap<>();
     private final Map<Class<?>, Object> platformAdapters = new HashMap<>();
     private java.util.function.BooleanSupplier active = () -> true;
+    private GlobalBudget globalBudget;
+    private TransactionRegistry transactionRegistry;
+    private java.util.function.Consumer<TransactionId> rollbackCallback = ignored -> { };
+    private TransactionId mutationOwner;
+    private Thread mutationOwnerThread;
+    private long mutationConflicts;
+
+    private boolean tryEnterMutation(MutationScope scope) {
+        TransactionId root = scope.transactionPath().get(0);
+        synchronized (this) {
+            if (mutationOwner == root) return true;
+            if (mutationOwner != null) {
+                mutationConflicts++;
+                dev.kehai.digitalstorage.DigitalStorage.LOGGER.debug("Concurrent mutation rejected for storage volume {}", volumeId);
+                return false;
+            }
+            mutationOwner = root;
+            mutationOwnerThread = Thread.currentThread();
+            try { scope.onCompletion(root, ignored -> leaveMutation(root)); }
+            catch (RuntimeException exception) { mutationOwner = null; mutationOwnerThread = null; throw exception; }
+            return true;
+        }
+    }
+
+    private synchronized void leaveMutation(TransactionId root) {
+        if (mutationOwner == root) { mutationOwner = null; mutationOwnerThread = null; }
+    }
+
+    long mutationConflictsForTest() { synchronized (this) { return mutationConflicts; } }
+    synchronized boolean mutationHeldByCurrentThread() { return mutationOwner != null && mutationOwnerThread == Thread.currentThread(); }
+
+    void attachAccounting(GlobalBudget budget, TransactionRegistry registry) {
+        if (globalBudget != null) throw new IllegalStateException("Ledger accounting already attached");
+        budget.addLoaded(totalVariantNbtBytes);
+        globalBudget = java.util.Objects.requireNonNull(budget);
+        transactionRegistry = java.util.Objects.requireNonNull(registry);
+    }
+
+    void setRollbackCallback(java.util.function.Consumer<TransactionId> callback) { rollbackCallback = java.util.Objects.requireNonNull(callback); }
+
+    public boolean enterScope(MutationScope scope) {
+        if (!tryEnterMutation(scope)) return false;
+        scope.enter(transactionRegistry);
+        return true;
+    }
 
     void setActivePredicate(java.util.function.BooleanSupplier active) { this.active = active; }
 
@@ -131,12 +175,19 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
     }
 
     public void loadOpaque(CompoundTag rawVariant, long amount) {
+        TransactionId direct = enterDirect();
+        try { loadOpaqueInternal(rawVariant, amount); }
+        finally { leaveDirect(direct); }
+    }
+
+    private void loadOpaqueInternal(CompoundTag rawVariant, long amount) {
         if (rawVariant == null || amount <= 0) return;
         CompoundTag raw = rawVariant.copy();
         Long previous = opaqueEntries.get(raw);
         long newTotal = checkedAdd(totalItemCount, amount);
         if (previous == null) {
             long newBytes = Math.addExact(totalVariantNbtBytes, raw.sizeInBytes());
+            if (globalBudget != null) globalBudget.addLoaded(raw.sizeInBytes());
             opaqueEntries.put(raw, amount);
             variantCount++;
             structureVersion++;
@@ -145,12 +196,19 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
             opaqueEntries.put(raw, Math.addExact(previous, amount));
         }
         totalItemCount = newTotal;
+        if (globalBudget != null) dirtyCallback.run();
     }
 
     public int opaqueVariantCount() { return opaqueEntries.size(); }
     public long opaqueItemCount() { return opaqueEntries.values().stream().mapToLong(Long::longValue).sum(); }
 
     void load(ItemKey resource, long amount, CompoundTag serializedVariant) {
+        TransactionId direct = enterDirect();
+        try { loadInternal(resource, amount, serializedVariant); }
+        finally { leaveDirect(direct); }
+    }
+
+    private void loadInternal(ItemKey resource, long amount, CompoundTag serializedVariant) {
         if (resource.isBlank() || amount <= 0) {
             return;
         }
@@ -161,11 +219,13 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
             int variantNbtBytes = storedVariant.sizeInBytes();
             long newVariantNbtBytes = Math.addExact(totalVariantNbtBytes, variantNbtBytes);
             long newItemCount = checkedAdd(totalItemCount, amount);
+            if (globalBudget != null) globalBudget.addLoaded(variantNbtBytes);
             entries.put(resource, new Entry(resource, amount, storedVariant, variantNbtBytes));
             structureVersion++;
             variantCount++;
             totalItemCount = newItemCount;
             totalVariantNbtBytes = newVariantNbtBytes;
+            if (globalBudget != null) dirtyCallback.run();
             return;
         }
 
@@ -174,12 +234,46 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
             long newItemCount = checkedAdd(totalItemCount, amount);
             existing.amount = mergedAmount;
             totalItemCount = newItemCount;
+            if (globalBudget != null) dirtyCallback.run();
         } catch (ArithmeticException exception) {
             throw new IllegalArgumentException("Duplicate stored variant amount exceeds the long range", exception);
         }
     }
 
+    private TransactionId enterDirect() {
+        TransactionId id = new TransactionId();
+        synchronized (this) {
+            if (mutationOwner != null) {
+                mutationConflicts++;
+                throw new IllegalStateException("Concurrent direct storage mutation rejected");
+            }
+        }
+        if (transactionRegistry != null) transactionRegistry.enter(id);
+        synchronized (this) {
+            if (mutationOwner != null) {
+                if (transactionRegistry != null) transactionRegistry.leave(id);
+                mutationConflicts++;
+                throw new IllegalStateException("Concurrent direct storage mutation rejected");
+            }
+            mutationOwner = id;
+            mutationOwnerThread = Thread.currentThread();
+        }
+        return id;
+    }
+
+    private void leaveDirect(TransactionId id) {
+        if (id != null) {
+            leaveMutation(id);
+            if (transactionRegistry != null) transactionRegistry.leave(id);
+        }
+    }
+
+    TransactionId beginDirectMutation() { return enterDirect(); }
+    void endDirectMutation(TransactionId id) { leaveDirect(id); }
+
     public long insert(ItemKey resource, long maxAmount, MutationScope mutation) {
+        if (!tryEnterMutation(mutation)) return 0;
+        mutation.enter(transactionRegistry);
         if (!active.getAsBoolean() || resource.isBlank() || maxAmount <= 0 || !insertValidator.test(resource)) {
             return 0;
         }
@@ -208,6 +302,9 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
                 ? Math.addExact(totalVariantNbtBytes, entry.variantNbtBytes)
                 : totalVariantNbtBytes;
 
+        long charge = entry.amount == 0 && entry.pendingWithdrawals == 0 ? entry.variantNbtBytes : 0;
+        if (globalBudget != null && !globalBudget.tryReserve(charge, mutation)) return 0;
+
         mutation.enlist(entry);
         mutation.enlist(metricsParticipant);
         if (newEntry) {
@@ -224,6 +321,12 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
     }
 
     public long extract(ItemKey resource, long maxAmount, MutationScope mutation) {
+        return extract(resource, maxAmount, mutation, false);
+    }
+
+    private long extract(ItemKey resource, long maxAmount, MutationScope mutation, boolean reserve) {
+        if (!tryEnterMutation(mutation)) return 0;
+        mutation.enter(transactionRegistry);
         if (!active.getAsBoolean() || resource.isBlank() || maxAmount <= 0) {
             return 0;
         }
@@ -236,11 +339,13 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
         long extracted = Math.min(maxAmount, entry.amount);
         mutation.enlist(entry);
         mutation.enlist(metricsParticipant);
+        if (reserve) entry.pendingWithdrawals++;
         entry.amount -= extracted;
         totalItemCount = Math.subtractExact(totalItemCount, extracted);
         if (entry.amount == 0) {
             variantCount--;
             totalVariantNbtBytes = Math.subtractExact(totalVariantNbtBytes, entry.variantNbtBytes);
+            if (globalBudget != null && entry.pendingWithdrawals == 0) globalBudget.release(entry.variantNbtBytes, mutation);
         }
         return extracted;
     }
@@ -252,8 +357,10 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
 
     /** A one-shot receipt can restore only its own unaccepted withdrawal, even after insertion is disabled. */
     public Extraction reserveExtraction(ItemKey key, long maximum, MutationScope mutation) {
-        long reserved = extract(key, maximum, mutation);
-        return new Extraction(entries.get(key), reserved, mutation);
+        long reserved = extract(key, maximum, mutation, true);
+        var receipt = new Extraction(entries.get(key), reserved, mutation);
+        if (globalBudget != null && reserved > 0) globalBudget.releaseOnCommit(mutation, receipt::releaseIfUnsettled);
+        return receipt;
     }
 
     public final class Extraction {
@@ -265,6 +372,12 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
             this.entry = entry; this.reserved = reserved; this.mutation = mutation;
         }
         public long amount() { return reserved; }
+        private long releaseIfUnsettled() {
+            if (settled) return 0;
+            settled = true;
+            entry.pendingWithdrawals--;
+            return entry.amount == 0 && entry.pendingWithdrawals == 0 ? entry.variantNbtBytes : 0;
+        }
         public void settle(long delivered) {
             if (settled || delivered < 0 || delivered > reserved) throw new IllegalStateException("Invalid withdrawal settlement");
             if (reserved == 0) { settled = true; return; }
@@ -276,6 +389,10 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
                 if (entry.amount == 0) { variantCount++; totalVariantNbtBytes = Math.addExact(totalVariantNbtBytes, entry.variantNbtBytes); }
                 entry.amount = Math.addExact(entry.amount, returned);
                 totalItemCount = Math.addExact(totalItemCount, returned);
+            }
+            entry.pendingWithdrawals--;
+            if (globalBudget != null && entry.amount == 0 && entry.pendingWithdrawals == 0) {
+                globalBudget.release(entry.variantNbtBytes, mutation);
             }
             settled = true;
         }
@@ -350,72 +467,19 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
         List<StoredEntrySnapshot> snapshots = new ArrayList<>(variantCount);
         entries.values().forEach(entry -> {
             if (entry.amount > 0) {
-                snapshots.add(new StoredEntrySnapshot(entry.serializedVariant, entry.amount));
+                snapshots.add(new StoredEntrySnapshot(entry.serializedVariant.copy(), entry.amount));
             }
         });
         opaqueEntries.forEach((raw, amount) -> snapshots.add(new StoredEntrySnapshot(raw.copy(), amount)));
         return List.copyOf(snapshots);
     }
 
-    public SnapshotCursor snapshotCursor() {
-        return new SnapshotCursor();
-    }
-
-    public final class SnapshotCursor {
-        private Iterator<Entry> iterator;
-        private List<StoredEntrySnapshot> snapshots;
-        private long expectedVersion = Long.MIN_VALUE;
-        private long expectedStructureVersion;
-        private boolean complete;
-
-        public CursorProgress advance(int maximumEntries) {
-            if (maximumEntries <= 0) {
-                return new CursorProgress(false, false, 0, List.of());
-            }
-            boolean invalidated = expectedVersion != contentVersion || expectedStructureVersion != structureVersion;
-            boolean restarted = iterator != null && invalidated;
-            if (iterator == null || invalidated) {
-                expectedVersion = contentVersion;
-                expectedStructureVersion = structureVersion;
-                iterator = entries.values().iterator();
-                snapshots = new ArrayList<>(variantCount);
-                complete = false;
-            }
-            if (complete) {
-                return new CursorProgress(true, restarted, 0, snapshots);
-            }
-
-            int examined = 0;
-            try {
-                while (examined < maximumEntries && iterator.hasNext()) {
-                    Entry entry = iterator.next();
-                    examined++;
-                    if (entry.amount > 0) {
-                        snapshots.add(new StoredEntrySnapshot(entry.serializedVariant, entry.amount));
-                    }
-                }
-                if (!iterator.hasNext()) {
-                    opaqueEntries.forEach((raw, amount) -> snapshots.add(new StoredEntrySnapshot(raw.copy(), amount)));
-                    snapshots = List.copyOf(snapshots);
-                    complete = true;
-                }
-            } catch (ConcurrentModificationException exception) {
-                // Last-resort protection for an untracked structural mutation. Never
-                // publish partial data or retry unbounded work in the same tick.
-                iterator = null;
-                snapshots = null;
-                complete = false;
-                return new CursorProgress(false, true, examined, List.of());
-            }
-            return new CursorProgress(complete, restarted, examined, complete ? snapshots : List.of());
-        }
-    }
-
-    private final class Entry implements MutationParticipant<Long>, View {
+    private final class Entry implements MutationParticipant<EntrySnapshot>, View {
         private final ItemKey resource;
         private final CompoundTag serializedVariant;
         private final int variantNbtBytes;
         private long amount;
+        private int pendingWithdrawals;
 
         private Entry(ItemKey resource, long amount, CompoundTag serializedVariant, int variantNbtBytes) {
             this.resource = resource;
@@ -425,16 +489,18 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
         }
 
         @Override
-        public Long snapshot() {
-            return amount;
+        public EntrySnapshot snapshot() {
+            return new EntrySnapshot(amount, pendingWithdrawals);
         }
 
         @Override
-        public void restore(Long snapshot) {
-            amount = snapshot;
+        public void restore(EntrySnapshot snapshot) {
+            amount = snapshot.amount();
+            pendingWithdrawals = snapshot.pendingWithdrawals();
             if (amount == 0 && entries.remove(resource, this)) {
                 structureVersion++;
             }
+            rollbackCallback.accept(mutationOwner);
         }
 
         @Override
@@ -442,7 +508,7 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
             if (amount == 0 && entries.remove(resource, this)) {
                 structureVersion++;
             }
-            dirtyCallback.run();
+            TransactionId.runCallback(mutationOwner, dirtyCallback);
         }
 
         @Override
@@ -493,16 +559,10 @@ public final class VolumeLedger implements Iterable<VolumeLedger.View> {
     public record StoredEntrySnapshot(CompoundTag serializedVariant, long amount) {
     }
 
-    public record CursorProgress(
-            boolean complete,
-            boolean restarted,
-            int examinedEntries,
-            List<StoredEntrySnapshot> snapshots
-    ) {
-    }
-
     private record MetricsSnapshot(int variantCount, long totalItemCount, long totalVariantNbtBytes) {
     }
+
+    private record EntrySnapshot(long amount, int pendingWithdrawals) { }
 
     public interface View {
         boolean isResourceBlank();

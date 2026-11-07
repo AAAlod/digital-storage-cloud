@@ -208,9 +208,17 @@ public final class DigitalStorageRecord {
                 fallback.id(),
                 lastKnownVariantCapacity
         );
-        tierId = fallback.id();
-        lastKnownVariantCapacity = Math.max(lastKnownVariantCapacity, fallback.variantCapacity());
-        dirtyCallback.run();
+        boolean alreadyHeld = storage.mutationHeldByCurrentThread();
+        TransactionId guard = null;
+        if (!alreadyHeld) {
+            try { guard = storage.beginDirectMutation(); }
+            catch (IllegalStateException conflict) { return fallback; }
+        }
+        try {
+            tierId = fallback.id();
+            lastKnownVariantCapacity = Math.max(lastKnownVariantCapacity, fallback.variantCapacity());
+            dirtyCallback.run();
+        } finally { if (!alreadyHeld) storage.endDirectMutation(guard); }
         return fallback;
     }
 
@@ -231,13 +239,18 @@ public final class DigitalStorageRecord {
     }
 
     public boolean setAcceptUnstackableItems(boolean value) {
-        if (acceptUnstackableItems == value) {
-            return false;
-        }
-        acceptUnstackableItems = value;
-        policyVersion++;
-        dirtyCallback.run();
-        return true;
+        TransactionId guard;
+        try { guard = storage.beginDirectMutation(); }
+        catch (IllegalStateException conflict) { return false; }
+        try {
+            if (acceptUnstackableItems == value) {
+                return false;
+            }
+            acceptUnstackableItems = value;
+            policyVersion++;
+            dirtyCallback.run();
+            return true;
+        } finally { storage.endDirectMutation(guard); }
     }
 
     public long policyVersion() {
@@ -250,16 +263,21 @@ public final class DigitalStorageRecord {
     }
 
     public boolean setTier(ResourceLocation requestedTierId) {
-        if (DigitalStorageTierRegistry.INSTANCE.find(requestedTierId).isEmpty() || tierId.equals(requestedTierId)) {
-            return false;
-        }
+        TransactionId guard;
+        try { guard = storage.beginDirectMutation(); }
+        catch (IllegalStateException conflict) { return false; }
+        try {
+            if (DigitalStorageTierRegistry.INSTANCE.find(requestedTierId).isEmpty() || tierId.equals(requestedTierId)) {
+                return false;
+            }
 
-        tierId = requestedTierId;
-        lastKnownVariantCapacity = DigitalStorageTierRegistry.INSTANCE.find(requestedTierId)
-                .orElseThrow()
-                .variantCapacity();
-        dirtyCallback.run();
-        return true;
+            tierId = requestedTierId;
+            lastKnownVariantCapacity = DigitalStorageTierRegistry.INSTANCE.find(requestedTierId)
+                    .orElseThrow()
+                    .variantCapacity();
+            dirtyCallback.run();
+            return true;
+        } finally { storage.endDirectMutation(guard); }
     }
 
     public boolean advanceTier(ResourceLocation expectedCurrentTierId, ResourceLocation requestedTierId) {

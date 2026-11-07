@@ -57,13 +57,11 @@ public final class DigitalItemStorageSelfTest {
         volumeUnstackablePolicyPersistsAndMigrates();
         oversizedVariantNbtIsMeasurableAndRejectable();
         aggregateVariantNbtBudgetIsTransactional();
-        incrementalSnapshotRestartsAfterMutation();
-        incrementalSnapshotRestartsAfterProvisionalVariantRollback();
-        incrementalSnapshotTransactionMatrix();
-        incrementalSnapshotDiscardsPartialDataAfterUnexpectedIteratorFailure();
+        snapshotReflectsMutation();
+        snapshotAfterProvisionalVariantRollback();
+        snapshotTransactionMatrix();
         finalFlushAfterRollbackRoundTrips();
-        continuouslyMutatingVolumeCannotStarvePersistence();
-        agedDirtyVolumeForcesSnapshotCompletion();
+        savedDataPersistsMultipleMutatingVolumes();
         DigitalStorageConfig.runSelfTest();
         ItemSecurityPolicy.runSelfTest();
         stressVariantCapacityAtHardLimit();
@@ -84,7 +82,7 @@ public final class DigitalItemStorageSelfTest {
         filteredHopperTransferMovesOneBatch(stone);
         fullDestinationDoesNotTouchTheSource(stone);
         changingDestinationCapacityRollsBackTheSource(stone);
-        return "Digital Storage self-test passed: shared ledger/nested transactions, Fabric bridge/vanilla conservation/cache cleanup, content versions, cached metrics, immutable snapshots, persistence restart/fairness/liveness, limits, dynamic Volume unstackable policy/config migration/persistence, per-insert policy, filtering, NBT guard, stress, canonical aliasing, Tom raw endpoint detection/duplicate-count prevention/dedup/fallback/cursor invalidation, device-scoped hopper tiers, network scoring/recommendations, budgeted atomic migration/rollback/lifecycle invalidation, sharded file round-trip/deletion, storage size telemetry, force-clear, orphan binding self-heal, mount statistics semantics, schema guard, file quarantine, tier migration, payment reservation, screen codec, atomic hopper paths";
+        return "Digital Storage self-test passed: shared ledger/nested transactions, Fabric bridge/vanilla conservation/cache cleanup, content versions, cached metrics, immutable snapshots, SavedData persistence and restart, limits, dynamic Volume unstackable policy/config migration/persistence, per-insert policy, filtering, NBT guard, stress, canonical aliasing, Tom raw endpoint detection/duplicate-count prevention/dedup/fallback/cursor invalidation, device-scoped hopper tiers, network scoring/recommendations, budgeted atomic migration/rollback/lifecycle invalidation, single-file round-trip/deletion, storage size telemetry, force-clear, orphan binding self-heal, mount statistics semantics, schema guard, legacy data preservation, tier migration, payment reservation, screen codec, atomic hopper paths";
     }
 
     private static void committedInsertPersistsAndMarksDirtyOnce(ItemVariant stone) {
@@ -426,96 +424,41 @@ public final class DigitalItemStorageSelfTest {
         expectEquals(dirtBytes, storage.totalVariantNbtBytes(), "aggregate-NBT bytes after replacement");
     }
 
-    private static void incrementalSnapshotRestartsAfterMutation() {
+    private static void snapshotReflectsMutation() {
         FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, 4);
-        ItemVariant stone = ItemVariant.of(Items.STONE);
-        ItemVariant dirt = ItemVariant.of(Items.DIRT);
-        ItemVariant gravel = ItemVariant.of(Items.GRAVEL);
+        seedSnapshotStorage(storage);
+        var before = storage.snapshotEntries();
         try (Transaction transaction = Transaction.openOuter()) {
-            storage.insert(stone, 1, transaction);
-            storage.insert(dirt, 2, transaction);
-            storage.insert(gravel, 3, transaction);
+            storage.insert(ItemVariant.of(Items.STONE), 4, transaction);
             transaction.commit();
         }
-
-        VolumeLedger.SnapshotCursor cursor = storage.snapshotCursor();
-        VolumeLedger.CursorProgress first = cursor.advance(1);
-        expectFalse(first.complete(), "incremental snapshot ignored variant budget");
-        expectFalse(first.restarted(), "initial snapshot was reported as a restart");
-        expectEquals(1, first.examinedEntries(), "incremental snapshot first-tick work");
-        try (Transaction transaction = Transaction.openOuter()) {
-            storage.insert(stone, 4, transaction);
-            transaction.commit();
-        }
-
-        VolumeLedger.CursorProgress progress = cursor.advance(1);
-        expectTrue(progress.restarted(), "mutation restart was not reported to the scheduler");
-        do {
-            expectTrue(progress.examinedEntries() <= 1, "incremental snapshot exceeded per-tick budget");
-            if (!progress.complete()) {
-                progress = cursor.advance(1);
-            }
-        } while (!progress.complete());
-        long snapshotTotal = progress.snapshots().stream().mapToLong(VolumeLedger.StoredEntrySnapshot::amount).sum();
-        expectEquals(10, snapshotTotal, "incremental snapshot did not restart after mutation");
+        expectEquals(6, before.stream().mapToLong(VolumeLedger.StoredEntrySnapshot::amount).sum(), "captured snapshot changed");
+        expectEquals(10, storage.snapshotEntries().stream().mapToLong(VolumeLedger.StoredEntrySnapshot::amount).sum(), "new snapshot missed mutation");
     }
 
-    private static void incrementalSnapshotRestartsAfterProvisionalVariantRollback() {
-        AtomicInteger dirtyCalls = new AtomicInteger();
-        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(dirtyCalls::incrementAndGet, 8);
+    private static void snapshotAfterProvisionalVariantRollback() {
+        AtomicInteger dirty = new AtomicInteger();
+        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(dirty::incrementAndGet, 8);
+        seedSnapshotStorage(storage);
+        var before = storage.snapshotEntries();
+        long version = storage.contentVersion(); int callbacks = dirty.get();
         try (Transaction transaction = Transaction.openOuter()) {
-            storage.insert(ItemVariant.of(Items.STONE), 1, transaction);
-            storage.insert(ItemVariant.of(Items.DIRT), 2, transaction);
-            storage.insert(ItemVariant.of(Items.GRAVEL), 3, transaction);
-            transaction.commit();
+            expectEquals(7, storage.insert(ItemVariant.of(Items.DIAMOND), 7, transaction), "provisional insert");
         }
-        long version = storage.contentVersion();
-        int dirty = dirtyCalls.get();
-        long nbtBytes = storage.totalVariantNbtBytes();
-        VolumeLedger.SnapshotCursor cursor = storage.snapshotCursor();
-        VolumeLedger.CursorProgress first = cursor.advance(1);
-        expectFalse(first.complete(), "rollback regression requires a retained iterator");
-        expectFalse(first.restarted(), "initial rollback snapshot reported a restart");
-        expectEquals(1, first.examinedEntries(), "rollback snapshot initial budget");
-        ItemVariant provisional = ItemVariant.of(Items.DIAMOND);
-        try (Transaction transaction = Transaction.openOuter()) {
-            expectEquals(7, storage.insert(provisional, 7, transaction), "provisional variant inserted");
-        }
-        expectEquals(version, storage.contentVersion(), "rollback changed committed content version");
-        expectEquals(dirty, dirtyCalls.get(), "rollback invoked dirty callback");
-        expectEquals(3, storage.variantCount(), "rollback restored variant count");
-        expectEquals(6, storage.totalItemCount(), "rollback restored item count");
-        expectEquals(nbtBytes, storage.totalVariantNbtBytes(), "rollback restored NBT bytes");
-        expectEquals(0, storage.amountOf(provisional), "rollback retained provisional variant");
-        VolumeLedger.CursorProgress progress = cursor.advance(1);
-        expectTrue(progress.restarted(), "provisional rollback did not restart invalidated iterator");
-        expectEquals(1, progress.examinedEntries(), "rollback must invalidate before next(), not just catch CME");
-        expectSnapshotMatches(storage, cursor, progress);
+        expectEquals(version, storage.contentVersion(), "rollback changed version");
+        expectEquals(callbacks, dirty.get(), "rollback marked dirty");
+        expectEquals(before, storage.snapshotEntries(), "rollback changed saved snapshot");
     }
 
-    private static void expectSnapshotMatches(
-            FabricDigitalItemStorage storage,
-            VolumeLedger.SnapshotCursor cursor,
-            VolumeLedger.CursorProgress progress
-    ) {
-        for (int step = 0; step < 32; step++) {
-            expectTrue(progress.examinedEntries() <= 1, "snapshot exceeded per-call variant budget");
-            if (progress.complete()) {
-                Map<ItemVariant, Long> expected = new HashMap<>();
-                storage.forEach(expected::put);
-                Map<ItemVariant, Long> actual = new HashMap<>();
-                for (VolumeLedger.StoredEntrySnapshot entry : progress.snapshots()) {
-                    ItemVariant variant = ItemVariant.fromNbt(entry.serializedVariant());
-                    expectFalse(actual.containsKey(variant), "snapshot duplicated a variant");
-                    actual.put(variant, entry.amount());
-                }
-                expectEquals(expected, actual, "snapshot differs from committed storage");
-                return;
-            }
-            progress = cursor.advance(1);
-            expectFalse(progress.restarted(), "unchanged storage restarted snapshot repeatedly");
+    private static void expectSnapshotMatches(FabricDigitalItemStorage storage) {
+        Map<ItemVariant, Long> expected = new HashMap<>(); storage.forEach(expected::put);
+        Map<ItemVariant, Long> actual = new HashMap<>();
+        for (VolumeLedger.StoredEntrySnapshot entry : storage.snapshotEntries()) {
+            ItemVariant key = ItemVariant.fromNbt(entry.serializedVariant());
+            expectFalse(actual.containsKey(key), "snapshot duplicated variant");
+            actual.put(key, entry.amount());
         }
-        throw new IllegalStateException("Snapshot did not finish within bounded regression steps");
+        expectEquals(expected, actual, "snapshot differs from storage");
     }
 
     private static void seedSnapshotStorage(FabricDigitalItemStorage storage) {
@@ -575,43 +518,22 @@ public final class DigitalItemStorageSelfTest {
         }
     }
 
-    private static void incrementalSnapshotTransactionMatrix() {
+    private static void snapshotTransactionMatrix() {
         for (SnapshotMutation mutation : SnapshotMutation.values()) {
-            AtomicInteger dirtyCalls = new AtomicInteger();
-            FabricDigitalItemStorage storage = new FabricDigitalItemStorage(dirtyCalls::incrementAndGet, 8);
+            AtomicInteger dirty = new AtomicInteger();
+            FabricDigitalItemStorage storage = new FabricDigitalItemStorage(dirty::incrementAndGet, 8);
             seedSnapshotStorage(storage);
-            long version = storage.contentVersion();
-            int dirty = dirtyCalls.get();
-            VolumeLedger.SnapshotCursor cursor = storage.snapshotCursor();
-            expectFalse(cursor.advance(1).complete(), "matrix requires partial scan: " + mutation);
+            long version = storage.contentVersion(); int callbacks = dirty.get();
             mutateSnapshotStorage(storage, mutation);
             boolean committed = mutation == SnapshotMutation.COMMIT_INSERT || mutation == SnapshotMutation.COMMIT_REMOVE;
             expectEquals(version + (committed ? 1 : 0), storage.contentVersion(), "matrix content version: " + mutation);
-            expectEquals(dirty + (committed ? 1 : 0), dirtyCalls.get(), "matrix dirty callbacks: " + mutation);
+            expectEquals(callbacks + (committed ? 1 : 0), dirty.get(), "matrix dirty callback: " + mutation);
             Map<ItemVariant, Long> expected = new HashMap<>();
-            expected.put(ItemVariant.of(Items.STONE), 1L);
-            expected.put(ItemVariant.of(Items.DIRT), 2L);
-            expected.put(ItemVariant.of(Items.GRAVEL), 3L);
-            if (mutation == SnapshotMutation.COMMIT_INSERT || mutation == SnapshotMutation.LOAD_NEW_ENTRY) {
-                expected.put(ItemVariant.of(Items.DIAMOND), 7L);
-            } else if (mutation == SnapshotMutation.COMMIT_REMOVE) {
-                expected.remove(ItemVariant.of(Items.STONE));
-            }
+            expected.put(ItemVariant.of(Items.STONE), 1L); expected.put(ItemVariant.of(Items.DIRT), 2L); expected.put(ItemVariant.of(Items.GRAVEL), 3L);
+            if (mutation == SnapshotMutation.COMMIT_INSERT || mutation == SnapshotMutation.LOAD_NEW_ENTRY) expected.put(ItemVariant.of(Items.DIAMOND), 7L);
+            else if (mutation == SnapshotMutation.COMMIT_REMOVE) expected.remove(ItemVariant.of(Items.STONE));
             expectStorageMatches(expected, storage, "matrix " + mutation);
-            VolumeLedger.CursorProgress zeroBudget = cursor.advance(0);
-            expectEquals(0, zeroBudget.examinedEntries(), "zero budget performed work");
-            expectFalse(zeroBudget.restarted(), "zero budget consumed invalidation");
-            VolumeLedger.CursorProgress progress = cursor.advance(1);
-            expectEquals(mutation != SnapshotMutation.ABORT_EXTRACT, progress.restarted(),
-                    "matrix restart semantics: " + mutation);
-            expectEquals(1, progress.examinedEntries(), "matrix must detect invalidation before iteration: " + mutation);
-            expectSnapshotMatches(storage, cursor, progress);
-            // A completed cursor must invalidate too, without publishing stale data.
-            mutateSnapshotStorage(storage, SnapshotMutation.ABORT_INSERT);
-            progress = cursor.advance(1);
-            boolean newKey = !expected.containsKey(ItemVariant.of(Items.DIAMOND));
-            expectEquals(newKey, progress.restarted(), "completed cursor restart: " + mutation);
-            expectSnapshotMatches(storage, cursor, progress);
+            expectSnapshotMatches(storage);
         }
     }
 
@@ -626,43 +548,7 @@ public final class DigitalItemStorageSelfTest {
                 storage.totalVariantNbtBytes(), label + " NBT metric");
     }
 
-    private static void incrementalSnapshotDiscardsPartialDataAfterUnexpectedIteratorFailure() {
-        FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, 8);
-        seedSnapshotStorage(storage);
-        VolumeLedger.SnapshotCursor cursor = storage.snapshotCursor();
-        cursor.advance(1);
-        try {
-            // Inject an untracked iterator failure after one more entry was copied.
-            // No production hook or intentional corruption of the live ledger is needed.
-            java.lang.reflect.Field field = cursor.getClass().getDeclaredField("iterator");
-            field.setAccessible(true);
-            Iterator<?> delegate = (Iterator<?>) field.get(cursor);
-            field.set(cursor, new Iterator<Object>() {
-                private int reads;
 
-                @Override
-                public boolean hasNext() {
-                    return true;
-                }
-
-                @Override
-                public Object next() {
-                    if (reads++ == 0) {
-                        return delegate.next();
-                    }
-                    throw new java.util.ConcurrentModificationException("Injected untracked mutation");
-                }
-            });
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("Could not inject iterator failure", exception);
-        }
-        VolumeLedger.CursorProgress failed = cursor.advance(2);
-        expectTrue(failed.restarted(), "defensive failure was not reported to scheduler");
-        expectFalse(failed.complete(), "defensive failure published an incomplete snapshot");
-        expectTrue(failed.snapshots().isEmpty(), "defensive failure exposed partial data");
-        expectEquals(1, failed.examinedEntries(), "defensive failure lost consumed budget");
-        expectSnapshotMatches(storage, cursor, cursor.advance(1));
-    }
 
     private static void finalFlushAfterRollbackRoundTrips() {
         for (SnapshotMutation mutation : new SnapshotMutation[] {
@@ -678,19 +564,17 @@ public final class DigitalItemStorageSelfTest {
                     FabricDigitalItemStorage storage = FabricDigitalItemStorage.of(volume.record().storage());
                     seedSnapshotStorage(storage);
                     // Persist account metadata before the test-only drain discards its batch.
-                    state.flushAndWaitForTest();
+                    state.flushNow();
                     try (Transaction transaction = Transaction.openOuter()) {
                         storage.insert(ItemVariant.of(Items.DIRT), 10, transaction);
                         transaction.commit();
                     }
-                    expectTrue(state.drainVolumeSnapshotsForTest(1, 1).isEmpty(), "final flush requires a retained cursor");
                     mutateSnapshotStorage(storage, mutation);
                     Map<ItemVariant, Long> expected = new HashMap<>();
                     storage.forEach(expected::put);
                     if (!closeDirectly) {
-                        state.flushAndWaitForTest();
-                        expectEquals(0, state.dirtyVolumeCount(), "final flush left a dirty volume");
-                        expectEquals(0, state.pendingWriteBatches(), "final flush left writer work pending");
+                        state.flushNow();
+                        expectFalse(state.savedDataDirty(), "final flush left SavedData dirty");
                     }
                     state.closeForTest();
                     closed = true;
@@ -711,86 +595,27 @@ public final class DigitalItemStorageSelfTest {
         }
     }
 
-    private static void continuouslyMutatingVolumeCannotStarvePersistence() {
-        java.nio.file.Path root = temporaryStorageDirectory("snapshot-liveness");
-        DigitalStorageState state = DigitalStorageState.openForTest(root);
+    private static void savedDataPersistsMultipleMutatingVolumes() {
+        java.nio.file.Path root = temporaryStorageDirectory("multiple-saved-volumes");
         try {
-            java.util.UUID owner = java.util.UUID.randomUUID();
-            StorageVolume hot = state.createVolume(owner, "Hot", 3).orElseThrow();
-            StorageVolume coldOne = state.createVolume(owner, "Cold one", 3).orElseThrow();
-            StorageVolume coldTwo = state.createVolume(owner, "Cold two", 3).orElseThrow();
-            ItemVariant hotVariant = null;
-            for (int index = 0; index < 8; index++) {
-                net.minecraft.nbt.CompoundTag nbt = new net.minecraft.nbt.CompoundTag();
-                nbt.putInt("SnapshotLiveness", index);
-                ItemVariant variant = ItemVariant.of(Items.PAPER, nbt);
-                if (hotVariant == null) {
-                    hotVariant = variant;
-                }
-                try (Transaction transaction = Transaction.openOuter()) {
-                    expectEquals(1, FabricDigitalItemStorage.of(hot.record().storage()).insert(variant, 1, transaction),
-                            "hot-volume liveness seed " + index);
-                    transaction.commit();
-                }
+            var state = DigitalStorageState.openForTest(root); var owner = java.util.UUID.randomUUID();
+            var first = state.createVolume(owner, "first", 2).orElseThrow();
+            var second = state.createVolume(owner, "second", 2).orElseThrow();
+            try (Transaction tx = Transaction.openOuter()) {
+                FabricDigitalItemStorage.of(first.record().storage()).insert(ItemVariant.of(Items.STONE), 3, tx);
+                FabricDigitalItemStorage.of(second.record().storage()).insert(ItemVariant.of(Items.DIRT), 4, tx); tx.commit();
             }
-            try (Transaction transaction = Transaction.openOuter()) {
-                FabricDigitalItemStorage.of(coldOne.record().storage()).insert(ItemVariant.of(Items.DIRT), 1, transaction);
-                FabricDigitalItemStorage.of(coldTwo.record().storage()).insert(ItemVariant.of(Items.GRAVEL), 1, transaction);
-                transaction.commit();
-            }
-
-            boolean coldOneCompleted = false;
-            boolean coldTwoCompleted = false;
-            boolean hotCompleted = false;
-            int steps = 0;
-            while (!hotCompleted && steps++ < 12) {
-                Set<java.util.UUID> completed = state.drainVolumeSnapshotsForTest(1, 2);
-                coldOneCompleted |= completed.contains(coldOne.id());
-                coldTwoCompleted |= completed.contains(coldTwo.id());
-                hotCompleted |= completed.contains(hot.id());
-                if (!hotCompleted) {
-                    try (Transaction transaction = Transaction.openOuter()) {
-                        FabricDigitalItemStorage.of(hot.record().storage()).insert(hotVariant, 1, transaction);
-                        transaction.commit();
-                    }
-                }
-            }
-
-            expectTrue(coldOneCompleted && coldTwoCompleted,
-                    "continuously mutating volume starved a cold volume");
-            expectTrue(hotCompleted, "continuously mutating volume never produced a snapshot");
-            expectTrue(state.snapshotRestartCount() >= DigitalStorageState.MAX_INCREMENTAL_SNAPSHOT_RESTARTS,
-                    "hot-volume restart threshold was not exercised");
-            expectEquals(1L, state.forcedSnapshotCount(), "hot-volume forced snapshot count");
-        } finally {
-            state.closeForTest();
-            deleteTemporaryStorageDirectory(root);
-        }
+            expectTrue(state.savedDataDirty(), "mutations did not mark SavedData dirty");
+            state.flushNow(); expectFalse(state.savedDataDirty(), "flush left SavedData dirty"); state.closeForTest();
+            var restored = DigitalStorageState.openForTest(root);
+            try {
+                expectEquals(3, restored.volume(first.id()).orElseThrow().record().storage().amountOf(ItemKey.of(Items.STONE)), "first volume after reopen");
+                expectEquals(4, restored.volume(second.id()).orElseThrow().record().storage().amountOf(ItemKey.of(Items.DIRT)), "second volume after reopen");
+            } finally { restored.closeForTest(); }
+        } finally { deleteTemporaryStorageDirectory(root); }
     }
 
-    private static void agedDirtyVolumeForcesSnapshotCompletion() {
-        java.nio.file.Path root = temporaryStorageDirectory("snapshot-dirty-age");
-        DigitalStorageState state = DigitalStorageState.openForTest(root);
-        try {
-            StorageVolume volume = state.createVolume(java.util.UUID.randomUUID(), "Aged", 1).orElseThrow();
-            for (int index = 0; index < 8; index++) {
-                net.minecraft.nbt.CompoundTag nbt = new net.minecraft.nbt.CompoundTag();
-                nbt.putInt("SnapshotDirtyAge", index);
-                try (Transaction transaction = Transaction.openOuter()) {
-                    FabricDigitalItemStorage.of(volume.record().storage()).insert(ItemVariant.of(Items.PAPER, nbt), 1, transaction);
-                    transaction.commit();
-                }
-            }
-            state.advancePersistenceTicksForTest(DigitalStorageState.MAX_DIRTY_VOLUME_AGE_TICKS);
 
-            Set<java.util.UUID> completed = state.drainVolumeSnapshotsForTest(1, 2);
-            expectTrue(completed.contains(volume.id()), "aged dirty volume did not force snapshot completion");
-            expectEquals(1L, state.forcedSnapshotCount(), "aged dirty-volume forced snapshot count");
-        } finally {
-            state.closeForTest();
-            deleteTemporaryStorageDirectory(root);
-        }
-    }
 
     private static void stressVariantCapacityAtHardLimit() {
         FabricDigitalItemStorage storage = new FabricDigitalItemStorage(() -> { }, DigitalStorageRecord.ABSOLUTE_MAX_VARIANTS);
@@ -860,115 +685,32 @@ public final class DigitalItemStorageSelfTest {
     private static void accountVolumeLimitAndCanonicalIdentityAreStable() {
         java.nio.file.Path root = temporaryStorageDirectory("round-trip");
         try {
-            java.util.UUID owner = java.util.UUID.randomUUID();
-            java.util.UUID volumeId;
-            DigitalStorageState state = DigitalStorageState.openForTest(root);
-            try {
-                StorageVolume volume = state.createVolume(owner, "Primary", 1).orElseThrow();
-                volumeId = volume.id();
-                expectTrue(state.createVolume(owner, "Overflow", 1).isEmpty(),
-                        "account volume limit was not enforced");
-                expectEquals(1, state.volumes(owner).size(), "account volume index size");
-                expectTrue(state.ownsVolume(owner, volumeId), "volume ownership lookup");
-                expectFalse(state.ownsVolume(java.util.UUID.randomUUID(), volumeId),
-                        "foreign volume ownership lookup");
-
-                FabricDigitalItemStorage first = FabricDigitalItemStorage.of(volume.record().storage());
-                FabricDigitalItemStorage second = FabricDigitalItemStorage.of(state.volume(volumeId).orElseThrow().record().storage());
-                expectTrue(first == second, "same volume UUID did not return the canonical Storage object");
-                try (Transaction transaction = Transaction.openOuter()) {
-                    expectEquals(42, first.insert(ItemVariant.of(Items.STONE), 42, transaction),
-                            "volume round-trip seed");
-                    transaction.commit();
-                }
-                expectFalse(state.deleteEmptyVolume(owner, volumeId), "non-empty volume was deleted");
-                state.flushAndWaitForTest();
-                expectEquals(0, state.dirtyAccountCount(), "dirty account count after flush");
-                expectEquals(0, state.dirtyVolumeCount(), "dirty volume count after flush");
-                expectTrue(state.lastNbtEncodeThreadName().startsWith("DigitalStorage-Writer"),
-                        "NBT snapshot was encoded outside the background writer");
-                DigitalStorageState.StorageSizeStats sizes = state.storageSizeStats();
-                expectTrue(sizes.accountDiskBytes() > 0, "account disk size telemetry was empty");
-                expectTrue(sizes.volumeDiskBytes() > 0, "volume disk size telemetry was empty");
-                expectTrue(sizes.totalEstimatedVolumeNbtBytes() > 0, "volume NBT size telemetry was empty");
-                DigitalStorageState.ContentStats liveContent = state.contentStats(false);
-                expectEquals(1L, liveContent.variantCount(), "live content variant count");
-                expectEquals(java.math.BigInteger.valueOf(42), liveContent.totalItemCount(),
-                        "live content item count");
-                expectEquals(1, liveContent.inspectedVolumeCount(), "live inspected volume count");
-                expectEquals(0, liveContent.uninspectedVolumeCount(), "live uninspected volume count");
-                expectEquals(
-                        sizes.totalEstimatedVolumeNbtBytes(),
-                        sizes.largestEstimatedVolumeNbtBytes(),
-                        "single-volume largest NBT size"
-                );
-                expectEquals(
-                        sizes.totalEstimatedVolumeNbtBytes(),
-                        sizes.averageEstimatedVolumeNbtBytes(),
-                        "single-volume average NBT size"
-                );
-                volume.record();
-                state.volume(volumeId).orElseThrow().record();
-                expectEquals(0, state.dirtyVolumeCount(), "read-only record lookup marked the volume dirty");
-                expectTrue(java.nio.file.Files.isRegularFile(root.resolve("accounts").resolve(owner + ".dat")),
-                        "independent account file was not written");
-                expectTrue(java.nio.file.Files.isRegularFile(root.resolve("volumes").resolve(volumeId + ".dat")),
-                        "independent volume file was not written");
-            } finally {
-                state.closeForTest();
-            }
-
-            DigitalStorageState reloaded = DigitalStorageState.openForTest(root);
-            try {
-                expectEquals(0, reloaded.loadedVolumeCountForTest(),
-                        "volume contents were eagerly loaded at startup");
-                DigitalStorageState.ContentStats fastContent = reloaded.contentStats(false);
-                expectEquals(0L, fastContent.variantCount(), "cold fast content variant count");
-                expectEquals(java.math.BigInteger.ZERO, fastContent.totalItemCount(),
-                        "cold fast content item count");
-                expectEquals(0, fastContent.inspectedVolumeCount(), "cold fast inspected volume count");
-                expectEquals(1, fastContent.uninspectedVolumeCount(), "cold fast uninspected volume count");
-                expectEquals(0, reloaded.loadedVolumeCountForTest(),
-                        "fast content statistics cold-loaded a volume");
-                DigitalStorageState.ContentStats deepContent = reloaded.contentStats(true);
-                expectEquals(1L, deepContent.variantCount(), "deep content variant count");
-                expectEquals(java.math.BigInteger.valueOf(42), deepContent.totalItemCount(),
-                        "deep content item count");
-                expectEquals(1, deepContent.inspectedVolumeCount(), "deep inspected volume count");
-                expectEquals(0, deepContent.uninspectedVolumeCount(), "deep uninspected volume count");
-                StorageVolume reloadedVolume = reloaded.volume(volumeId).orElseThrow();
-                expectEquals(1, reloaded.loadedVolumeCountForTest(),
-                        "lazy volume was not retained while referenced");
-                expectEquals(owner, reloadedVolume.ownerId(), "volume owner after file round trip");
-                expectEquals("Primary", reloadedVolume.name(), "volume name after file round trip");
-                expectEquals(42, onlyView(FabricDigitalItemStorage.of(reloadedVolume.record().storage())).getAmount(),
-                        "volume items after file round trip");
-                expectEquals(1, reloaded.accountCount(), "account file round trip");
-                try (Transaction transaction = Transaction.openOuter()) {
-                    expectEquals(42, FabricDigitalItemStorage.of(reloadedVolume.record().storage()).extract(
-                            ItemVariant.of(Items.STONE),
-                            42,
-                            transaction
-                    ), "volume deletion test extraction");
-                    transaction.commit();
-                }
-                expectTrue(reloaded.deleteEmptyVolume(owner, volumeId), "empty volume deletion was rejected");
-            } finally {
-                reloaded.closeForTest();
-            }
-
-            DigitalStorageState afterDeletion = DigitalStorageState.openForTest(root);
-            try {
-                expectEquals(0, afterDeletion.volumeCount(), "deleted volume returned after reload");
-                expectEquals(0, afterDeletion.accountCount(), "empty account returned after reload");
-                expectEquals(0, afterDeletion.storageSizeStats().liveDiskBytes(),
-                        "deleted storage files remained in size telemetry");
-            } finally {
-                afterDeletion.closeForTest();
-            }
-        } finally {
-            deleteTemporaryStorageDirectory(root);
-        }
+            var owner = java.util.UUID.randomUUID(); var state = DigitalStorageState.openForTest(root);
+            var volume = state.createVolume(owner, "Primary", 1).orElseThrow();
+            expectTrue(state.createVolume(owner, "Overflow", 1).isEmpty(), "account limit not enforced");
+            expectTrue(state.ownsVolume(owner, volume.id()) && !state.ownsVolume(java.util.UUID.randomUUID(), volume.id()), "ownership lookup failed");
+            var first = FabricDigitalItemStorage.of(volume.record().storage());
+            expectTrue(first == FabricDigitalItemStorage.of(state.volume(volume.id()).orElseThrow().record().storage()), "canonical inventory changed");
+            try (Transaction tx = Transaction.openOuter()) { expectEquals(42, first.insert(ItemVariant.of(Items.STONE), 42, tx), "seed"); tx.commit(); }
+            expectFalse(state.deleteEmptyVolume(owner, volume.id()), "nonempty volume deleted");
+            expectTrue(state.savedDataDirty(), "mutation did not mark dirty"); state.flushNow();
+            expectFalse(state.savedDataDirty(), "flush did not clear dirty");
+            var sizes = state.storageSizeStats();
+            expectTrue(sizes.liveDiskBytes() > 0 && sizes.totalEstimatedVolumeNbtBytes() > 0, "SavedData size telemetry empty");
+            var content = state.contentStats(false);
+            expectEquals(1L, content.variantCount(), "variant count"); expectEquals(java.math.BigInteger.valueOf(42), content.totalItemCount(), "item count");
+            expectEquals(1, content.inspectedVolumeCount(), "inspected count"); expectEquals(0, content.uninspectedVolumeCount(), "uninspected count");
+            state.closeForTest();
+            var restored = DigitalStorageState.openForTest(root);
+            var loaded = restored.volume(volume.id()).orElseThrow();
+            expectEquals(owner, loaded.ownerId(), "restored owner"); expectEquals("Primary", loaded.name(), "restored name");
+            expectEquals(42, loaded.record().storage().amountOf(ItemKey.of(Items.STONE)), "restored items");
+            try (Transaction tx = Transaction.openOuter()) { expectEquals(42, FabricDigitalItemStorage.of(loaded.record().storage()).extract(ItemVariant.of(Items.STONE), 42, tx), "extract"); tx.commit(); }
+            expectTrue(restored.deleteEmptyVolume(owner, volume.id()), "empty deletion rejected"); restored.closeForTest();
+            var after = DigitalStorageState.openForTest(root);
+            try { expectEquals(0, after.volumeCount(), "deleted volume returned"); expectEquals(0, after.accountCount(), "empty account returned"); }
+            finally { after.closeForTest(); }
+        } finally { deleteTemporaryStorageDirectory(root); }
     }
 
     private static void retainedInventoryKeepsCleanVolumeCanonical() {
@@ -978,7 +720,7 @@ public final class DigitalItemStorageSelfTest {
         try {
             var fixture = retainedInventory(state);
             volumeId = fixture.id();
-            state.flushAndWaitForTest();
+            state.flushNow();
             System.gc();
             var volume = fixture.owner().get();
             expectTrue(volume != null, "Live Fabric inventory lost its clean volume owner");
@@ -990,7 +732,7 @@ public final class DigitalItemStorageSelfTest {
                 fixture.inventory().insert(ItemVariant.of(Items.STONE), 7, transaction);
                 transaction.commit();
             }
-            state.flushAndWaitForTest();
+            state.flushNow();
         } finally {
             state.closeForTest();
         }
@@ -1203,10 +945,10 @@ public final class DigitalItemStorageSelfTest {
         java.nio.file.Path root = temporaryStorageDirectory("future-schema");
         try {
             java.util.UUID id = java.util.UUID.randomUUID();
-            java.nio.file.Path volumes = root.resolve("volumes");
+            java.nio.file.Path volumes = root.resolve("digitalstorage").resolve("volumes");
             java.nio.file.Files.createDirectories(volumes);
             net.minecraft.nbt.CompoundTag future = new net.minecraft.nbt.CompoundTag();
-            future.putInt("SchemaVersion", DigitalStorageState.VOLUME_SCHEMA_VERSION + 1);
+            future.putInt("SchemaVersion", 2 + 1);
             future.putUUID("Id", id);
             net.minecraft.nbt.NbtIo.writeCompressed(future, volumes.resolve(id + ".dat").toFile());
             byte[] original = java.nio.file.Files.readAllBytes(volumes.resolve(id + ".dat"));
@@ -1215,6 +957,9 @@ public final class DigitalItemStorageSelfTest {
                 expectTrue(state.volume(id).isEmpty() && state.volume(id).isEmpty(), "future volume must be unavailable");
             } finally {
                 state.closeForTest();
+            }
+            try (var backups = java.nio.file.Files.list(root)) {
+                volumes = backups.filter(path -> path.getFileName().toString().startsWith("digitalstorage-legacy-")).findFirst().orElseThrow().resolve("volumes");
             }
             expectTrue(java.nio.file.Files.isRegularFile(volumes.resolve(id + ".dat")),
                     "future-schema file was moved or overwritten");
@@ -1250,8 +995,6 @@ public final class DigitalItemStorageSelfTest {
         expectEquals(16, restored.storage().totalItemCount(), "unknown round trip total");
         expectEquals(2, restored.storage().variantCount(), "unknown round trip variants");
         expectTrue(restored.storage().snapshotEntries().stream().anyMatch(e -> e.amount() == 9 && e.serializedVariant().equals(variant)), "unknown variant lost");
-        var cursor = record.storage().snapshotCursor().advance(100);
-        expectTrue(cursor.complete() && cursor.snapshots().stream().anyMatch(e -> e.amount() == 9 && e.serializedVariant().equals(variant)), "incremental snapshot lost unknown variant");
     }
 
     private static void corruptStorageRecordIsQuarantinedAndPreserved(ItemVariant stone) {
@@ -1259,11 +1002,11 @@ public final class DigitalItemStorageSelfTest {
         try {
             java.util.UUID id = java.util.UUID.randomUUID();
             net.minecraft.nbt.CompoundTag corruptRecord = recordWithItems(stone, Long.MAX_VALUE, 1);
-            corruptRecord.putInt("SchemaVersion", DigitalStorageState.VOLUME_SCHEMA_VERSION);
+            corruptRecord.putInt("SchemaVersion", 2);
             corruptRecord.putUUID("Id", id);
             corruptRecord.putUUID("Owner", java.util.UUID.randomUUID());
             corruptRecord.putString("Name", "Corrupt test volume");
-            java.nio.file.Path volumes = root.resolve("volumes");
+            java.nio.file.Path volumes = root.resolve("digitalstorage").resolve("volumes");
             java.nio.file.Files.createDirectories(volumes);
             java.nio.file.Path corruptFile = volumes.resolve(id + ".dat");
             net.minecraft.nbt.NbtIo.writeCompressed(corruptRecord, corruptFile.toFile());
@@ -1271,21 +1014,18 @@ public final class DigitalItemStorageSelfTest {
 
             DigitalStorageState state = DigitalStorageState.openForTest(root);
             try {
-                expectEquals(1, state.volumeCount(), "corrupt record was not lazily indexed");
+                expectEquals(1, state.volumeCount(), "corrupt record was not indexed");
                 expectTrue(state.volume(id).isEmpty(), "corrupt record was returned after lazy load");
                 expectEquals(1, state.volumeCount(), "corrupt record reference was removed");
-                expectEquals(0, state.quarantinedRecordCount(), "corrupt record was quarantined");
+                expectEquals(DigitalStorageState.VolumeStatus.UNREADABLE, state.lookupVolume(id).status(), "corrupt record status");
             } finally {
                 state.closeForTest();
             }
-            expectTrue(java.nio.file.Files.exists(corruptFile), "corrupt volume file was moved");
-            java.nio.file.Path quarantineDirectory = root.resolve("quarantine").resolve("volumes");
-            try (java.util.stream.Stream<java.nio.file.Path> quarantined = java.nio.file.Files.list(quarantineDirectory)) {
-                java.util.List<java.nio.file.Path> files = quarantined.filter(java.nio.file.Files::isRegularFile).toList();
-                expectEquals(0, files.size(), "quarantined volume file count");
-                expectEquals(originalSize, java.nio.file.Files.size(corruptFile),
-                        "preserved volume file size changed");
+            try (var backups = java.nio.file.Files.list(root)) {
+                corruptFile = backups.filter(path -> path.getFileName().toString().startsWith("digitalstorage-legacy-")).findFirst().orElseThrow().resolve("volumes").resolve(id + ".dat");
             }
+            expectTrue(java.nio.file.Files.exists(corruptFile), "corrupt legacy volume was not preserved in backup");
+            expectEquals(originalSize, java.nio.file.Files.size(corruptFile), "preserved volume file size changed");
         } catch (java.io.IOException exception) {
             throw new IllegalStateException("Could not create corrupt-volume self-test file", exception);
         } finally {

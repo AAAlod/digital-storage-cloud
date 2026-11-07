@@ -10,9 +10,11 @@ import java.util.Objects;
 public final class LedgerTransaction implements MutationScope, AutoCloseable {
     private static final ThreadLocal<LedgerTransaction> CURRENT = new ThreadLocal<>();
     private final LedgerTransaction parent;
+    private final TransactionId transactionId = new TransactionId();
     private final Thread owner;
     private final Map<MutationParticipant<?>, Saved<?>> snapshots = new IdentityHashMap<>();
     private final List<Saved<?>> order = new ArrayList<>();
+    private final List<java.util.function.Consumer<Boolean>> completionObservers = new ArrayList<>();
     private LedgerTransaction child;
     private boolean commitRequested;
     private boolean closed;
@@ -29,6 +31,25 @@ public final class LedgerTransaction implements MutationScope, AutoCloseable {
         LedgerTransaction transaction = new LedgerTransaction(null);
         CURRENT.set(transaction);
         return transaction;
+    }
+
+    @Override public TransactionId transactionId() { return transactionId; }
+
+    @Override public TransactionId parentTransactionId() { return parent == null ? null : parent.transactionId; }
+
+    @Override public java.util.List<TransactionId> transactionPath() {
+        var path = new ArrayList<TransactionId>();
+        for (LedgerTransaction current = this; current != null; current = current.parent) path.add(current.transactionId);
+        java.util.Collections.reverse(path);
+        return java.util.List.copyOf(path);
+    }
+
+    @Override public void onCompletion(TransactionId id, java.util.function.Consumer<Boolean> observer) {
+        checkMutable();
+        LedgerTransaction current = this;
+        while (current != null && current.transactionId != id) current = current.parent;
+        if (current == null) throw new IllegalArgumentException("Transaction is not an ancestor");
+        current.completionObservers.add(Objects.requireNonNull(observer));
     }
 
     public LedgerTransaction openNested() {
@@ -103,9 +124,17 @@ public final class LedgerTransaction implements MutationScope, AutoCloseable {
                     }
                 }
             }
+            for (int index = completionObservers.size() - 1; index >= 0; index--) {
+                var observer = completionObservers.get(index);
+                try { observer.accept(commitRequested); }
+                catch (RuntimeException exception) {
+                    if (failure == null) failure = exception; else if (failure != exception) failure.addSuppressed(exception);
+                }
+            }
         } finally {
             snapshots.clear();
             order.clear();
+            completionObservers.clear();
             if (parent != null) {
                 parent.child = null;
                 CURRENT.set(parent);

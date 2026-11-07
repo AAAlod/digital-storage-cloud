@@ -80,18 +80,14 @@ public final class ForgeAccessorSelfTest {
                     "Revived accessor failed to extract its ledger contents");
             expect(!dev.kehai.digitalstorage.security.DigitalStorageMountTracker.mounts(volumeA.id()).isEmpty(), "Fixture volume is not mounted");
             state.flushNow();
-            var storageRoot = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).resolve("digitalstorage");
-            var marker = storageRoot.resolve("deleted-volumes").resolve(volumeA.id() + ".dat");
-            var volumeFile = storageRoot.resolve("volumes").resolve(volumeA.id() + ".dat");
-            var accountFile = storageRoot.resolve("accounts").resolve(owner + ".dat");
-            expect(java.nio.file.Files.exists(volumeFile) && java.nio.file.Files.exists(accountFile), "Mounted fixture was not saved");
+            var dataFile = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).resolve("data").resolve("digitalstorage.dat");
+            byte[] savedBeforeDelete = fileBytes(dataFile);
             expect(!state.deleteEmptyVolume(owner, volumeA.id())
                             && dev.kehai.digitalstorage.storage.VolumeManagementService.delete(state, owner, volumeA.id())
                             == dev.kehai.digitalstorage.storage.VolumeManagementService.DeleteResult.MOUNTED
                             && state.ownsVolume(owner, volumeA.id()) && state.volume(volumeA.id()).isPresent()
-                            && java.nio.file.Files.exists(volumeFile) && java.nio.file.Files.exists(accountFile)
-                            && !java.nio.file.Files.exists(marker),
-                    "Mounted volume deletion changed ownership, volume or marker");
+                            && java.util.Arrays.equals(savedBeforeDelete, fileBytes(dataFile)) && !state.savedDataDirty(),
+                    "Mounted volume deletion changed ownership, volume or saved data");
             // Remove only the fixture's mount index entry, leaving its binding for the confirmed-deletion check below.
             dev.kehai.digitalstorage.security.DigitalStorageMountTracker.untrack(world, alias.getBlockPos());
             expect(state.deleteEmptyVolume(owner, volumeA.id()), "Could not remove the empty test volume");
@@ -156,4 +152,8 @@ public final class ForgeAccessorSelfTest {
         return tag;
     }
     private static void expect(boolean value, String message) { if (!value) throw new IllegalStateException(message); }
+    private static byte[] fileBytes(java.nio.file.Path path) {
+        try { return java.nio.file.Files.readAllBytes(path); }
+        catch (java.io.IOException failure) { throw new IllegalStateException("Could not read saved fixture", failure); }
+    }
 }

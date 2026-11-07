@@ -9,6 +9,7 @@ import java.util.List;
 public final class DigitalStorageConfig {
     private static final int[] DEFAULT_FAILURE_COOLDOWNS = {20, 40, 100, 200, 400};
     public static final int HARD_MAX_VARIANT_NBT_BYTES = 1_048_576;
+    public static final int HARD_MAX_TOTAL_VARIANT_NBT_BYTES = 67_108_864;
     public static final int HARD_MAX_VOLUME_VARIANT_NBT_BYTES = 1_073_741_824;
     public static final int HARD_MAX_VOLUME_NBT_WARNING_BYTES = 1_073_741_824;
     private static volatile DigitalStorageConfig instance = defaults();
@@ -22,6 +23,7 @@ public final class DigitalStorageConfig {
     public boolean staggerConnectorScans = true;
     public int maxVariantNbtBytes = 65_536;
     public int maxVolumeVariantNbtBytes = 67_108_864;
+    public int maxTotalVariantNbtBytes = HARD_MAX_TOTAL_VARIANT_NBT_BYTES;
     public boolean allowUnstackableItems = true;
     public String itemFilterMode = "blacklist";
     public List<String> itemFilterItems = new ArrayList<>();
@@ -65,7 +67,7 @@ public final class DigitalStorageConfig {
         DigitalStorage.LOGGER.info(
                 "Digital storage config: hopper enabled={}, normal batch={}, advanced batch={}, success cooldown={}, failure cooldowns={}, "
                         + "stagger scans={}, allow unstackables={}, filter={}, filter items={}, filter tags={}, "
-                        + "max variant NBT={} bytes, volume variant NBT cap={} bytes, volumes per player={}, "
+                        + "max variant NBT={} bytes, volume variant NBT cap={} bytes, total variant NBT cap={} bytes, volumes per player={}, "
                         + "migration views/tick={}, digital view divisor={}, persistence flush={} ticks, snapshots/tick={}, variants/tick={}, "
                         + "volume NBT warning={} bytes",
                 loaded.optimizeTomsHopper,
@@ -80,6 +82,7 @@ public final class DigitalStorageConfig {
                 loaded.itemFilterTags.size(),
                 loaded.maxVariantNbtBytes,
                 loaded.maxVolumeVariantNbtBytes,
+                loaded.maxTotalVariantNbtBytes,
                 loaded.defaultVolumesPerPlayer == 0 ? "unlimited" : loaded.defaultVolumesPerPlayer,
                 loaded.migrationViewsScannedPerTick,
                 loaded.digitalViewScoreDivisor,
@@ -100,6 +103,7 @@ public final class DigitalStorageConfig {
         hopperSuccessCooldown = clamp(hopperSuccessCooldown, 0, 1200);
         maxVariantNbtBytes = clamp(maxVariantNbtBytes, 1_024, HARD_MAX_VARIANT_NBT_BYTES);
         maxVolumeVariantNbtBytes = clamp(maxVolumeVariantNbtBytes, 1_048_576, HARD_MAX_VOLUME_VARIANT_NBT_BYTES);
+        maxTotalVariantNbtBytes = clamp(maxTotalVariantNbtBytes, 1_048_576, HARD_MAX_TOTAL_VARIANT_NBT_BYTES);
         defaultVolumesPerPlayer = clamp(defaultVolumesPerPlayer, 0, 1_000_000);
         migrationViewsScannedPerTick = clamp(migrationViewsScannedPerTick, 1, 65_536);
         digitalViewScoreDivisor = clamp(digitalViewScoreDivisor, 256, 8_192);
@@ -145,6 +149,13 @@ public final class DigitalStorageConfig {
 
     public static void runSelfTest() {
         DigitalStorageConfig limits = defaults();
+        if (limits.maxTotalVariantNbtBytes != HARD_MAX_TOTAL_VARIANT_NBT_BYTES) throw new IllegalStateException("Total NBT default changed");
+        for (int value : new int[] {0, -1, Integer.MIN_VALUE, 1_048_575}) {
+            limits.maxTotalVariantNbtBytes = value; limits.normalize();
+            if (limits.maxTotalVariantNbtBytes != 1_048_576) throw new IllegalStateException("Total NBT lower clamp failed");
+        }
+        limits.maxTotalVariantNbtBytes = Integer.MAX_VALUE; limits.normalize();
+        if (limits.maxTotalVariantNbtBytes != HARD_MAX_TOTAL_VARIANT_NBT_BYTES) throw new IllegalStateException("Total NBT upper clamp failed");
         limits.defaultVolumesPerPlayer = 0;
         limits.normalize();
         if (limits.defaultVolumesPerPlayer != 0) throw new IllegalStateException("Unlimited volume limit changed");

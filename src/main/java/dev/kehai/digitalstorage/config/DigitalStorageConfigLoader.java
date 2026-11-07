@@ -265,11 +265,31 @@ final class DigitalStorageConfigLoader {
             verifyBrokenStartupRecovery(root.resolve("broken-startup"));
             verifyBrokenReloadRejection(root.resolve("broken-reload"));
             verifyFutureSchemaIsUntouched(root.resolve("future"));
+            verifyTotalBudgetConfig(root.resolve("total-budget"));
         } catch (IOException exception) {
             throw new IllegalStateException("Digital Storage configuration self-test failed", exception);
         } finally {
             deleteTemporaryTree(root);
         }
+    }
+
+    private static void verifyTotalBudgetConfig(Path directory) throws IOException {
+        Files.createDirectories(directory);
+        Path toml = directory.resolve(TOML_NAME);
+        Files.writeString(toml, "configVersion = 1\n[storage]\nmaxVolumeVariantNbtBytes = 67108864\n");
+        Result old = load(directory, Mode.STARTUP);
+        expect(old.success() && old.config().maxTotalVariantNbtBytes == 67_108_864, "old TOML total budget default failed");
+        String repaired = Files.readString(toml);
+        expect(repaired.contains("maxTotalVariantNbtBytes") && repaired.contains("configVersion = 1"), "old TOML compatibility repair failed");
+        for (long[] scenario : new long[][] {{0, 1_048_576}, {-1, 1_048_576}, {-3_000_000_000L, 1_048_576},
+                {1_048_576, 1_048_576}, {67_108_864, 67_108_864}, {3_000_000_000L, 67_108_864}}) {
+            Files.writeString(toml, "configVersion = 1\n[storage]\nmaxTotalVariantNbtBytes = " + scenario[0] + "\n");
+            Result reloaded = load(directory, Mode.RELOAD);
+            expect(reloaded.success() && reloaded.config().maxTotalVariantNbtBytes == scenario[1], "total budget clamp failed: " + scenario[0]);
+        }
+        Files.writeString(toml, "configVersion = 1\n[storage]\nmaxTotalVariantNbtBytes = \"bad\"\n");
+        Result invalid = load(directory, Mode.RELOAD);
+        expect(invalid.success() && invalid.config().maxTotalVariantNbtBytes == 67_108_864, "invalid total budget did not use default");
     }
 
     private static void verifyInitialCreationAndNoOp(Path directory) throws IOException {

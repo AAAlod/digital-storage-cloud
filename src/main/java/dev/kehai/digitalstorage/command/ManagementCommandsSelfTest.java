@@ -30,6 +30,18 @@ public final class ManagementCommandsSelfTest {
         }
         expect(!root.getChild("accessor").getChild("forceclear").canUse(low)
                 && root.getChild("accessor").getChild("forceclear").canUse(admin), "Force-clear permission");
+        var diagnosticsState = DigitalStorageState.peek(server.overworld());
+        for (boolean deep : new boolean[] {false, true}) {
+            String text = ManagementCommands.statsText(diagnosticsState, deep);
+            expect(text.contains("saved data dirty=") && text.contains("saved data mode=") && text.contains("data file=")
+                    && text.contains("total variant NBT=") && text.contains("total variant NBT limit=")
+                    && text.contains("total variant NBT overBudget=")
+                    && text.contains("snapshot generation=") && text.contains("snapshot worker=") && text.contains("snapshot last failure=")
+                    && !text.contains("dirty accounts=") && !text.contains("dirty volumes=")
+                    && !text.contains("pending write batches=") && !text.contains("snapshot restarts=")
+                    && !text.contains("forced snapshots=") && !text.contains("oldest dirty ticks="), "SavedData diagnostic fields");
+        }
+        readOnlyStatsDoNotModifyFiles();
         String configured = System.getProperty("digitalstorage.integrationTestRoot");
         if (configured == null) return;
         Path worldRoot = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).toAbsolutePath().normalize();
@@ -109,5 +121,38 @@ public final class ManagementCommandsSelfTest {
     }
     private static void expect(boolean value, String detail) {
         if (!value) throw new IllegalStateException("Management commands: " + detail);
+    }
+
+    private static void readOnlyStatsDoNotModifyFiles() {
+        try {
+            Path root = java.nio.file.Files.createTempDirectory("dsc-stats-readonly-");
+            try {
+                Path file = java.nio.file.Files.createDirectories(root.resolve("data")).resolve("digitalstorage.dat");
+                var open = DigitalStorageState.class.getDeclaredMethod("openForTest", Path.class);
+                open.setAccessible(true);
+                for (boolean future : new boolean[] {false, true}) {
+                    if (future) {
+                        var payload = new net.minecraft.nbt.CompoundTag();
+                        payload.putInt("SchemaVersion", dev.kehai.digitalstorage.storage.DigitalStorageData.SCHEMA_VERSION + 1);
+                        var envelope = new net.minecraft.nbt.CompoundTag(); envelope.put("data", payload);
+                        net.minecraft.nbt.NbtIo.writeCompressed(envelope, file.toFile());
+                    } else java.nio.file.Files.write(file, new byte[] {1, 2, 3});
+                    byte[] before = java.nio.file.Files.readAllBytes(file);
+                    var state = (DigitalStorageState) open.invoke(null, root);
+                    for (boolean deep : new boolean[] {false, true}) {
+                        String text = ManagementCommands.statsText(state, deep);
+                        expect(text.contains("saved data mode=" + (future ? "future-schema" : "corrupt")), "read-only diagnostics mode");
+                    }
+                    expect(!state.savedDataDirty() && java.util.Arrays.equals(before, java.nio.file.Files.readAllBytes(file)),
+                            "read-only diagnostics changed SavedData");
+                }
+            } finally {
+                try (var paths = java.nio.file.Files.walk(root)) {
+                    for (var path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) java.nio.file.Files.deleteIfExists(path);
+                }
+            }
+        } catch (java.io.IOException | ReflectiveOperationException failure) {
+            throw new IllegalStateException("Read-only diagnostics fixture failed", failure);
+        }
     }
 }

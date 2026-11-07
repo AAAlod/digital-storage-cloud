@@ -77,11 +77,16 @@ public final class StorageVolume {
     public long metadataVersion() { return metadataVersion; }
 
     public boolean setIcon(ResourceLocation requestedIcon) {
-        if (icon.equals(requestedIcon)) return false;
-        icon = java.util.Objects.requireNonNull(requestedIcon);
-        metadataVersion++;
-        dirtyCallback.run();
-        return true;
+        TransactionId guard;
+        try { guard = record.storage().beginDirectMutation(); }
+        catch (IllegalStateException conflict) { return false; }
+        try {
+            if (icon.equals(requestedIcon)) return false;
+            icon = java.util.Objects.requireNonNull(requestedIcon);
+            metadataVersion++;
+            dirtyCallback.run();
+            return true;
+        } finally { record.storage().endDirectMutation(guard); }
     }
 
     public DigitalStorageRecord record() {
@@ -97,14 +102,19 @@ public final class StorageVolume {
     }
 
     public boolean rename(String requestedName) {
-        String normalized = normalizeName(requestedName);
-        if (name.equals(normalized)) {
-            return false;
-        }
-        name = normalized;
-        metadataVersion++;
-        dirtyCallback.run();
-        return true;
+        TransactionId guard;
+        try { guard = record.storage().beginDirectMutation(); }
+        catch (IllegalStateException conflict) { return false; }
+        try {
+            String normalized = normalizeName(requestedName);
+            if (name.equals(normalized)) {
+                return false;
+            }
+            name = normalized;
+            metadataVersion++;
+            dirtyCallback.run();
+            return true;
+        } finally { record.storage().endDirectMutation(guard); }
     }
 
     Snapshot snapshot() {

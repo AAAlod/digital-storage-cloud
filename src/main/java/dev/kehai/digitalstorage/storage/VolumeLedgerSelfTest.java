@@ -11,6 +11,7 @@ public final class VolumeLedgerSelfTest {
     }
 
     public static void run() {
+        TransactionBudgetSelfTest.run();
         StoragePersistenceSelfTest.run();
         dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.runSelfTest();
         nestedTransactions();
@@ -248,7 +249,7 @@ public final class VolumeLedgerSelfTest {
         } catch (IllegalStateException expected) {
             expect(ledger.variantCount() == 0 && ledger.totalItemCount() == 0 && !ledger.iterator().hasNext(),
                     "Rejected mutation changed ledger metrics");
-            expect(ledger.snapshotCursor().advance(Integer.MAX_VALUE).examinedEntries() == 0,
+            expect(ledger.snapshotEntries().isEmpty(),
                     "Rejected mutation stranded an invisible provisional entry");
             // A valid subsequent insert must still have capacity and be able to commit.
             try (LedgerTransaction transaction = LedgerTransaction.open()) {

@@ -220,19 +220,32 @@ public final class ManagementCommands {
     }
 
     private static int stats(CommandSourceStack source, boolean inspectColdVolumes) {
-        DigitalStorageState state = DigitalStorageState.get(source.getLevel());
+        DigitalStorageState state = DigitalStorageState.peek(source.getLevel());
+        DigitalStorageState.ContentStats content = state.contentStats(inspectColdVolumes);
+        source.sendSuccess(() -> Component.literal(statsText(state, inspectColdVolumes)), false);
+        if (content.uninspectedVolumeCount() > 0) {
+            source.sendSuccess(() -> Component.literal(
+                    content.uninspectedVolumeCount() + " volume(s) are unavailable; totals include only readable data."
+            ), false);
+        }
+        return state.volumeCount();
+    }
+
+    static String statsText(DigitalStorageState state, boolean inspectColdVolumes) {
         DigitalStorageState.StorageSizeStats sizes = state.storageSizeStats();
         DigitalStorageState.ContentStats content = state.contentStats(inspectColdVolumes);
-        source.sendSuccess(() -> Component.literal(
-                "Digital Storage Cloud: accounts=" + state.accountCount()
+        return "Digital Storage Cloud: accounts=" + state.accountCount()
                         + ", volumes=" + state.volumeCount()
-                        + ", quarantined=" + state.quarantinedRecordCount()
-                        + ", dirty accounts=" + state.dirtyAccountCount()
-                        + ", dirty volumes=" + state.dirtyVolumeCount()
-                        + ", pending write batches=" + state.pendingWriteBatches()
-                        + ", snapshot restarts=" + state.snapshotRestartCount()
-                        + ", forced snapshots=" + state.forcedSnapshotCount()
-                        + ", oldest dirty ticks=" + state.oldestDirtyVolumeAgeTicks()
+                        + ", unreadable=" + state.unreadableCount()
+                        + ", saved data dirty=" + state.savedDataDirty()
+                        + ", saved data mode=" + state.savedDataMode()
+                        + ", total variant NBT=" + formatBytes(state.totalVariantNbtBytes())
+                        + ", total variant NBT limit=" + formatBytes(state.maxTotalVariantNbtBytes())
+                        + ", total variant NBT overBudget=" + state.totalVariantNbtOverBudget()
+                        + ", snapshot generation=" + state.snapshotGeneration()
+                        + ", snapshot worker=" + state.snapshotWorkerStatus()
+                        + ", snapshot last failure=" + state.snapshotLastFailure()
+                        + ", legacy backup=" + state.legacyBackupStatus()
                         + ", variants=" + content.variantCount()
                         + ", items=" + content.totalItemCount()
                         + ", content volumes=" + content.inspectedVolumeCount() + "/" + state.volumeCount()
@@ -241,24 +254,14 @@ public final class ManagementCommands {
                         + ", bound accessors=" + DigitalStorageMountTracker.boundAccessorCount()
                         + ", mounted volumes=" + DigitalStorageMountTracker.mountedVolumeCount()
                         + ", multiply linked volumes=" + DigitalStorageMountTracker.multiMountedVolumeCount()
-                        + ", live DB=" + formatBytes(sizes.liveDiskBytes())
-                        + " (accounts=" + formatBytes(sizes.accountDiskBytes())
-                        + ", volumes=" + formatBytes(sizes.volumeDiskBytes()) + ")"
+                        + ", data file=" + formatBytes(sizes.liveDiskBytes())
                         + ", estimated volume NBT total=" + formatBytes(sizes.totalEstimatedVolumeNbtBytes())
                         + ", largest=" + formatBytes(sizes.largestEstimatedVolumeNbtBytes())
                         + ", average=" + formatBytes(sizes.averageEstimatedVolumeNbtBytes())
                         + ", above warning=" + sizes.oversizedVolumeCount()
                         + ", filter rejects=" + ItemSecurityPolicy.filterRejections()
                         + ", NBT rejects=" + ItemSecurityPolicy.nbtRejections()
-                        + ", unstackable rejects=" + ItemSecurityPolicy.unstackableRejections()
-        ), false);
-        if (!inspectColdVolumes && content.uninspectedVolumeCount() > 0) {
-            source.sendSuccess(() -> Component.literal(
-                    "Use /digitalstorage stats deep for exact totals; it will load "
-                            + content.uninspectedVolumeCount() + " cold volume(s)."
-            ), false);
-        }
-        return state.volumeCount();
+                        + ", unstackable rejects=" + ItemSecurityPolicy.unstackableRejections();
     }
 
     private static String formatBytes(long bytes) {

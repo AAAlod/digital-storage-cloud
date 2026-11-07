@@ -22,6 +22,8 @@ public final class FabricLedgerSelfTest {
     }
 
     public static void run() {
+        transactionIdentityAndBudget();
+        finalCommitKeepsVolumeLease();
         repeatedCanonicalLookupsShareNestedSnapshots();
         vanillaAndLedgerCommitMatrix();
         exceptionRollsBackBothInventories();
@@ -35,6 +37,106 @@ public final class FabricLedgerSelfTest {
         partialScanDoesNotAdaptUnvisitedEntries();
         viewExtractionPreservesIdentityAndNestedRollback();
         plannedMigrationPreservesIdentityAndAtomicity();
+    }
+
+    private static void finalCommitKeepsVolumeLease() {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        var ledger = new VolumeLedger(() -> {
+            entered.countDown();
+            try { if (!release.await(3, java.util.concurrent.TimeUnit.SECONDS)) throw new IllegalStateException("commit release timeout"); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException(e); }
+        }, 4);
+        var adapter = FabricDigitalItemStorage.of(ledger);
+        var key = ItemKey.of(Items.STONE);
+        Thread first = new Thread(() -> {
+            try (Transaction tx = Transaction.openOuter()) {
+                var insert = FabricDigitalItemStorage.class.getDeclaredMethod("insertKey", ItemKey.class, long.class, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext.class);
+                insert.setAccessible(true);
+                expect((long) insert.invoke(adapter, key, 1L, tx) == 1, "Fabric final-commit fixture failed");
+                tx.commit();
+            } catch (Throwable e) { failure.set(e); }
+        }, "dsc-fabric-final-commit-test");
+        first.start();
+        try {
+            expect(entered.await(3, java.util.concurrent.TimeUnit.SECONDS), "Fabric final callback did not start");
+            try (var tx = LedgerTransaction.open()) {
+                expect(ledger.insert(key, 1, tx) == 0, "volume lease released before Fabric final callback");
+            }
+        } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException(e); }
+        finally { release.countDown(); }
+        try { first.join(5000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException(e); }
+        expect(!first.isAlive() && failure.get() == null && ledger.amountOf(key) == 1, "Fabric final callback failure: " + failure.get());
+    }
+
+    private static void transactionIdentityAndBudget() {
+        var a = new FabricDigitalItemStorage(() -> { }, 4);
+        var b = new FabricDigitalItemStorage(() -> { }, 4);
+        var budget = new dev.kehai.digitalstorage.storage.GlobalBudget(186, 186);
+        var registry = new dev.kehai.digitalstorage.storage.TransactionRegistry();
+        try {
+            var acquire = FabricDigitalItemStorage.class.getDeclaredMethod("acquireScope", net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext.class);
+            acquire.setAccessible(true);
+            var release = FabricDigitalItemStorage.class.getDeclaredMethod("releaseScope", Class.forName("dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage$FabricMutationScope"));
+            release.setAccessible(true);
+            dev.kehai.digitalstorage.storage.TransactionId old;
+            try (Transaction outer = Transaction.openOuter()) {
+                try (var capture = registry.tryCapture(20, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    expect(capture != null, "unentered Fabric transaction blocked capture");
+                }
+                var sa = (dev.kehai.digitalstorage.storage.MutationScope) acquire.invoke(a, outer);
+                sa.enter(registry);
+                var sb = (dev.kehai.digitalstorage.storage.MutationScope) acquire.invoke(b, outer);
+                old = sa.transactionId();
+                expect(old == sb.transactionId(), "different identities for one Fabric transaction");
+                release.invoke(a, sa); release.invoke(b, sb);
+                try (var capture = registry.tryCapture(20, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    expect(capture == null, "entered Fabric transaction allowed capture");
+                }
+                try (Transaction inner = outer.openNested()) {
+                    var child = (dev.kehai.digitalstorage.storage.MutationScope) acquire.invoke(a, inner);
+                    expect(child.transactionId() != old && child.parentTransactionId() == old, "Fabric nested identity mismatch");
+                    budget.release(186, child);
+                    release.invoke(a, child); inner.commit();
+                }
+                sa = (dev.kehai.digitalstorage.storage.MutationScope) acquire.invoke(a, outer);
+                expect(budget.tryReserve(186, sa), "Fabric nested budget did not merge");
+                release.invoke(a, sa); outer.commit();
+            }
+            expect(budget.committedBytes() == 186, "Fabric committed budget mismatch");
+            try (Transaction outer = Transaction.openOuter()) {
+                try (Transaction inner = outer.openNested()) {
+                    var child = (dev.kehai.digitalstorage.storage.MutationScope) acquire.invoke(a, inner);
+                    budget.release(186, child); release.invoke(a, child);
+                }
+                var parent = (dev.kehai.digitalstorage.storage.MutationScope) acquire.invoke(b, outer);
+                expect(!budget.tryReserve(1, parent), "aborted Fabric child released budget");
+                release.invoke(b, parent); outer.commit();
+            }
+            try (Transaction outer = Transaction.openOuter()) {
+                try (Transaction inner = outer.openNested()) {
+                    var child = (dev.kehai.digitalstorage.storage.MutationScope) acquire.invoke(a, inner);
+                    budget.release(186, child); release.invoke(a, child); inner.commit();
+                }
+            }
+            expect(budget.committedBytes() == 186, "Fabric outer rollback changed budget");
+            try (Transaction next = Transaction.openOuter()) {
+                var scope = (dev.kehai.digitalstorage.storage.MutationScope) acquire.invoke(a, next);
+                expect(scope.transactionId() != old, "reused scope kept prior transaction identity");
+                release.invoke(a, scope);
+            }
+            try (Transaction tx = Transaction.openOuter()) {
+                var insert = FabricDigitalItemStorage.class.getDeclaredMethod("insertKey", ItemKey.class, long.class, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext.class);
+                insert.setAccessible(true);
+                expect((long) insert.invoke(a, ItemKey.of(Items.STONE), 1L, tx) == 1, "Fabric insert fixture failed");
+                // Root registration for the real ledger is covered after the ledger is attached to a state.
+            }
+            try (var capture = registry.tryCapture(1, java.util.concurrent.TimeUnit.SECONDS)) {
+                expect(capture != null, "Fabric close failed to release transaction gate");
+            }
+        } catch (ReflectiveOperationException e) { throw new IllegalStateException("Fabric transaction identity self-test", e); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException(e); }
     }
 
     private static void repeatedCanonicalLookupsShareNestedSnapshots() {
