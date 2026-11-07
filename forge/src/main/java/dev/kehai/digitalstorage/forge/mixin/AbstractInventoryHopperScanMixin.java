@@ -2,6 +2,7 @@ package dev.kehai.digitalstorage.forge.mixin;
 
 import com.tom.storagemod.tile.AbstractInventoryHopperBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
+import dev.kehai.digitalstorage.forge.ForgeDigitalStorage;
 import dev.kehai.digitalstorage.hopper.HopperPolicy;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -21,7 +22,19 @@ public abstract class AbstractInventoryHopperScanMixin {
     @Shadow(remap = false) protected net.minecraftforge.common.util.LazyOptional<net.minecraftforge.items.IItemHandler> bottom;
     @Shadow(remap = false) protected boolean topNet;
     @Shadow(remap = false) protected boolean bottomNet;
+    @Shadow(remap = false) protected abstract void update();
     @Unique private net.minecraft.core.Direction digitalstorage$previousFacing;
+
+    @Inject(method = "updateServer", at = @At("RETURN"), remap = false)
+    private void digitalstorage$updateDirectInventories(CallbackInfo callback) {
+        var entity = (BlockEntity) (Object) this;
+        if (entity.getBlockState().is(ForgeDigitalStorage.ADVANCED_HOPPER.get())
+                && top != null && top.isPresent()
+                && bottom != null && bottom.isPresent()
+                && !topNet && !bottomNet) {
+            update();
+        }
+    }
 
     @Inject(method = "updateServer", at = @At("HEAD"), remap = false)
     private void digitalstorage$invalidateRotatedEndpoints(CallbackInfo callback) {
