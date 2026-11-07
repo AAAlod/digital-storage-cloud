@@ -14,6 +14,7 @@ import dev.kehai.digitalstorage.storage.ItemKey;
 import java.util.ArrayList;
 import java.util.Iterator;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
+import net.fabricmc.fabric.api.transfer.v1.storage.SlottedStorage;
 import net.fabricmc.fabric.api.transfer.v1.storage.StorageView;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
@@ -145,6 +146,65 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
             throw new IllegalStateException("Fabric export bypassed Tom filter");
         var unsafe = new FilteredStorage(mixed, deny, false);
         if (!TomNetworkIntrospection.transferParts(unsafe).isEmpty()) throw new IllegalStateException("Mixed filtered Fabric aggregate became writable");
+        multiSlotExportSelfTest();
+    }
+
+    private static void multiSlotExportSelfTest() {
+        var key = ItemKey.of(net.minecraft.world.item.Items.STONE);
+        var box = new net.minecraft.world.SimpleContainer(4);
+        SlottedStorage<ItemVariant> slots = net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(box, net.minecraft.core.Direction.UP);
+        SlottedStorage<ItemVariant> cached = new SlottedStorage<>() {
+            public int getSlotCount() { return slots.getSlotCount(); }
+            public net.fabricmc.fabric.api.transfer.v1.storage.base.SingleSlotStorage<ItemVariant> getSlot(int i) { return slots.getSlot(i); }
+            public long insert(ItemVariant variant, long amount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext tx) { return 0; }
+            public long extract(ItemVariant variant, long amount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext tx) { return slots.extract(variant, amount, tx); }
+            public Iterator<StorageView<ItemVariant>> iterator() { return slots.iterator(); }
+        };
+        var record = DigitalStorageRecord.createNew(() -> { });
+        record.storage().load(key, 256);
+        var batch = exportFixture(record, key, cached);
+        batch.tick(8);
+        if (batch.active() || batch.moved() != 256 || record.storage().amountOf(key) != 0)
+            throw new IllegalStateException("Slotted cached batch export failed");
+        for (int i = 0; i < 4; i++) if (box.getItem(i).getCount() != 64)
+            throw new IllegalStateException("Slotted cached batch did not fill every slot");
+
+        var plainBox = new net.minecraft.world.SimpleContainer(4);
+        var plainSlots = net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(plainBox, net.minecraft.core.Direction.UP);
+        Storage<ItemVariant> plain = limitedFixture(plainSlots);
+        record = DigitalStorageRecord.createNew(() -> { }); record.storage().load(key, 256);
+        batch = exportFixture(record, key, plain);
+        for (int i = 0; i < 10 && batch.active(); i++) batch.tick(8);
+        if (batch.active() || batch.moved() != 256 || record.storage().amountOf(key) != 0)
+            throw new IllegalStateException("Non-slotted partial insertion batch failed");
+        for (int i = 0; i < 4; i++) if (plainBox.getItem(i).getCount() != 64)
+            throw new IllegalStateException("Non-slotted batch did not fill every slot");
+
+        var partialBox = new net.minecraft.world.SimpleContainer(2);
+        var partialSlots = net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(partialBox, net.minecraft.core.Direction.UP);
+        record = DigitalStorageRecord.createNew(() -> { }); record.storage().load(key, 256);
+        batch = exportFixture(record, key, limitedFixture(partialSlots));
+        for (int i = 0; i < 10 && batch.active(); i++) batch.tick(8);
+        if (!batch.state().equals("STOPPED") || batch.moved() != 128 || record.storage().amountOf(key) != 128
+                || partialBox.getItem(0).getCount() != 64 || partialBox.getItem(1).getCount() != 64)
+            throw new IllegalStateException("Partial batch export failed conservation or stop");
+    }
+
+    private static Storage<ItemVariant> limitedFixture(Storage<ItemVariant> underlying) {
+        return new Storage<>() {
+            public long insert(ItemVariant variant, long amount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext tx) {
+                return underlying.insert(variant, Math.min(64, amount), tx);
+            }
+            public long extract(ItemVariant variant, long amount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext tx) {
+                return underlying.extract(variant, amount, tx);
+            }
+            public Iterator<StorageView<ItemVariant>> iterator() { return underlying.iterator(); }
+        };
+    }
+
+    private static BatchTransfer exportFixture(DigitalStorageRecord record, ItemKey key, Storage<ItemVariant> storage) {
+        return new BatchTransfer(record, new BatchTransfer.Route(java.util.List.of(new Port(storage)), () -> true, "fixture"),
+                java.util.List.of(new BatchTransfer.Entry(key, 256)), true);
     }
     public BatchTransfer.Route open(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) {
         var discovery = TomNetworkIntrospection.discoverContext(accessor);
@@ -251,10 +311,26 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                     if (exporting) {
                         outputDone = true;
                         try (Transaction transaction = Transaction.openOuter()) {
-                            long offered = Math.min(maximum, record.storage().amountOf(key));
-                            long accepted = storage.insert(variant, offered, transaction);
+                            long remaining = Math.min(maximum, record.storage().amountOf(key));
+                            long accepted = 0;
+                            if (storage instanceof SlottedStorage<ItemVariant> slotted) {
+                                for (int slot = 0; slot < slotted.getSlotCount() && remaining > 0; slot++) {
+                                    long inserted = slotted.getSlot(slot).insert(variant, remaining, transaction);
+                                    if (inserted < 0 || inserted > remaining) throw new IllegalStateException("Invalid batch insertion");
+                                    accepted += inserted;
+                                    remaining -= inserted;
+                                }
+                            } else {
+                                while (remaining > 0) {
+                                    long inserted = storage.insert(variant, remaining, transaction);
+                                    if (inserted < 0 || inserted > remaining) throw new IllegalStateException("Invalid batch insertion");
+                                    if (inserted == 0) break;
+                                    accepted += inserted;
+                                    remaining -= inserted;
+                                }
+                            }
                             if (accepted == 0) return BatchTransfer.Result.empty();
-                            if (accepted > offered || digital.extract(variant, accepted, transaction) != accepted)
+                            if (digital.extract(variant, accepted, transaction) != accepted)
                                 throw new IllegalStateException("Invalid batch insertion");
                             transaction.commit();
                             return new BatchTransfer.Result(accepted, "");
