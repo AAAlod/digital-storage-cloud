@@ -63,6 +63,12 @@ public final class DigitalStorageMod implements ModInitializer {
             new BlockItem(ADVANCED_INVENTORY_HOPPER, new Item.Properties())
     );
 
+    public static final BlockEntityType<dev.kehai.digitalstorage.platform.fabric.hopper.FabricAdvancedInventoryHopperBlockEntity>
+            ADVANCED_HOPPER_BLOCK_ENTITY = Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE,
+            id("advanced_inventory_hopper"), BlockEntityType.Builder.of(
+                    dev.kehai.digitalstorage.platform.fabric.hopper.FabricAdvancedInventoryHopperBlockEntity::new,
+                    ADVANCED_INVENTORY_HOPPER).build(null));
+
     public static final CreativeModeTab DIGITAL_STORAGE_ITEM_GROUP = Registry.register(
             BuiltInRegistries.CREATIVE_MODE_TAB,
             id("digital_storage_cloud"),

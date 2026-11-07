@@ -26,7 +26,8 @@ public abstract class AbstractInventoryHopperBlockEntityMixin {
     @Inject(method = "updateServer", at = @At("RETURN"), remap = false)
     private void digitalstorage$updateDirectInventories(CallbackInfo ci) {
         BlockEntity hopper = (BlockEntity) (Object) this;
-        if (hopper.getBlockState().is(DigitalStorageMod.ADVANCED_INVENTORY_HOPPER)
+        if (hopper.getType() != DigitalStorageMod.ADVANCED_HOPPER_BLOCK_ENTITY
+                && hopper.getBlockState().is(DigitalStorageMod.ADVANCED_INVENTORY_HOPPER)
                 && top != null && bottom != null && !topNet && !bottomNet) {
             update();
         }
