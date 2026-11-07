@@ -1,5 +1,9 @@
 package dev.kehai.digitalstorage.platform.fabric.tom;
 
+import com.tom.storagemod.util.MergedStorage;
+import com.tom.storagemod.util.FilteredStorage;
+import com.tom.storagemod.util.ItemPredicate;
+
 import dev.kehai.digitalstorage.optimization.NetworkAnalysis;
 import dev.kehai.digitalstorage.optimization.InventoryEndpoint;
 
@@ -45,96 +49,74 @@ public final class TomNetworkAnalysis {
         runTomIntrospectionSelfTest();
     }
 
-    @SuppressWarnings("unchecked")
     private static void runTomIntrospectionSelfTest() {
-        try {
-            Class<?> mergedClass = Class.forName("com.tom.storagemod.util.MergedStorage");
-            Object merged = mergedClass.getConstructor().newInstance();
-            java.lang.reflect.Method add = mergedClass.getMethod("add", Storage.class);
-            FabricDigitalItemStorage target = new FabricDigitalItemStorage(() -> { }, 64);
-            FabricDigitalItemStorage physicalDelegate = new FabricDigitalItemStorage(() -> { }, 64);
-            Storage<ItemVariant> physical = new Storage<>() {
-                @Override
-                public long insert(ItemVariant resource, long maxAmount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext transaction) {
-                    return physicalDelegate.insert(resource, maxAmount, transaction);
-                }
+        MergedStorage merged = new MergedStorage();
+        FabricDigitalItemStorage target = new FabricDigitalItemStorage(() -> { }, 64);
+        FabricDigitalItemStorage physicalDelegate = new FabricDigitalItemStorage(() -> { }, 64);
+        Storage<ItemVariant> physical = new Storage<>() {
+            @Override
+            public long insert(ItemVariant resource, long maxAmount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext transaction) {
+                return physicalDelegate.insert(resource, maxAmount, transaction);
+            }
 
-                @Override
-                public long extract(ItemVariant resource, long maxAmount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext transaction) {
-                    return physicalDelegate.extract(resource, maxAmount, transaction);
-                }
+            @Override
+            public long extract(ItemVariant resource, long maxAmount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext transaction) {
+                return physicalDelegate.extract(resource, maxAmount, transaction);
+            }
 
-                @Override
-                public java.util.Iterator<StorageView<ItemVariant>> iterator() {
-                    return physicalDelegate.iterator();
-                }
-            };
+            @Override
+            public java.util.Iterator<StorageView<ItemVariant>> iterator() {
+                return physicalDelegate.iterator();
+            }
+        };
 
-            Class<?> predicateClass = Class.forName("com.tom.storagemod.util.ItemPredicate");
-            Object predicate = java.lang.reflect.Proxy.newProxyInstance(
-                    predicateClass.getClassLoader(),
-                    new Class<?>[]{predicateClass},
-                    (proxy, method, arguments) -> {
-                        if (method.getReturnType() == boolean.class) return true;
-                        if (method.getReturnType() == int.class) return 0;
-                        if (method.getName().equals("toString")) return "allow-all predicate";
-                        return null;
-                    }
+        ItemPredicate predicate = variant -> true;
+        var wrappedTarget = new FilteredStorage(target, predicate, false);
+        var duplicateWrappedTarget = new FilteredStorage(target, predicate, false);
+
+        TomNetworkIntrospection.NetworkParts rawParts = TomNetworkIntrospection.parts(
+                new SelfTestStorageGroup(List.of(
+                        wrappedTarget,
+                        duplicateWrappedTarget,
+                        physical
+                ))
+        );
+        if (rawParts.physical().size() != 1 || rawParts.physical().get(0) != physical
+                || rawParts.digital().size() != 1 || rawParts.digital().get(0) != target
+                || rawParts.rawDigital().size() != 2
+                || rawParts.rawDigital().get(0) != target || rawParts.rawDigital().get(1) != target) {
+            throw new IllegalStateException("Tom raw endpoint detection and identity dedup self-test failed");
+        }
+
+        merged.add(wrappedTarget);
+        merged.add(duplicateWrappedTarget);
+        merged.add(physical);
+
+        ItemVariant stone = ItemVariant.of(net.minecraft.world.item.Items.STONE);
+        try (net.fabricmc.fabric.api.transfer.v1.transaction.Transaction transaction =
+                     net.fabricmc.fabric.api.transfer.v1.transaction.Transaction.openOuter()) {
+            target.insert(stone, 37, transaction);
+            transaction.commit();
+        }
+        long terminalVisibleAmount = 0;
+        for (StorageView<ItemVariant> view : merged) {
+            if (stone.equals(view.getResource())) {
+                terminalVisibleAmount += view.getAmount();
+            }
+        }
+        if (terminalVisibleAmount != 37) {
+            throw new IllegalStateException(
+                    "Tom terminal duplicate Volume count: expected 37, got " + terminalVisibleAmount
             );
-            Class<?> filteredClass = Class.forName("com.tom.storagemod.util.FilteredStorage");
-            Object wrappedTarget = filteredClass
-                    .getConstructor(Storage.class, predicateClass, boolean.class)
-                    .newInstance(target, predicate, false);
-            Object duplicateWrappedTarget = filteredClass
-                    .getConstructor(Storage.class, predicateClass, boolean.class)
-                    .newInstance(target, predicate, false);
+        }
 
-            TomNetworkIntrospection.NetworkParts rawParts = TomNetworkIntrospection.parts(
-                    new SelfTestStorageGroup(List.of(
-                            (Storage<ItemVariant>) wrappedTarget,
-                            (Storage<ItemVariant>) duplicateWrappedTarget,
-                            physical
-                    ))
-            );
-            if (rawParts.physical().size() != 1 || rawParts.physical().get(0) != physical
-                    || rawParts.digital().size() != 1 || rawParts.digital().get(0) != target
-                    || rawParts.rawDigital().size() != 2
-                    || rawParts.rawDigital().get(0) != target || rawParts.rawDigital().get(1) != target) {
-                throw new IllegalStateException("Tom raw endpoint detection and identity dedup self-test failed");
-            }
-
-            add.invoke(merged, wrappedTarget);
-            add.invoke(merged, duplicateWrappedTarget);
-            add.invoke(merged, physical);
-
-            ItemVariant stone = ItemVariant.of(net.minecraft.world.item.Items.STONE);
-            try (net.fabricmc.fabric.api.transfer.v1.transaction.Transaction transaction =
-                         net.fabricmc.fabric.api.transfer.v1.transaction.Transaction.openOuter()) {
-                target.insert(stone, 37, transaction);
-                transaction.commit();
-            }
-            long terminalVisibleAmount = 0;
-            for (StorageView<ItemVariant> view : (Storage<ItemVariant>) merged) {
-                if (stone.equals(view.getResource())) {
-                    terminalVisibleAmount += view.getAmount();
-                }
-            }
-            if (terminalVisibleAmount != 37) {
-                throw new IllegalStateException(
-                        "Tom terminal duplicate Volume count: expected 37, got " + terminalVisibleAmount
-                );
-            }
-
-            TomNetworkIntrospection.NetworkParts parts = TomNetworkIntrospection.parts((Storage<ItemVariant>) merged);
-            if (parts.physical().size() != 1 || parts.physical().get(0) != physical
-                    || parts.digital().size() != 1 || parts.digital().get(0) != target
-                    || parts.rawDigital().size() != 2
-                    || TomNetworkIntrospection.digitalEndpointCount(parts.rawDigital(), target) != 2
-                    || TomNetworkIntrospection.duplicateDigitalEndpointCount(parts.rawDigital()) != 1) {
-                throw new IllegalStateException("Tom duplicate Volume prevention self-test failed");
-            }
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("Tom network introspection self-test failed", exception);
+        TomNetworkIntrospection.NetworkParts parts = TomNetworkIntrospection.parts(merged);
+        if (parts.physical().size() != 1 || parts.physical().get(0) != physical
+                || parts.digital().size() != 1 || parts.digital().get(0) != target
+                || parts.rawDigital().size() != 2
+                || TomNetworkIntrospection.digitalEndpointCount(parts.rawDigital(), target) != 2
+                || TomNetworkIntrospection.duplicateDigitalEndpointCount(parts.rawDigital()) != 1) {
+            throw new IllegalStateException("Tom duplicate Volume prevention self-test failed");
         }
     }
 

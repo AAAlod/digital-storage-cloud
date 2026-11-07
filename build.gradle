@@ -94,6 +94,7 @@ dependencies {
 
     // Compile against the Tom's 1.7.1 compatibility baseline. The jar is not bundled.
     modCompileOnly files(tomCompileJar)
+    modCompileOnly files(clothRuntimeJar)
     // Use the marker-compatible copy for Loom's local server/client runs too.
     modLocalRuntime files(tomCompileJar, clothRuntimeJar, basicMathRuntimeJar)
 }

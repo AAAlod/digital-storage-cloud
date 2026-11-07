@@ -1,5 +1,7 @@
 package dev.kehai.digitalstorage.platform.fabric.tom;
 
+import com.tom.storagemod.StorageMod;
+
 import dev.kehai.digitalstorage.optimization.TopologyToken;
 import dev.kehai.digitalstorage.optimization.InventoryEndpoint;
 
@@ -280,10 +282,8 @@ public final class TomNetworkCache {
             return tomInventoryRange;
         }
         try {
-            Class<?> storageMod = Class.forName("com.tom.storagemod.StorageMod");
-            Object config = storageMod.getField("CONFIG").get(null);
-            tomInventoryRange = Math.max(0, config.getClass().getField("invRange").getInt(config));
-        } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException exception) {
+            tomInventoryRange = Math.max(0, StorageMod.CONFIG.invRange);
+        } catch (RuntimeException exception) {
             tomInventoryRange = 0;
         }
         return tomInventoryRange;

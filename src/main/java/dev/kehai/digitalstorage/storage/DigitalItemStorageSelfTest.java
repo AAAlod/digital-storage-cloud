@@ -1,5 +1,7 @@
 package dev.kehai.digitalstorage.storage;
 
+import com.tom.storagemod.util.MergedStorage;
+
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
 
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
@@ -819,80 +821,63 @@ public final class DigitalItemStorageSelfTest {
     }
 
     private static void tomsMergedStorageDeduplicatesAndFallsBack(ItemVariant stone) {
-        try {
-            Class<?> mergedStorageClass = Class.forName("com.tom.storagemod.util.MergedStorage");
-            Object mergedStorage = mergedStorageClass.getConstructor().newInstance();
-            java.lang.reflect.Method add = mergedStorageClass.getMethod(
-                    "add",
-                    net.fabricmc.fabric.api.transfer.v1.storage.Storage.class
-            );
-            java.lang.reflect.Method getStorages = mergedStorageClass.getMethod("getStorages");
-            java.lang.reflect.Method insert = mergedStorageClass.getMethod(
-                    "insert",
-                    net.fabricmc.fabric.api.transfer.v1.item.ItemVariant.class,
-                    long.class,
-                    net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext.class
-            );
+        MergedStorage mergedStorage = new MergedStorage();
 
-            java.util.UUID volumeId = java.util.UUID.randomUUID();
-            FabricDigitalItemStorage canonical = new FabricDigitalItemStorage(volumeId, () -> { }, 64);
-            FabricDigitalItemStorage alias = new FabricDigitalItemStorage(volumeId, () -> { }, 64);
-            add.invoke(mergedStorage, canonical);
-            add.invoke(mergedStorage, alias);
-            java.util.Collection<?> parts = (java.util.Collection<?>) getStorages.invoke(mergedStorage);
-            expectEquals(1, parts.size(), "Tom MergedStorage Volume UUID deduplication");
-            dev.kehai.digitalstorage.platform.fabric.tom.TomDigitalEndpointTracker endpointTracker =
-                    (dev.kehai.digitalstorage.platform.fabric.tom.TomDigitalEndpointTracker) mergedStorage;
-            expectEquals(2, endpointTracker.digitalstorage$rawDigitalEndpoints().size(),
-                    "Tom pre-deduplication endpoint count");
+        java.util.UUID volumeId = java.util.UUID.randomUUID();
+        FabricDigitalItemStorage canonical = new FabricDigitalItemStorage(volumeId, () -> { }, 64);
+        FabricDigitalItemStorage alias = new FabricDigitalItemStorage(volumeId, () -> { }, 64);
+        mergedStorage.add(canonical);
+        mergedStorage.add(alias);
+        java.util.Collection<?> parts = mergedStorage.getStorages();
+        expectEquals(1, parts.size(), "Tom MergedStorage Volume UUID deduplication");
+        dev.kehai.digitalstorage.platform.fabric.tom.TomDigitalEndpointTracker endpointTracker =
+                (dev.kehai.digitalstorage.platform.fabric.tom.TomDigitalEndpointTracker) mergedStorage;
+        expectEquals(2, endpointTracker.digitalstorage$rawDigitalEndpoints().size(),
+                "Tom pre-deduplication endpoint count");
 
-            Object fallbackMerged = mergedStorageClass.getConstructor().newInstance();
-            RejectingStorage rejecting = new RejectingStorage();
-            FabricDigitalItemStorage fallback = new FabricDigitalItemStorage(() -> { }, 64);
-            add.invoke(fallbackMerged, rejecting);
-            add.invoke(fallbackMerged, fallback);
-            try (Transaction transaction = Transaction.openOuter()) {
-                long inserted = (long) insert.invoke(fallbackMerged, stone, 8L, transaction);
-                expectEquals(8, inserted, "Tom fallback insert amount");
-                transaction.commit();
-            }
-            expectEquals(1, rejecting.insertCalls, "Tom rejected-storage attempt count");
-            expectEquals(8, onlyView(fallback).getAmount(), "Tom fallback destination amount");
-
-            Object cursorMerged = mergedStorageClass.getConstructor().newInstance();
-            java.lang.reflect.Method clear = mergedStorageClass.getMethod("clear");
-            FabricDigitalItemStorage oldSource = storageWith(stone, 128);
-            FabricDigitalItemStorage rebuiltSource = storageWith(stone, 64);
-            FabricDigitalItemStorage cursorDestination = new FabricDigitalItemStorage(() -> { }, 1);
-            add.invoke(cursorMerged, oldSource);
-            try (Transaction transaction = Transaction.openOuter()) {
-                expectEquals(64, HopperTransferOptimizer.moveFiltered(
-                        (Storage<ItemVariant>) cursorMerged,
-                        cursorDestination,
-                        stone::equals,
-                        64,
-                        transaction
-                ), "Tom cursor initial transfer");
-                transaction.commit();
-            }
-            clear.invoke(cursorMerged);
-            add.invoke(cursorMerged, rebuiltSource);
-            try (Transaction transaction = Transaction.openOuter()) {
-                expectEquals(64, HopperTransferOptimizer.moveFiltered(
-                        (Storage<ItemVariant>) cursorMerged,
-                        cursorDestination,
-                        stone::equals,
-                        64,
-                        transaction
-                ), "Tom cursor transfer after topology rebuild");
-                transaction.commit();
-            }
-            expectEquals(64, onlyView(oldSource).getAmount(), "Tom cursor reused detached storage view");
-            expectFalse(rebuiltSource.iterator().hasNext(), "Tom cursor did not drain rebuilt source");
-            expectEquals(128, onlyView(cursorDestination).getAmount(), "Tom cursor destination total");
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("Tom MergedStorage compatibility self-test failed", exception);
+        MergedStorage fallbackMerged = new MergedStorage();
+        RejectingStorage rejecting = new RejectingStorage();
+        FabricDigitalItemStorage fallback = new FabricDigitalItemStorage(() -> { }, 64);
+        fallbackMerged.add(rejecting);
+        fallbackMerged.add(fallback);
+        try (Transaction transaction = Transaction.openOuter()) {
+            long inserted = fallbackMerged.insert(stone, 8L, transaction);
+            expectEquals(8, inserted, "Tom fallback insert amount");
+            transaction.commit();
         }
+        expectEquals(1, rejecting.insertCalls, "Tom rejected-storage attempt count");
+        expectEquals(8, onlyView(fallback).getAmount(), "Tom fallback destination amount");
+
+        MergedStorage cursorMerged = new MergedStorage();
+        FabricDigitalItemStorage oldSource = storageWith(stone, 128);
+        FabricDigitalItemStorage rebuiltSource = storageWith(stone, 64);
+        FabricDigitalItemStorage cursorDestination = new FabricDigitalItemStorage(() -> { }, 1);
+        cursorMerged.add(oldSource);
+        try (Transaction transaction = Transaction.openOuter()) {
+            expectEquals(64, HopperTransferOptimizer.moveFiltered(
+                    cursorMerged,
+                    cursorDestination,
+                    stone::equals,
+                    64,
+                    transaction
+            ), "Tom cursor initial transfer");
+            transaction.commit();
+        }
+        cursorMerged.clear();
+        cursorMerged.add(rebuiltSource);
+        try (Transaction transaction = Transaction.openOuter()) {
+            expectEquals(64, HopperTransferOptimizer.moveFiltered(
+                    cursorMerged,
+                    cursorDestination,
+                    stone::equals,
+                    64,
+                    transaction
+            ), "Tom cursor transfer after topology rebuild");
+            transaction.commit();
+        }
+        expectEquals(64, onlyView(oldSource).getAmount(), "Tom cursor reused detached storage view");
+        expectFalse(rebuiltSource.iterator().hasNext(), "Tom cursor did not drain rebuilt source");
+        expectEquals(128, onlyView(cursorDestination).getAmount(), "Tom cursor destination total");
     }
 
     private static void hopperTierBatchLimitsAreDeviceScoped() {

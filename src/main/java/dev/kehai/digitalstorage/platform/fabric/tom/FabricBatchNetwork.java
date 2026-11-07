@@ -1,5 +1,9 @@
 package dev.kehai.digitalstorage.platform.fabric.tom;
 
+import com.tom.storagemod.Config;
+import com.tom.storagemod.util.FilteredStorage;
+import com.tom.storagemod.util.ItemPredicate;
+
 import dev.kehai.digitalstorage.optimization.BatchTransfer;
 import dev.kehai.digitalstorage.optimization.BatchTransfers;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
@@ -58,6 +62,7 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                     .setValue(com.tom.storagemod.block.InventoryCableConnectorBlock.FACING, net.minecraft.core.Direction.SOUTH)
                     .setValue(com.tom.storagemod.block.InventoryCableBlock.DIR_TO_PROPERTY[net.minecraft.core.Direction.NORTH.ordinal()], true));
             var connector = (com.tom.storagemod.tile.InventoryConnectorBlockEntity) world.getBlockEntity(connectorPos);
+            var networkIdentity = connector.getInventory();
             var cable = cableNetwork ? (com.tom.storagemod.tile.InventoryCableConnectorBlockEntity) world.getBlockEntity(cablePos) : null;
             long time = world.getGameTime();
             try {
@@ -68,6 +73,8 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                 }
                 world.getServer().getWorldData().overworldData().setGameTime(time - time % 20 + 20);
                 connector.updateServer();
+                if (networkIdentity == null || connector.getInventory() != networkIdentity)
+                    throw new IllegalStateException("Tom connector public inventory changed identity after rebuild");
                 dev.kehai.digitalstorage.screen.BatchScreenSession.runNetworkPreviewSelfTest(player, fixtureAccessor,
                         () -> { for (int i = 1; i <= 5; i++) {
                             if (cable != null) {
@@ -76,6 +83,8 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                             }
                             world.getServer().getWorldData().overworldData().setGameTime(time - time % 20 + (i + 1) * 20);
                             connector.updateServer();
+                            if (connector.getInventory() != networkIdentity)
+                                throw new IllegalStateException("Tom connector public inventory changed identity during rebuild");
                         } }, () -> { world.removeBlock(doubleChest ? secondChestPos : chestPos, false); connector.updateServer(); });
                 if (!chest.isEmpty()) throw new IllegalStateException("Imported chest was not emptied");
             } finally { world.getServer().getWorldData().overworldData().setGameTime(time); }
@@ -125,23 +134,17 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
         for (int i = 0; i < 10 && separated.active(); i++) separated.tick(2);
         if (separated.moved() != 5 || box.getItem(0).getCount() != 24 || record.storage().amountOf(stone) != 72)
             throw new IllegalStateException("Mixed Fabric network output returned to a digital volume");
-        try {
-            var predicateClass = Class.forName("com.tom.storagemod.util.ItemPredicate");
-            var deny = java.lang.reflect.Proxy.newProxyInstance(predicateClass.getClassLoader(), new Class<?>[]{predicateClass},
-                    (proxy, method, args) -> method.getReturnType() == boolean.class ? false : method.getReturnType() == int.class ? 0 : null);
-            @SuppressWarnings("unchecked") var filtered = (Storage<ItemVariant>) Class.forName("com.tom.storagemod.util.FilteredStorage")
-                    .getConstructor(Storage.class, predicateClass, boolean.class).newInstance(physical, deny, false);
-            var filteredParts = TomNetworkIntrospection.transferParts(filtered);
-            if (filteredParts.size() != 1 || filteredParts.get(0) != filtered) throw new IllegalStateException("Physical Fabric filter was stripped");
-            var rejected = new BatchTransfer(record, new BatchTransfer.Route(java.util.List.of(new Port(filteredParts.get(0))), () -> true, "fixture"),
-                    java.util.List.of(new BatchTransfer.Entry(stone, 5)), true);
-            for (int i = 0; i < 10 && rejected.active(); i++) rejected.tick(2);
-            if (rejected.moved() != 0 || box.getItem(0).getCount() != 24 || record.storage().amountOf(stone) != 72)
-                throw new IllegalStateException("Fabric export bypassed Tom filter");
-            @SuppressWarnings("unchecked") var unsafe = (Storage<ItemVariant>) Class.forName("com.tom.storagemod.util.FilteredStorage")
-                    .getConstructor(Storage.class, predicateClass, boolean.class).newInstance(mixed, deny, false);
-            if (!TomNetworkIntrospection.transferParts(unsafe).isEmpty()) throw new IllegalStateException("Mixed filtered Fabric aggregate became writable");
-        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Tom filter fixture unavailable", failure); }
+        ItemPredicate deny = variant -> false;
+        var filtered = new FilteredStorage(physical, deny, false);
+        var filteredParts = TomNetworkIntrospection.transferParts(filtered);
+        if (filteredParts.size() != 1 || filteredParts.get(0) != filtered) throw new IllegalStateException("Physical Fabric filter was stripped");
+        var rejected = new BatchTransfer(record, new BatchTransfer.Route(java.util.List.of(new Port(filteredParts.get(0))), () -> true, "fixture"),
+                java.util.List.of(new BatchTransfer.Entry(stone, 5)), true);
+        for (int i = 0; i < 10 && rejected.active(); i++) rejected.tick(2);
+        if (rejected.moved() != 0 || box.getItem(0).getCount() != 24 || record.storage().amountOf(stone) != 72)
+            throw new IllegalStateException("Fabric export bypassed Tom filter");
+        var unsafe = new FilteredStorage(mixed, deny, false);
+        if (!TomNetworkIntrospection.transferParts(unsafe).isEmpty()) throw new IllegalStateException("Mixed filtered Fabric aggregate became writable");
     }
     public BatchTransfer.Route open(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) {
         var discovery = TomNetworkIntrospection.discoverContext(accessor);
@@ -220,9 +223,8 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
     }
     private static int tomRange() {
         try {
-            var config = Class.forName("com.tom.storagemod.Config").getMethod("get").invoke(null);
-            return config.getClass().getField("invRange").getInt(config);
-        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return Config.get().invRange;
+        } catch (RuntimeException failure) {
             dev.kehai.digitalstorage.optimization.SophisticatedEndpointGuard.report("NETWORK_RANGE_UNKNOWN", failure.getClass().getSimpleName());
             return 1;
         }

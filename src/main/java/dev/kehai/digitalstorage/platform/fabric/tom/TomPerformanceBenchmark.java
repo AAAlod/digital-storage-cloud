@@ -1,8 +1,9 @@
 package dev.kehai.digitalstorage.platform.fabric.tom;
 
+import com.tom.storagemod.util.MergedStorage;
+
 import dev.kehai.digitalstorage.platform.fabric.hopper.HopperTransferOptimizer;
 import dev.kehai.digitalstorage.platform.fabric.FabricDigitalItemStorage;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -34,66 +35,55 @@ public final class TomPerformanceBenchmark {
     }
 
     public static Result run() {
-        try {
-            Class<?> mergedClass = Class.forName("com.tom.storagemod.util.MergedStorage");
-            Method add = mergedClass.getMethod("add", Storage.class);
-            Storage<ItemVariant> physicalNetwork = newMerged(mergedClass);
-            Storage<ItemVariant> digitalNetwork = newMerged(mergedClass);
-            FabricDigitalItemStorage digital = new FabricDigitalItemStorage(() -> { }, VARIANTS);
+        MergedStorage physicalNetwork = new MergedStorage();
+        MergedStorage digitalNetwork = new MergedStorage();
+        FabricDigitalItemStorage digital = new FabricDigitalItemStorage(() -> { }, VARIANTS);
 
-            try (Transaction transaction = Transaction.openOuter()) {
-                for (int index = 0; index < VARIANTS; index++) {
-                    ItemVariant variant = variant(index);
-                    digital.insert(variant, 1, transaction);
-                    FabricDigitalItemStorage single = new FabricDigitalItemStorage(() -> { }, 1);
-                    single.insert(variant, 1, transaction);
-                    add.invoke(physicalNetwork, new OpaqueStorage(single));
-                }
-                add.invoke(digitalNetwork, digital);
-                transaction.commit();
+        try (Transaction transaction = Transaction.openOuter()) {
+            for (int index = 0; index < VARIANTS; index++) {
+                ItemVariant variant = variant(index);
+                digital.insert(variant, 1, transaction);
+                FabricDigitalItemStorage single = new FabricDigitalItemStorage(() -> { }, 1);
+                single.insert(variant, 1, transaction);
+                physicalNetwork.add(new OpaqueStorage(single));
             }
-
-            consume(physicalNetwork, WARMUP_PASSES);
-            consume(digitalNetwork, WARMUP_PASSES);
-            long physicalNanos = measure(physicalNetwork);
-            long digitalNanos = measure(digitalNetwork);
-            double physicalNanosPerView = (double) physicalNanos / (VARIANTS * MEASURED_PASSES);
-            double digitalNanosPerView = (double) digitalNanos / (VARIANTS * MEASURED_PASSES);
-            double relativeCost = digitalNanosPerView / Math.max(1.0, physicalNanosPerView);
-            int recommendedDigitalDivisor = clamp(
-                    (int) Math.round(256 / Math.max(0.03125, relativeCost)),
-                    256,
-                    8_192
-            );
-            int recommendedScanBudget = clamp(
-                    (int) Math.round(250_000 / Math.max(1.0, physicalNanosPerView)),
-                    64,
-                    4_096
-            );
-            Latency migrationLatency = benchmarkMigrationBatch();
-            List<HopperCase> hopperCases = benchmarkHoppers(mergedClass, add);
-            HopperCase worstHopper = hopperCases.get(hopperCases.size() - 1);
-            boolean additionalRoundRobinRecommended = worstHopper.latency().p99Millis() >= ROUND_ROBIN_P99_THRESHOLD_MS
-                    || worstHopper.latency().maxMillis() >= ROUND_ROBIN_MAX_THRESHOLD_MS;
-            return new Result(
-                    VARIANTS,
-                    physicalNanosPerView,
-                    digitalNanosPerView,
-                    relativeCost,
-                    recommendedDigitalDivisor,
-                    recommendedScanBudget,
-                    migrationLatency,
-                    hopperCases,
-                    additionalRoundRobinRecommended
-            );
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("Could not run Tom performance benchmark", exception);
+            digitalNetwork.add(digital);
+            transaction.commit();
         }
-    }
 
-    @SuppressWarnings("unchecked")
-    private static Storage<ItemVariant> newMerged(Class<?> mergedClass) throws ReflectiveOperationException {
-        return (Storage<ItemVariant>) mergedClass.getConstructor().newInstance();
+        consume(physicalNetwork, WARMUP_PASSES);
+        consume(digitalNetwork, WARMUP_PASSES);
+        long physicalNanos = measure(physicalNetwork);
+        long digitalNanos = measure(digitalNetwork);
+        double physicalNanosPerView = (double) physicalNanos / (VARIANTS * MEASURED_PASSES);
+        double digitalNanosPerView = (double) digitalNanos / (VARIANTS * MEASURED_PASSES);
+        double relativeCost = digitalNanosPerView / Math.max(1.0, physicalNanosPerView);
+        int recommendedDigitalDivisor = clamp(
+                (int) Math.round(256 / Math.max(0.03125, relativeCost)),
+                256,
+                8_192
+        );
+        int recommendedScanBudget = clamp(
+                (int) Math.round(250_000 / Math.max(1.0, physicalNanosPerView)),
+                64,
+                4_096
+        );
+        Latency migrationLatency = benchmarkMigrationBatch();
+        List<HopperCase> hopperCases = benchmarkHoppers();
+        HopperCase worstHopper = hopperCases.get(hopperCases.size() - 1);
+        boolean additionalRoundRobinRecommended = worstHopper.latency().p99Millis() >= ROUND_ROBIN_P99_THRESHOLD_MS
+                || worstHopper.latency().maxMillis() >= ROUND_ROBIN_MAX_THRESHOLD_MS;
+        return new Result(
+                VARIANTS,
+                physicalNanosPerView,
+                digitalNanosPerView,
+                relativeCost,
+                recommendedDigitalDivisor,
+                recommendedScanBudget,
+                migrationLatency,
+                hopperCases,
+                additionalRoundRobinRecommended
+        );
     }
 
     private static ItemVariant variant(int index) {
@@ -144,30 +134,27 @@ public final class TomPerformanceBenchmark {
         return new MigrationFixture(List.copyOf(views), target);
     }
 
-    private static List<HopperCase> benchmarkHoppers(Class<?> mergedClass, Method add)
-            throws ReflectiveOperationException {
+    private static List<HopperCase> benchmarkHoppers() {
         List<HopperCase> cases = new ArrayList<>(HOPPER_COUNTS.length * HOPPER_VARIANTS.length);
         for (int variants : HOPPER_VARIANTS) {
             for (int hoppers : HOPPER_COUNTS) {
-                cases.add(benchmarkHopperCase(mergedClass, add, hoppers, variants));
+                cases.add(benchmarkHopperCase(hoppers, variants));
             }
         }
         return List.copyOf(cases);
     }
 
     private static HopperCase benchmarkHopperCase(
-            Class<?> mergedClass,
-            Method add,
             int hoppers,
             int variants
-    ) throws ReflectiveOperationException {
-        Storage<ItemVariant> source = newMerged(mergedClass);
+    ) {
+        MergedStorage source = new MergedStorage();
         FabricDigitalItemStorage destination = new FabricDigitalItemStorage(() -> { }, 1);
         ItemVariant match = variant(variants - 1);
         for (int index = 0; index < variants; index++) {
             FabricDigitalItemStorage single = new FabricDigitalItemStorage(() -> { }, 1);
             single.load(variant(index), index == variants - 1 ? (long) hoppers * 64 : 64);
-            add.invoke(source, new OpaqueStorage(single));
+            source.add(new OpaqueStorage(single));
         }
         Predicate<ItemVariant> lastVariantOnly = match::equals;
         for (int pass = 0; pass < LATENCY_WARMUP_PASSES; pass++) {
