@@ -18,14 +18,19 @@ public final class ForgeHopperDeviceSelfTest {
     private ForgeHopperDeviceSelfTest() { }
     public static void run(MinecraftServer server) {
         batchUpdates(server);
-        for (var block : new net.minecraft.world.level.block.Block[]{Content.invHopperBasic.get(), ForgeDigitalStorage.ADVANCED_HOPPER.get()}) {
+        var blocks = new net.minecraft.world.level.block.Block[]{Content.invHopperBasic.get(),
+                ForgeDigitalStorage.ADVANCED_HOPPER.get(), ForgeDigitalStorage.ADVANCED_HOPPER.get()};
+        for (int variant = 0; variant < blocks.length; variant++) {
+            var block = blocks[variant];
             var state = block.defaultBlockState();
-            var hopper = new BasicInventoryHopperBlockEntity(BlockPos.ZERO, state);
-            hopper.setFilter(new ItemStack(Items.STONE));
+            BlockEntity hopper = variant == 1
+                    ? new ForgeAdvancedInventoryHopperBlockEntity(BlockPos.ZERO, state)
+                    : new BasicInventoryHopperBlockEntity(BlockPos.ZERO, state);
+            setFilter(hopper, new ItemStack(Items.STONE));
             var legacy = hopper.saveWithFullMetadata();
             legacy.remove(ForgeHopperState.NBT_KEY);
-            var restored = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, legacy);
-            expect(restored != null && !transfer(restored).blocked() && restored.getFilter().is(Items.STONE),
+            var restored = BlockEntity.loadStatic(BlockPos.ZERO, state, legacy);
+            expect(restored != null && !transfer(restored).blocked() && getFilter(restored).is(Items.STONE),
                     "Legacy filter-only Tom entity remains ready");
 
             var source = new ItemStackHandler(1) {
@@ -40,19 +45,19 @@ public final class ForgeHopperDeviceSelfTest {
             expect(transfer(hopper).move(source, 0, target, 8).stopped() && transfer(hopper).heldCount() == 8,
                     "Device owns rejected remainder");
             var saved = hopper.saveWithFullMetadata();
-            restored = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, saved);
+            restored = BlockEntity.loadStatic(BlockPos.ZERO, state, saved);
             expect(restored != null && transfer(restored).blocked() && !transfer(restored).uncertain()
-                    && transfer(restored).heldCount() == 8 && restored.getFilter().is(Items.STONE),
+                    && transfer(restored).heldCount() == 8 && getFilter(restored).is(Items.STONE),
                     "Actual entity save/load retains known remainder and filter");
             var invalidIdentity = saved.copy();
             invalidIdentity.put(ForgeHopperState.ID_KEY, StringTag.valueOf("future identity"));
-            var unidentified = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, invalidIdentity);
+            var unidentified = BlockEntity.loadStatic(BlockPos.ZERO, state, invalidIdentity);
             expect(unidentified != null && transfer(unidentified).uncertain() && transfer(unidentified).heldCount() == 8
                     && unidentified.saveWithFullMetadata().get(ForgeHopperState.ID_KEY).equals(invalidIdentity.get(ForgeHopperState.ID_KEY)),
                     "Invalid identity preserves items and evidence but cannot authorize handoff");
             evidence(unidentified, true, StringTag.valueOf("future identity"), false);
             var missingIdentity = saved.copy(); missingIdentity.remove(ForgeHopperState.ID_KEY);
-            unidentified = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, missingIdentity);
+            unidentified = BlockEntity.loadStatic(BlockPos.ZERO, state, missingIdentity);
             expect(unidentified != null && transfer(unidentified).uncertain() && transfer(unidentified).heldCount() == 8,
                     "Stopped legacy mirror without identity requires reconciliation");
             evidence(unidentified, false, null, false);
@@ -64,18 +69,18 @@ public final class ForgeHopperDeviceSelfTest {
             var future = legacy.copy();
             var opaque = new CompoundTag(); opaque.putInt("Version", 99); opaque.putString("Future", "preserve");
             future.put(ForgeHopperState.NBT_KEY, opaque);
-            restored = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, future);
+            restored = BlockEntity.loadStatic(BlockPos.ZERO, state, future);
             expect(restored != null && transfer(restored).blocked() && restored.saveWithFullMetadata()
                     .getCompound(ForgeHopperState.NBT_KEY).equals(opaque), "Future state survives entity round trip");
 
             var malformed = legacy.copy();
             malformed.put(ForgeHopperState.NBT_KEY, StringTag.valueOf("unknown typed data"));
-            restored = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, malformed);
+            restored = BlockEntity.loadStatic(BlockPos.ZERO, state, malformed);
             expect(restored != null && transfer(restored).blocked() && restored.saveWithFullMetadata()
                     .get(ForgeHopperState.NBT_KEY).equals(malformed.get(ForgeHopperState.NBT_KEY)),
                     "Wrong typed device tag is preserved, not coerced to empty compound");
             malformed.put(ForgeHopperState.ID_KEY, StringTag.valueOf("opaque identity"));
-            restored = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, state, malformed);
+            restored = BlockEntity.loadStatic(BlockPos.ZERO, state, malformed);
             evidence(restored, true, StringTag.valueOf("opaque identity"), true);
         }
 
@@ -108,7 +113,8 @@ public final class ForgeHopperDeviceSelfTest {
                 source.setStackInSlot(1, new ItemStack(Items.STONE, 64));
                 var target = new ItemStackHandler(2);
                 var block = upgraded ? ForgeDigitalStorage.ADVANCED_HOPPER.get() : Content.invHopperBasic.get();
-                var hopper = new Hopper(server, source, target, block.defaultBlockState(), true);
+                TestHopper hopper = upgraded ? new AdvancedHopper(server, source, target, block.defaultBlockState(), true)
+                        : new Hopper(server, source, target, block.defaultBlockState(), true);
                 hopper.attempt();
                 expect(target.getStackInSlot(0).isEmpty(), "Network extraction requires a filter");
                 hopper.setFilter(new ItemStack(Items.STONE));
@@ -123,7 +129,7 @@ public final class ForgeHopperDeviceSelfTest {
                 expect(source.getStackInSlot(1).getCount() == 64, "Success cooldown prevents early transfer");
                 hopper.attempt();
                 expect(source.getStackInSlot(1).getCount() == 64 - batch, "Success cooldown resumes transfer");
-                hopper.setRemoved();
+                hopper.entity().setRemoved();
             }
             var source = new ItemStackHandler(1); source.setStackInSlot(0, new ItemStack(Items.STONE, 64));
             final int[] probes = {0};
@@ -179,10 +185,10 @@ public final class ForgeHopperDeviceSelfTest {
         }
     }
 
-    private static ForgeHopperTransfer transfer(BasicInventoryHopperBlockEntity entity) {
+    private static ForgeHopperTransfer transfer(BlockEntity entity) {
         return ((ForgeHopperState) entity).digitalstorage$transferState();
     }
-    private static void evidence(BasicInventoryHopperBlockEntity entity, boolean present,
+    private static void evidence(BlockEntity entity, boolean present,
                                  net.minecraft.nbt.Tag raw, boolean unknown) {
         java.nio.file.Path directory = null;
         try {
@@ -226,7 +232,7 @@ public final class ForgeHopperDeviceSelfTest {
             var oldMirror = entity.saveWithFullMetadata();
             expect(oldMirror.hasUUID(ForgeHopperState.CUSTODY_ID_KEY), "Opaque or missing identity still has stable journal lineage");
             reopened.retire(entry.id(), java.util.UUID.randomUUID(), "External device state inspected; no deliverable remainder");
-            var mirrorEntity = (BasicInventoryHopperBlockEntity) BlockEntity.loadStatic(BlockPos.ZERO, entity.getBlockState(), oldMirror);
+            var mirrorEntity = BlockEntity.loadStatic(BlockPos.ZERO, entity.getBlockState(), oldMirror);
             ((ForgeHopperState) mirrorEntity).digitalstorage$reconcile(reopened, "minecraft:overworld", BlockPos.ZERO);
             var ready = mirrorEntity.saveWithFullMetadata();
             expect(!transfer(mirrorEntity).blocked() && transfer(mirrorEntity).heldCount() == 0
@@ -244,7 +250,27 @@ public final class ForgeHopperDeviceSelfTest {
     private static void expect(boolean value, String detail) {
         if (!value) throw new IllegalStateException("Forge hopper device: " + detail);
     }
-    private static final class Hopper extends BasicInventoryHopperBlockEntity {
+    private static ItemStack getFilter(BlockEntity entity) {
+        return entity instanceof ForgeAdvancedInventoryHopperBlockEntity advanced ? advanced.getFilter()
+                : ((BasicInventoryHopperBlockEntity) entity).getFilter();
+    }
+    private static void setFilter(BlockEntity entity, ItemStack filter) {
+        if (entity instanceof ForgeAdvancedInventoryHopperBlockEntity advanced) advanced.setFilter(filter);
+        else ((BasicInventoryHopperBlockEntity) entity).setFilter(filter);
+    }
+    private interface TestHopper {
+        void attempt(); void setFilter(ItemStack filter); BlockEntity entity();
+    }
+    private static final class AdvancedHopper extends ForgeAdvancedInventoryHopperBlockEntity implements TestHopper {
+        AdvancedHopper(MinecraftServer server, ItemStackHandler source, ItemStackHandler destination,
+                net.minecraft.world.level.block.state.BlockState state, boolean network) {
+            super(BlockPos.ZERO, state); setLevel(server.overworld());
+            top = LazyOptional.of(() -> source); bottom = LazyOptional.of(() -> destination); topNet = network;
+        }
+        public void attempt() { super.update(); }
+        public BlockEntity entity() { return this; }
+    }
+    private static final class Hopper extends BasicInventoryHopperBlockEntity implements TestHopper {
         Hopper(MinecraftServer server, ItemStackHandler source, ItemStackHandler destination) {
             this(server, source, destination, Content.invHopperBasic.get().defaultBlockState(), false);
         }
@@ -256,6 +282,7 @@ public final class ForgeHopperDeviceSelfTest {
             bottom = LazyOptional.of(() -> destination);
             topNet = network;
         }
-        void attempt() { super.update(); }
+        public void attempt() { super.update(); }
+        public BlockEntity entity() { return this; }
     }
 }

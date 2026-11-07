@@ -2,7 +2,6 @@ package dev.kehai.digitalstorage.forge;
 
 import com.tom.storagemod.Content;
 import com.tom.storagemod.block.BasicInventoryHopperBlock;
-import com.tom.storagemod.tile.BasicInventoryHopperBlockEntity;
 import dev.kehai.digitalstorage.DigitalStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -23,22 +22,29 @@ public final class ForgeAdvancedHopperSelfTest {
 
     public static void run(MinecraftServer server) {
         var block = (ForgeAdvancedInventoryHopperBlock) ForgeDigitalStorage.ADVANCED_HOPPER.get();
-        var type = Content.invHopperBasicTile.get();
-        expect(type.isValid(Content.invHopperBasic.get().defaultBlockState()), "Original Tom block remains valid");
+        var legacyType = Content.invHopperBasicTile.get();
+        var dscType = ForgeDigitalStorage.ADVANCED_HOPPER_TYPE.get();
+        expect(legacyType.isValid(Content.invHopperBasic.get().defaultBlockState()), "Original Tom block remains valid");
         for (var direction : Direction.values()) {
             var state = block.defaultBlockState().setValue(BasicInventoryHopperBlock.FACING, direction)
                     .setValue(BasicInventoryHopperBlock.ENABLED, false);
-            expect(type.isValid(state), "Advanced block accepted by original type");
-            var entity = (BasicInventoryHopperBlockEntity) block.newBlockEntity(BlockPos.ZERO, state);
-            expect(entity != null && entity.getType() == type, "Original Tom entity type");
-            entity.setFilter(new ItemStack(Items.STONE));
-            var saved = entity.saveWithFullMetadata();
+            expect(legacyType.isValid(state), "Legacy Tom type remains valid for old advanced hopper blocks");
+            expect(dscType.isValid(state), "DSC type accepts new advanced hopper block");
+            var entity = block.newBlockEntity(BlockPos.ZERO, state);
+            expect(entity instanceof ForgeAdvancedInventoryHopperBlockEntity && entity.getType() == dscType,
+                    "New advanced hopper creates DSC entity type");
+            var advanced = (ForgeAdvancedInventoryHopperBlockEntity) entity;
+            advanced.setFilter(new ItemStack(Items.STONE));
+            var saved = advanced.saveWithFullMetadata();
             var restored = BlockEntity.loadStatic(BlockPos.ZERO, state, saved);
-            expect(restored instanceof BasicInventoryHopperBlockEntity && restored.getType() == type
-                    && restored.getBlockState().equals(state), "Tom type reload with advanced state");
-            expect(ItemStack.matches(((BasicInventoryHopperBlockEntity) restored).getFilter(), entity.getFilter()),
+            expect(restored instanceof ForgeAdvancedInventoryHopperBlockEntity
+                            && restored.getType() == dscType && restored.getBlockState().equals(state),
+                    "DSC type reload with advanced state");
+            expect(ItemStack.matches(((ForgeAdvancedInventoryHopperBlockEntity) restored).getFilter(), advanced.getFilter()),
                     "Filter survives reload");
-            expect(block.getTicker(server.overworld(), state, type) != null, "Server ticker available");
+            expect(block.getTicker(server.overworld(), state, dscType) != null, "DSC server ticker available");
+            expect(block.getTicker(server.overworld(), state, legacyType) != null,
+                    "Legacy Tom ticker remains available");
         }
         var state = block.defaultBlockState();
         expect(state.is(BlockTags.MINEABLE_WITH_PICKAXE) && state.is(BlockTags.NEEDS_IRON_TOOL), "Mining tags loaded");

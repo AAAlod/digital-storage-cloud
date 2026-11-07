@@ -28,7 +28,8 @@ public abstract class AbstractInventoryHopperScanMixin {
     @Inject(method = "updateServer", at = @At("RETURN"), remap = false)
     private void digitalstorage$updateDirectInventories(CallbackInfo callback) {
         var entity = (BlockEntity) (Object) this;
-        if (entity.getBlockState().is(ForgeDigitalStorage.ADVANCED_HOPPER.get())
+        if (entity.getType() != ForgeDigitalStorage.ADVANCED_HOPPER_TYPE.get()
+                && entity.getBlockState().is(ForgeDigitalStorage.ADVANCED_HOPPER.get())
                 && top != null && top.isPresent()
                 && bottom != null && bottom.isPresent()
                 && !topNet && !bottomNet) {

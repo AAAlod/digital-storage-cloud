@@ -43,6 +43,9 @@ public final class ForgeDigitalStorage {
             ForgeAdvancedInventoryHopperBlock::new);
     public static final RegistryObject<Item> ADVANCED_HOPPER_ITEM = ITEMS.register("advanced_inventory_hopper", () ->
             new BlockItem(ADVANCED_HOPPER.get(), new Item.Properties()));
+    public static final RegistryObject<BlockEntityType<ForgeAdvancedInventoryHopperBlockEntity>> ADVANCED_HOPPER_TYPE =
+            ENTITIES.register("advanced_inventory_hopper", () -> BlockEntityType.Builder
+                    .of(ForgeAdvancedInventoryHopperBlockEntity::new, ADVANCED_HOPPER.get()).build(null));
     public static final RegistryObject<BlockEntityType<DigitalStorageAccessorBlockEntity>> ACCESSOR_TYPE =
             ENTITIES.register("digital_storage_accessor", () -> BlockEntityType.Builder
                     .<DigitalStorageAccessorBlockEntity>of(ForgeAccessorBlockEntity::new, ACCESSOR.get()).build(null));
