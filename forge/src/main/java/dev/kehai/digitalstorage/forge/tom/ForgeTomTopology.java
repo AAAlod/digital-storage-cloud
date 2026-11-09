@@ -21,6 +21,9 @@ import net.minecraftforge.items.IItemHandler;
 /** Conservative identity/slot topology over Tom handles; inventory contents are never a topology key. */
 public final class ForgeTomTopology {
     private ForgeTomTopology() { }
+    private static long auditCalls, auditViews, auditNanos;
+    public static void resetAuditMetrics() { auditCalls = auditViews = auditNanos = 0; }
+    public static String auditMetrics() { return "analysisCalls=" + auditCalls + ", analyzedViews=" + auditViews + ", analysisMs=" + auditNanos / 1_000_000.0; }
 
     public static List<IItemHandler> physicalHandlers(IItemHandler root) {
         return inspect(root).physical.stream().filter(ForgeTomTopology::trustedPhysical).toList();
@@ -41,6 +44,7 @@ public final class ForgeTomTopology {
     }
     public static NetworkAnalysis.Report analyze(DigitalStorageRecord record, Supplier<IItemHandler> currentNetwork,
                                                   ForgeScannerTelemetry.Snapshot scanners) {
+        long auditStart = System.getProperty("digitalstorage.integrationTestRoot") == null ? 0 : System.nanoTime();
         var root = currentNetwork.get();
         if (record == null || root == null) return NetworkAnalysis.Report.unavailable();
         var parts = inspect(root);
@@ -56,9 +60,11 @@ public final class ForgeTomTopology {
             Object identity = endpoint.ledger().volumeId().<Object>map(id -> id).orElse(endpoint.ledger());
             if (!seen.add(identity)) duplicates++;
         }
-        return NetworkAnalysis.analyze(record, new NetworkAnalysis.Snapshot(sources,
+        var report = NetworkAnalysis.analyze(record, new NetworkAnalysis.Snapshot(sources,
                 parts.digital.stream().mapToInt(handler -> handler.ledger().variantCount()).sum(),
                 duplicates, targetCount, scanners.active(), scanners.failing(), scanners.interval(), token, references));
+        if (auditStart != 0) { auditCalls++; auditViews += report.totalViews(); auditNanos += System.nanoTime() - auditStart; }
+        return report;
     }
 
     private static Parts inspect(IItemHandler root) {
