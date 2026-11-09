@@ -184,7 +184,7 @@ final class BatchTransferPanel {
         if (outstanding == 0 && pendingOpen) open(pendingExport, pendingTools, pendingRecommended);
         if (autoRefresh > 0 && --autoRefresh == 0) {
             if (outstanding != 0 || running()) autoRefresh = 1;
-            else { open(exporting, tools); all = false; }
+            else { open(exporting, tools, recommended); all = false; }
         }
         if (visible && searchDelay > 0 && --searchDelay == 0) {
             if (outstanding != 0 || running()) searchDelay = 1;

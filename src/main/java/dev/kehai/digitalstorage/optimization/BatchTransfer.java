@@ -48,11 +48,15 @@ public final class BatchTransfer {
         for (var entry : selection) if (!identities.add(entry.key())) throw new IllegalArgumentException("Duplicate selection");
     }
     public static List<Entry> preview(DigitalStorageRecord record, Route route, boolean exporting, boolean unstackable) {
+        return preview(record, route, exporting, unstackable, null);
+    }
+    public static List<Entry> preview(DigitalStorageRecord record, Route route, boolean exporting, boolean unstackable, java.util.Set<ItemKey> included) {
         Map<ItemKey, Long> amounts = new LinkedHashMap<>();
         if (exporting) {
             for (var view : record.storage()) amounts.put(view.getResource(), view.getAmount());
         } else {
             for (var port : route.ports()) for (var entry : port.contents()) {
+                if (included != null && !included.contains(entry.key())) continue;
                 amounts.merge(entry.key(), entry.amount(), (a, b) -> Math.min(Integer.MAX_VALUE, a + Math.min(Integer.MAX_VALUE, b)));
                 if (amounts.size() > MAX_ENTRIES) throw new IllegalStateException("too_many_items");
             }

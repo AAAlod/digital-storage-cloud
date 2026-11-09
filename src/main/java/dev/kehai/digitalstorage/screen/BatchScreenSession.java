@@ -15,10 +15,14 @@ public final class BatchScreenSession {
     private List<BatchTransfer.Entry> entries = List.of();
     private java.util.Map<Integer, Long> recommended = java.util.Map.of();
     private boolean recommendedMode;
+    private int recommendedAvailableCount;
+    private long recommendedAvailableTotal;
     private boolean exporting;
     private long expires, nextPreview, nextRequest;
     private int lastSerial;
     private dev.kehai.digitalstorage.storage.DigitalStorageRecord record;
+    private BatchTransfer.Route fixtureRoute;
+    private dev.kehai.digitalstorage.optimization.NetworkAnalysis.Report fixtureReport;
 
     BatchScreenProtocol.Reply handle(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor, BatchScreenProtocol.Request request) {
         String detail = "";
@@ -70,19 +74,27 @@ public final class BatchScreenSession {
                     if (tick < nextPreview) throw new IllegalStateException("wait");
                     nextPreview = tick + 10;
                     previewId = BatchScreenProtocol.EMPTY;
-                    route = BatchTransfers.open(player, accessor); record = volume.record();
+                    route = fixtureRoute != null ? fixtureRoute : BatchTransfers.open(player, accessor); record = volume.record();
                     exporting = request.exporting(); volumeId = volume.id();
-                    entries = BatchTransfer.preview(record, route, exporting, request.tools());
                     recommendedMode = request.recommended(); recommended = java.util.Map.of();
                     if (recommendedMode) {
                         if (exporting) throw new IllegalStateException("no_recommendation");
-                        var report = dev.kehai.digitalstorage.optimization.NetworkServices.get().analyze(accessor);
+                        var report = fixtureReport != null ? fixtureReport : dev.kehai.digitalstorage.optimization.NetworkServices.get().analyze(accessor);
                         if (!report.available()) throw new IllegalStateException("no_recommendation");
                         if (report.targetEndpointCount() > 1) throw new IllegalStateException("duplicate_target");
+                        var available = new java.util.HashMap<dev.kehai.digitalstorage.storage.ItemKey, Long>();
+                        for (var port : route.ports()) for (var item : port.contents()) {
+                            if (!request.tools() || item.key().maximumStackSize() == 1)
+                                available.merge(item.key(), item.amount(), (a, b) -> Math.min(Integer.MAX_VALUE, a + Math.min(Integer.MAX_VALUE, b)));
+                        }
+                        recommendedAvailableCount = available.size();
+                        recommendedAvailableTotal = available.values().stream().mapToLong(Long::longValue).sum();
+                        var keys = report.candidates().stream().map(dev.kehai.digitalstorage.optimization.NetworkAnalysis.Candidate::variant).collect(java.util.stream.Collectors.toSet());
+                        entries = BatchTransfer.preview(record, route, false, request.tools(), keys);
                         var selected = intersectRecommendations(entries, report.candidates());
                         if (selected.isEmpty()) throw new IllegalStateException("no_recommendation");
                         recommended = java.util.Map.copyOf(selected);
-                    }
+                    } else entries = BatchTransfer.preview(record, route, exporting, request.tools());
                     previewId = UUID.randomUUID(); expires = tick + 6000;
                 } else { requirePreview(volume.id(), request.token(), tick); if (request.recommended() != recommendedMode) throw new IllegalStateException("preview_changed"); }
                 var paginated = new java.util.ArrayList<List<BatchScreenProtocol.Row>>();
@@ -108,7 +120,9 @@ public final class BatchScreenSession {
                 var response = reply(request, previewId, exporting, page, pages, rows, "PREVIEW", 0, 0, "", route.location(), volume);
                 var included = entries.stream().filter(entry -> matches(entry, request)).toList();
                 return new BatchScreenProtocol.Reply(response.syncId(), response.serial(), response.token(), exporting, page, pages,
-                        rows, "PREVIEW", 0, 0, "", route.location(), volume.id(), response.toolsStored(), included.size(), included.stream().mapToLong(BatchTransfer.Entry::amount).sum(),
+                        rows, "PREVIEW", 0, 0, "", route.location(), volume.id(), response.toolsStored(),
+                        recommendedMode ? recommendedAvailableCount : included.size(),
+                        recommendedMode ? recommendedAvailableTotal : included.stream().mapToLong(BatchTransfer.Entry::amount).sum(),
                         recommendedMode, recommended.size(), recommended.values().stream().mapToLong(Long::longValue).sum());
             } else if (request.action() != BatchScreenProtocol.POLL) throw new IllegalStateException("invalid_request");
             task = BatchTransfers.get(player.getServer(), volume.id());
@@ -361,6 +375,38 @@ public final class BatchScreenSession {
         expect(BatchTransfers.start(player, volume.id(), offline), "Stopped batch prevented a new task");
         BatchTransfers.tick(player.getServer());
         expect(offline.detail().equals("player_disconnected") && offline.moved() == 0, "Offline owner continued a background batch");
+        var physical = new java.util.ArrayList<BatchTransfer.Entry>();
+        var candidates = new java.util.ArrayList<dev.kehai.digitalstorage.optimization.NetworkAnalysis.Candidate>();
+        for (int i = 0; i < 4097; i++) {
+            var tag = new net.minecraft.nbt.CompoundTag(); tag.putInt("WideRecommendation", i);
+            var key = dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.world.item.Items.STONE, tag);
+            physical.add(new BatchTransfer.Entry(key, 1));
+            if (i < 20) candidates.add(new dev.kehai.digitalstorage.optimization.NetworkAnalysis.Candidate(key, 1, 1, false));
+        }
+        var widePort = new BatchTransfer.Port() {
+            public Iterable<BatchTransfer.Entry> contents() { return physical; }
+            public BatchTransfer.Cursor cursor(boolean exporting) { return new BatchTransfer.Cursor() {
+                public boolean hasNext() { return false; }
+                public BatchTransfer.Result next(dev.kehai.digitalstorage.storage.DigitalStorageRecord r, dev.kehai.digitalstorage.storage.ItemKey k, long m) { return BatchTransfer.Result.empty(); }
+            }; }
+        };
+        var wide = new BatchScreenSession();
+        wide.fixtureRoute = new BatchTransfer.Route(List.of(widePort), () -> true, "wide-fixture");
+        wide.fixtureReport = new dev.kehai.digitalstorage.optimization.NetworkAnalysis.Report(true, 90, "A", 1, 4097, 4097, 1, 0, 1, 0, 0, 0, 20, candidates, null, List.of());
+        var widePreview = wide.handle(player, accessor, new BatchScreenProtocol.Request(207, 1, BatchScreenProtocol.PREVIEW,
+                BatchScreenProtocol.EMPTY, false, false, 0, "", List.of(), List.of(), true, true));
+        expect(widePreview.state().equals("PREVIEW") && widePreview.suggestedCount() == 20 && widePreview.suggestedTotal() == 20,
+                "4097-variant recommended preview failed: " + widePreview.detail());
+        wide.nextRequest = 0;
+        var wideStart = wide.handle(player, accessor, new BatchScreenProtocol.Request(207, 2, BatchScreenProtocol.START,
+                widePreview.token(), false, false, 0, "", List.of(), List.of(), true, true));
+        expect(wideStart.state().equals("RUNNING") && wideStart.total() == 20, "4097-variant recommended start failed");
+        BatchTransfers.cancel(player, volume.id());
+        var manualWide = new BatchScreenSession(); manualWide.fixtureRoute = wide.fixtureRoute;
+        var manualReply = manualWide.handle(player, accessor, new BatchScreenProtocol.Request(207, 1, BatchScreenProtocol.PREVIEW,
+                BatchScreenProtocol.EMPTY, false, false, 0, "", List.of(), List.of(), true, false));
+        expect(manualReply.detail().equals("too_many_items"), "4097-variant manual preview was not rejected");
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Batch recommended 4097-variant preview/start self-test passed: 20 recommended, manual preview rejected");
         try (var tx = dev.kehai.digitalstorage.storage.LedgerTransaction.open()) { volume.record().storage().extract(stone, 5, tx); tx.commit(); }
         dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Batch preview fixture passed: 1024 identities/page totals, token/quantity/duplicate guards, consumed preview, task-specific stop, replayed serial and offline lifecycle");
     }

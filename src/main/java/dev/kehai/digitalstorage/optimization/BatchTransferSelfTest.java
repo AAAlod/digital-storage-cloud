@@ -10,6 +10,7 @@ import net.minecraft.nbt.CompoundTag;
 public final class BatchTransferSelfTest {
     private BatchTransferSelfTest() { }
     public static void run() {
+        recommendedPreviewBound();
         var record = DigitalStorageRecord.createNew(() -> { });
         var firstTag = new CompoundTag(); firstTag.putInt("Damage", 12);
         var secondTag = new CompoundTag(); secondTag.putInt("Damage", 30);
@@ -86,6 +87,29 @@ public final class BatchTransferSelfTest {
         changing.tick(10);
         check(changing.state().equals("STOPPED") && changing.detail().equals("network_changed") && calls[0] == 1
                 && received[0] == 1 && injected.storage().amountOf(stone) == 1, "Mid-tick invalidation failed conservation");
+    }
+    private static void recommendedPreviewBound() {
+        var entries = new java.util.ArrayList<BatchTransfer.Entry>();
+        var keys = new java.util.HashSet<ItemKey>();
+        for (int i = 0; i < 4097; i++) {
+            var tag = new CompoundTag(); tag.putInt("preview-fixture", i);
+            var key = ItemKey.of(Items.STONE, tag); entries.add(new BatchTransfer.Entry(key, 1));
+            if (i < 20) keys.add(key);
+        }
+        var port = new BatchTransfer.Port() {
+            public Iterable<BatchTransfer.Entry> contents() { return entries; }
+            public BatchTransfer.Cursor cursor(boolean exporting) { return new BatchTransfer.Cursor() {
+                public boolean hasNext() { return false; }
+                public BatchTransfer.Result next(DigitalStorageRecord record, ItemKey key, long maximum) { return BatchTransfer.Result.empty(); }
+            }; }
+        };
+        var record = DigitalStorageRecord.createNew(() -> { });
+        var route = new BatchTransfer.Route(List.of(port), () -> true, "fixture");
+        var recommended = BatchTransfer.preview(record, route, false, false, keys);
+        check(recommended.size() == 20 && new BatchTransfer(record, route, recommended, false).active(), "recommended subset blocked by unrelated variants");
+        boolean rejected = false;
+        try { BatchTransfer.preview(record, route, false, false); } catch (IllegalStateException e) { rejected = "too_many_items".equals(e.getMessage()); }
+        check(rejected, "manual preview did not retain variant limit");
     }
     private static void check(boolean value, String detail) { if (!value) throw new IllegalStateException(detail); }
 }
