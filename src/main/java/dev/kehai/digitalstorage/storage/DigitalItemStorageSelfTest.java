@@ -76,6 +76,7 @@ public final class DigitalItemStorageSelfTest {
         hopperTierBatchLimitsAreDeviceScoped();
         tomsMergedStorageDeduplicatesAndFallsBack(stone);
         dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkAnalysis.runSelfTest();
+        dev.kehai.digitalstorage.platform.fabric.tom.FabricBatchNetwork.runSelfTest();
         DigitalStorageUpgradeService.runSelfTest();
         DigitalStorageScreenState.runCodecSelfTest();
         dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol.runCompatibilitySelfTest();

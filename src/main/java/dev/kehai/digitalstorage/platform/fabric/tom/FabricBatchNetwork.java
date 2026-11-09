@@ -228,6 +228,25 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
         if (!batch.state().equals("STOPPED") || batch.moved() != 128 || record.storage().amountOf(key) != 128
                 || partialBox.getItem(0).getCount() != 64 || partialBox.getItem(1).getCount() != 64)
             throw new IllegalStateException("Partial batch export failed conservation or stop");
+
+        var slowBox = new net.minecraft.world.SimpleContainer(8);
+        var slowSlots = net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(slowBox, net.minecraft.core.Direction.UP);
+        int[] calls = {0};
+        Storage<ItemVariant> slow = new Storage<>() {
+            public long insert(ItemVariant v, long n, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext t) { calls[0]++; return slowSlots.insert(v, Math.min(1, n), t); }
+            public long extract(ItemVariant v, long n, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext t) { return slowSlots.extract(v, n, t); }
+            public Iterator<StorageView<ItemVariant>> iterator() { return slowSlots.iterator(); }
+        };
+        record = DigitalStorageRecord.createNew(() -> { }); record.storage().load(key, 256);
+        batch = exportFixture(record, key, slow);
+        batch.tick(1);
+        if (calls[0] > 64 || batch.moved() != 64 || !batch.active() || record.storage().amountOf(key) != 192)
+            throw new IllegalStateException("Slow storage exceeded the per-step insertion bound");
+        for (int i = 0; i < 20 && batch.active(); i++) { int before = calls[0]; batch.tick(1); if (calls[0] - before > 64) throw new IllegalStateException("Slow storage exceeded tick budget"); }
+        long physical = 0; for (int i = 0; i < slowBox.getContainerSize(); i++) physical += slowBox.getItem(i).getCount();
+        if (batch.active() || batch.moved() != 256 || record.storage().amountOf(key) + physical != 256)
+            throw new IllegalStateException("Slow storage export did not conserve items across ticks");
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Fabric batch pathological storage self-test passed: at most 64 inserts per step, cross-tick conservation");
     }
 
     private static Storage<ItemVariant> limitedFixture(Storage<ItemVariant> underlying) {
@@ -346,31 +365,41 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                 final Iterator<StorageView<ItemVariant>> views = storage.iterator();
                 StorageView<ItemVariant> pending;
                 boolean outputDone;
+                int outputSlot;
+                boolean outputPassAccepted;
                 public boolean hasNext() { return exporting ? !outputDone && storage.supportsInsertion() : pending != null || views.hasNext(); }
                 public BatchTransfer.Result next(DigitalStorageRecord record, ItemKey key, long maximum) {
                     ItemVariant variant = ItemVariant.of(key.toStack(1));
                     var digital = FabricDigitalItemStorage.of(record.storage());
                     if (exporting) {
-                        outputDone = true;
                         try (Transaction transaction = Transaction.openOuter()) {
                             long remaining = Math.min(maximum, record.storage().amountOf(key));
                             long accepted = 0;
                             if (storage instanceof SlottedStorage<ItemVariant> slotted) {
-                                for (int slot = 0; slot < slotted.getSlotCount() && remaining > 0; slot++) {
-                                    long inserted = slotted.getSlot(slot).insert(variant, remaining, transaction);
+                                int visited = 0;
+                                while (outputSlot < slotted.getSlotCount() && remaining > 0 && visited++ < 64) {
+                                    long inserted = slotted.getSlot(outputSlot++).insert(variant, remaining, transaction);
                                     if (inserted < 0 || inserted > remaining) throw new IllegalStateException("Invalid batch insertion");
                                     accepted += inserted;
                                     remaining -= inserted;
                                 }
+                                outputPassAccepted |= accepted > 0;
+                                if (outputSlot >= slotted.getSlotCount()) {
+                                    outputDone = !outputPassAccepted;
+                                    outputSlot = 0;
+                                    outputPassAccepted = false;
+                                }
                             } else {
-                                while (remaining > 0) {
+                                int calls = 0;
+                                while (remaining > 0 && calls++ < 64) {
                                     long inserted = storage.insert(variant, remaining, transaction);
                                     if (inserted < 0 || inserted > remaining) throw new IllegalStateException("Invalid batch insertion");
-                                    if (inserted == 0) break;
+                                    if (inserted == 0) { outputDone = true; break; }
                                     accepted += inserted;
                                     remaining -= inserted;
                                 }
                             }
+                            if (remaining == 0) outputDone = true;
                             if (accepted == 0) return BatchTransfer.Result.empty();
                             if (digital.extract(variant, accepted, transaction) != accepted)
                                 throw new IllegalStateException("Invalid batch insertion");
