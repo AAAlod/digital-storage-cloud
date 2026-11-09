@@ -15,6 +15,7 @@ public final class BatchScreenSession {
     private List<BatchTransfer.Entry> entries = List.of();
     private java.util.Map<Integer, Long> recommended = java.util.Map.of();
     private boolean recommendedMode;
+    private boolean fixtureLegacyPreview;
     private int recommendedAvailableCount;
     private long recommendedAvailableTotal;
     private boolean exporting;
@@ -79,15 +80,32 @@ public final class BatchScreenSession {
                     recommendedMode = request.recommended(); recommended = java.util.Map.of();
                     if (recommendedMode) {
                         if (exporting) throw new IllegalStateException("no_recommendation");
-                        var report = fixtureReport != null ? fixtureReport : dev.kehai.digitalstorage.optimization.NetworkServices.get().analyze(accessor);
+                        var report = fixtureReport != null ? fixtureReport
+                                : !fixtureLegacyPreview && route.recommendationAnalysis() != null ? route.recommendationAnalysis()
+                                : dev.kehai.digitalstorage.optimization.NetworkServices.get().analyze(accessor);
                         if (!report.available()) throw new IllegalStateException("no_recommendation");
                         if (report.targetEndpointCount() > 1) throw new IllegalStateException("duplicate_target");
                         recommendedAvailableCount = request.tools() ? report.unstackableVariants() : report.availableVariants();
                         recommendedAvailableTotal = request.tools() ? report.unstackableAmount() : report.availableAmount();
-                        var candidateEntries = new java.util.ArrayList<BatchTransfer.Entry>();
+                        var candidateKeys = new java.util.HashSet<dev.kehai.digitalstorage.storage.ItemKey>();
                         for (var candidate : report.candidates()) {
                             if (!request.tools() || candidate.variant().maximumStackSize() == 1)
-                                candidateEntries.add(new BatchTransfer.Entry(candidate.variant(), candidate.amount()));
+                                candidateKeys.add(candidate.variant());
+                        }
+                        // Analyze may include handlers the actual transfer route rejects. Scan the
+                        // route once, then retain report order and cap each recommendation to the
+                        // quantity actually visible through transferable ports.
+                        var amounts = new java.util.HashMap<dev.kehai.digitalstorage.storage.ItemKey, Long>();
+                        if (fixtureLegacyPreview) {
+                            for (var candidate : report.candidates()) if (candidateKeys.contains(candidate.variant())) amounts.put(candidate.variant(), candidate.amount());
+                        } else {
+                            var transferable = BatchTransfer.preview(record, route, false, request.tools(), candidateKeys);
+                            for (var entry : transferable) amounts.put(entry.key(), entry.amount());
+                        }
+                        var candidateEntries = new java.util.ArrayList<BatchTransfer.Entry>();
+                        for (var candidate : report.candidates()) {
+                            long amount = Math.min(candidate.amount(), amounts.getOrDefault(candidate.variant(), 0L));
+                            if (amount > 0) candidateEntries.add(new BatchTransfer.Entry(candidate.variant(), amount));
                         }
                         entries = java.util.List.copyOf(candidateEntries);
                         var selected = intersectRecommendations(entries, report.candidates());
@@ -164,6 +182,61 @@ public final class BatchScreenSession {
         var id = BuiltInRegistries.ITEM.getKey(entry.key().item());
         return query.isEmpty() || request.matches().contains(id) || id.toString().contains(query)
                 || entry.key().toStack(1).getHoverName().getString().toLowerCase(java.util.Locale.ROOT).contains(query);
+    }
+    public static void runTransferableRecommendationSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor,
+            dev.kehai.digitalstorage.storage.ItemKey allowed, dev.kehai.digitalstorage.storage.ItemKey rejected) {
+        var report = dev.kehai.digitalstorage.optimization.NetworkServices.get().analyze(accessor);
+        expect(report.candidates().stream().anyMatch(candidate -> candidate.variant().equals(rejected)), "fixture did not expose rejected handler to analysis");
+        var session = new BatchScreenSession();
+        var preview = session.handle(player, accessor, new BatchScreenProtocol.Request(207, 1,
+                BatchScreenProtocol.PREVIEW, BatchScreenProtocol.EMPTY, false, false, 0, "", List.of(), List.of(), true, true));
+        expect(preview.state().equals("PREVIEW") && session.entries.stream().anyMatch(entry -> entry.key().equals(allowed))
+                && session.entries.stream().noneMatch(entry -> entry.key().equals(rejected)), "recommended route included an inaccessible handler: " + preview.detail());
+        session.nextRequest = 0;
+        var started = session.handle(player, accessor, new BatchScreenProtocol.Request(207, 2,
+                BatchScreenProtocol.START, preview.token(), false, false, 0, "", List.of(), List.of(), true, true));
+        expect(started.state().equals("RUNNING"), "transferable recommendation did not start: " + started.detail());
+        var task = BatchTransfers.get(player.getServer(), accessor.getVolume().id());
+        for (int i = 0; i < 40 && task.active(); i++) task.tick(128);
+        expect(task.state().equals("COMPLETE") && task.moved() > 0 && accessor.getRecord().storage().amountOf(rejected) == 0,
+                "recommended transfer included a ghost candidate");
+    }
+    public static void runToolsRecommendationSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor,
+            dev.kehai.digitalstorage.storage.ItemKey expectedTool) {
+        var session = new BatchScreenSession();
+        var preview = session.handle(player, accessor, new BatchScreenProtocol.Request(207, 1,
+                BatchScreenProtocol.PREVIEW, BatchScreenProtocol.EMPTY, false, true, 0, "", List.of(), List.of(), true, true));
+        expect(preview.state().equals("PREVIEW") && session.entries.size() == 1
+                && session.entries.get(0).key().equals(expectedTool), "Recommended tools filter lost route identity: state=" + preview.state()
+                + ", detail=" + preview.detail() + ", count=" + session.entries.size() + ", entries=" + session.entries + ", expected=" + expectedTool);
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Forge recommendation tools filter self-test passed");
+    }
+    public static void runRecommendationTimingSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor,
+            Runnable resetMetrics, java.util.function.Supplier<String> metrics) {
+        // Reproduce the prior d970574 preview path on the same live network before measuring the corrected path.
+        var sizeReport = dev.kehai.digitalstorage.optimization.NetworkServices.get().analyze(accessor);
+        for (int sample = 0; sample < 3; sample++) {
+            resetMetrics.run(); long start = System.nanoTime();
+            var baselineSession = new BatchScreenSession(); baselineSession.fixtureLegacyPreview = true;
+            var baseline = baselineSession.handle(player, accessor, new BatchScreenProtocol.Request(207, 1,
+                    BatchScreenProtocol.PREVIEW, BatchScreenProtocol.EMPTY, false, false, 0, "", List.of(), List.of(), true, true));
+            long baselineNs = System.nanoTime() - start;
+            String baselineMetrics = metrics.get();
+            resetMetrics.run(); start = System.nanoTime();
+            var session = new BatchScreenSession();
+            var reply = session.handle(player, accessor, new BatchScreenProtocol.Request(207, 1,
+                    BatchScreenProtocol.PREVIEW, BatchScreenProtocol.EMPTY, false, false, 0, "", List.of(), List.of(), true, true));
+            long correctedNs = System.nanoTime() - start;
+            expect(sizeReport.available() && baseline.state().equals("PREVIEW") && reply.state().equals("PREVIEW"), "recommendation timing fixture failed: " + reply.detail());
+            dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Forge recommendation timing sample={}: physicalEndpoints={}, routePorts={}, baseline [{} routeContentScans=0 ms={}], corrected [{} routeContentScans=1 ms={}]", sample,
+                    sizeReport.physicalInventories(), session.route.ports().size(), baselineMetrics, baselineNs / 1_000_000.0, metrics.get(), correctedNs / 1_000_000.0);
+        }
+    }
+    public static void runSingleRecommendationTimingSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) {
+        var session = new BatchScreenSession();
+        var reply = session.handle(player, accessor, new BatchScreenProtocol.Request(207, 1,
+                BatchScreenProtocol.PREVIEW, BatchScreenProtocol.EMPTY, false, false, 0, "", List.of(), List.of(), true, true));
+        expect(reply.state().equals("PREVIEW"), "tick timing preview failed: " + reply.detail());
     }
     /** Isolated world fixture: one existing variant remains eligible while the NBT budget excludes a new variant. */
     public static void runRecommendedSubsetSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor,

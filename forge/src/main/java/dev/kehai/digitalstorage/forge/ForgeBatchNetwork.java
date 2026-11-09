@@ -47,7 +47,7 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
                     && accessor.getVolume() == volume && volume.ownerId().equals(player.getUUID())
                     && current.get() == root && versioned.digitalstorage$topologyVersion() == version;
             return new BatchTransfer.Route(ports, () -> fastCurrent.getAsBoolean() && report.topology().isCurrent()
-                    && (soph == null || sameSoph(soph, safeDirectSoph(connector, current.get()))), fastCurrent, position.toShortString());
+                    && (soph == null || sameSoph(soph, safeDirectSoph(connector, current.get()))), fastCurrent, position.toShortString(), report);
         }
         return null;
     }

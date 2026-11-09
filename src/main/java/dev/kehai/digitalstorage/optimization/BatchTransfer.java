@@ -26,9 +26,11 @@ public final class BatchTransfer {
         Iterable<Entry> contents();
         Cursor cursor(boolean exporting);
     }
-    public record Route(List<Port> ports, BooleanSupplier current, BooleanSupplier fastCurrent, String location) {
+    public record Route(List<Port> ports, BooleanSupplier current, BooleanSupplier fastCurrent, String location,
+                        NetworkAnalysis.Report recommendationAnalysis) {
         public Route { ports = List.copyOf(ports); }
-        public Route(List<Port> ports, BooleanSupplier current, String location) { this(ports, current, current, location); }
+        public Route(List<Port> ports, BooleanSupplier current, BooleanSupplier fastCurrent, String location) { this(ports, current, fastCurrent, location, null); }
+        public Route(List<Port> ports, BooleanSupplier current, String location) { this(ports, current, current, location, null); }
     }
     private final DigitalStorageRecord record;
     private final java.util.UUID id = java.util.UUID.randomUUID();
