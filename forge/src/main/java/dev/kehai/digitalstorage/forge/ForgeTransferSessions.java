@@ -139,7 +139,7 @@ public final class ForgeTransferSessions {
             flush();
             reportLegacy();
         }
-        private void refreshLegacy() {
+        void refreshLegacy() {
             this.legacy = inspectDisplaced(root);
             this.reconciliationRequired = legacy.stream().anyMatch(inspection -> !inspection.clear());
         }

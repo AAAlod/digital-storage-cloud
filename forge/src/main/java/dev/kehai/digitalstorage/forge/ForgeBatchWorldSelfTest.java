@@ -6,7 +6,9 @@ import dev.kehai.digitalstorage.screen.BatchScreenSession;
 import dev.kehai.digitalstorage.storage.DigitalStorageState;
 import dev.kehai.digitalstorage.storage.ItemKey;
 import dev.kehai.digitalstorage.storage.LedgerTransaction;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
@@ -62,6 +64,8 @@ public final class ForgeBatchWorldSelfTest {
             var binding = new CompoundTag(); binding.putUUID("ControllerId", owner); binding.putUUID("BoundVolumeId", volume.id());
             accessor.load(binding); accessor.onLoad();
             scan(world, connector);
+            try { runLegacyBatchGateSelfTest(server, player, accessor, owner, volume.id(), root); }
+            catch (java.io.IOException failure) { throw new IllegalStateException("Live+legacy batch gate fixture failed", failure); }
             BatchScreenSession.runRecommendedSubsetSelfTest(player, accessor, chest);
             BatchScreenSession.runRecommendedCapacitySelfTest(player, accessor, chest);
             var network = (com.tom.storagemod.util.MultiItemHandler) connector.getInventory().orElseThrow(() -> new IllegalStateException("Missing connector inventory"));
@@ -129,6 +133,32 @@ public final class ForgeBatchWorldSelfTest {
         }
         expect(state.accountCount() == accounts && state.volumeCount() == volumes, "Batch fixture left volume records");
         dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Forge independent batch world self-test passed: recommendation subsets, duplicate target, equivalent and changed topology, mid-step clear limited to one move, single and double chest conservation");
+    }
+    private static void runLegacyBatchGateSelfTest(MinecraftServer server, ServerPlayer player,
+            ForgeAccessorBlockEntity accessor, UUID owner, UUID volume, Path worldRoot) throws java.io.IOException {
+        Path legacy = worldRoot.resolve("digitalstorage-legacy-batch-gate");
+        try {
+            new ForgeTransferRecovery(legacy.resolve("forge-transfer/recovery"))
+                    .hold(owner, volume, ItemKey.of(Items.STONE), 1, "batch gate fixture");
+            var session = ForgeTransferSessions.get(server);
+            session.refreshLegacy();
+            expect(!session.recoveryAvailable(), "Live+legacy pending recovery was not fenced");
+            boolean rejected = false;
+            try {
+                BatchTransfers.open(player, accessor);
+            } catch (IllegalStateException expected) {
+                rejected = "recovery_required".equals(expected.getMessage());
+            }
+            expect(rejected, "Batch entry did not reject live+legacy pending recovery");
+        } finally {
+            if (Files.exists(legacy)) try (var paths = Files.walk(legacy)) {
+                for (var path : paths.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
+            }
+            ForgeTransferSessions.get(server).refreshLegacy();
+        }
+        expect(ForgeTransferSessions.get(server).recoveryAvailable(), "Batch entry stayed fenced after legacy cleanup");
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info(
+                "Forge live+legacy batch entry self-test passed: pending recovery rejected with recovery_required, cleanup restored availability");
     }
     private static void scan(net.minecraft.server.level.ServerLevel world, com.tom.storagemod.tile.InventoryConnectorBlockEntity connector) {
         var data = world.getServer().getWorldData().overworldData(); long old = world.getGameTime();
