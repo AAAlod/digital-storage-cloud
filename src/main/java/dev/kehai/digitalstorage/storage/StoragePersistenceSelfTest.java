@@ -19,6 +19,7 @@ public final class StoragePersistenceSelfTest {
         savedDataFileSafetyRoundTrip();
         corruptExistingFileIsNeverReplaced();
         nonAtomicReplacementRecovery();
+        recoverOlderBackup();
         LegacyStorageMigrationSelfTest.run();
         savedDataRoundTripSurvivesReopen();
         failedSaveKeepsDirtyAndPreservesTarget();
@@ -34,6 +35,25 @@ public final class StoragePersistenceSelfTest {
         DetachedSnapshotWriterSelfTest.run();
         degradedStateReloadsAfterLock();
         degradedCorruptDataRemainsReadOnly();
+    }
+
+    private static void recoverOlderBackup() {
+        Path root = temporary("older-backup");
+        try {
+            var directory = Files.createDirectories(root.resolve("data"));
+            var target = directory.resolve("digitalstorage.dat");
+            var data = new DigitalStorageData();
+            var volume = data.createVolume(UUID.randomUUID(), "older", 0).orElseThrow();
+            data.save(target.toFile());
+            var older = directory.resolve("digitalstorage.dat.bak-20200101");
+            var latest = directory.resolve("digitalstorage.dat.bak-20210101");
+            Files.copy(target, older); Files.writeString(latest, "damaged"); Files.writeString(target, "damaged");
+            var reopened = DigitalStorageState.openForTest(root);
+            try { expect(reopened.volume(volume.id()).isPresent() && Files.exists(latest) && Files.exists(older), "did not recover older valid backup"); }
+            finally { reopened.closeForTest(); }
+            dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("SavedData backup self-test passed: corrupt newest backup recovered from next valid backup");
+        } catch (IOException e) { throw new IllegalStateException(e); }
+        finally { cleanup(root); }
     }
 
     private static void degradedCorruptDataRemainsReadOnly() {

@@ -23,6 +23,7 @@ import net.minecraft.world.level.storage.LevelResource;
 public final class DigitalStorageData extends SavedData {
     public static final String ID = "digitalstorage";
     public static final int SCHEMA_VERSION = 1;
+    private static final java.util.concurrent.atomic.AtomicLong BACKUP_CLOCK = new java.util.concurrent.atomic.AtomicLong();
     final Map<UUID, PlayerStorageAccount> accounts = new LinkedHashMap<>();
     final Map<UUID, StorageVolume> volumes = new LinkedHashMap<>();
     final Map<UUID, String> legacyUnreadable = new LinkedHashMap<>();
@@ -187,6 +188,7 @@ public final class DigitalStorageData extends SavedData {
                 }
                 public void replace(Path source, Path destination) throws IOException { operations.replace(source, destination); }
                 public void copy(Path source, Path destination) throws IOException { operations.copy(source, destination); }
+                public void deleteBackup(Path file) throws IOException { operations.deleteBackup(file); }
             };
             try {
                 DigitalStorageData frozen = new DigitalStorageData();
@@ -532,6 +534,7 @@ public final class DigitalStorageData extends SavedData {
         void atomicMove(Path source, Path target) throws IOException;
         void replace(Path source, Path target) throws IOException;
         void copy(Path source, Path target) throws IOException;
+        default void deleteBackup(Path file) throws IOException { Files.deleteIfExists(file); }
     }
 
     private static final FileOperations FILES = new FileOperations() {
@@ -577,8 +580,8 @@ public final class DigitalStorageData extends SavedData {
                 CompoundTag original = null;
                 if (Files.exists(target)) {
                     original = verifiedBackup(target);
-                    if (!retainFallbackBackup) for (Path existing : backupFiles(target)) Files.delete(existing);
-                    String stamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS").format(java.time.LocalDateTime.now());
+                    long timestamp = BACKUP_CLOCK.updateAndGet(last -> Math.max(System.currentTimeMillis(), last + 1));
+                    String stamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS").withZone(java.time.ZoneOffset.UTC).format(java.time.Instant.ofEpochMilli(timestamp));
                     backup = Files.createTempFile(target.toAbsolutePath().getParent(), "digitalstorage.dat.bak-" + stamp + "-", "");
                     try {
                         operations.copy(target, backup);
@@ -614,6 +617,12 @@ public final class DigitalStorageData extends SavedData {
                     try { if (!retainFallbackBackup) Files.deleteIfExists(backup); }
                     catch (IOException | SecurityException cleanup) { DigitalStorage.LOGGER.warn("Could not remove SavedData backup {}", backup, cleanup); }
                     backup = null;
+                }
+                if (retainFallbackBackup) {
+                    try {
+                        var backups = backupFiles(target);
+                        for (int i = 2; i < backups.size(); i++) operations.deleteBackup(backups.get(i));
+                    } catch (IOException | RuntimeException cleanup) { DigitalStorage.LOGGER.warn("Could not prune SavedData backups after successful installation", cleanup); }
                 }
                 Files.deleteIfExists(temporary);
             }
@@ -663,17 +672,18 @@ public final class DigitalStorageData extends SavedData {
             try { verifiedFile(file); return true; }
             catch (IOException | RuntimeException failure) { DigitalStorage.LOGGER.warn("SavedData target is unreadable; trying retained backup", failure); }
         }
-        Path backup = backups.get(0);
-        try {
-            CompoundTag expected = verifiedBackup(backup);
-            Files.copy(backup, file, StandardCopyOption.REPLACE_EXISTING);
-            if (!expected.equals(verifiedFile(file))) throw new IOException("Restored SavedData differs from backup");
-            DigitalStorage.LOGGER.info("Restored Digital Storage SavedData from retained backup");
-            return true;
-        } catch (IOException | RuntimeException failure) {
-            DigitalStorage.LOGGER.error("SavedData backup recovery failed; preserving backup {}", backup, failure);
-            return false;
+        for (Path backup : backups) {
+            try {
+                CompoundTag expected = verifiedBackup(backup);
+                Files.copy(backup, file, StandardCopyOption.REPLACE_EXISTING);
+                if (!expected.equals(verifiedFile(file))) throw new IOException("Restored SavedData differs from backup");
+                DigitalStorage.LOGGER.info("Restored Digital Storage SavedData from retained backup {}", backup);
+                return true;
+            } catch (IOException | RuntimeException failure) {
+                DigitalStorage.LOGGER.warn("SavedData backup recovery failed; preserving backup {}", backup, failure);
+            }
         }
+        return false;
     }
 
     private static CompoundTag verifiedBackup(Path file) throws IOException {

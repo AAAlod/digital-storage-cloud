@@ -50,8 +50,42 @@ final class DetachedSnapshotWriterSelfTest {
         blockedInstallAndReopen();
         newerMutationStaysDirty();
         nonAtomicFallback();
+        boundedFallbackBackups();
         shutdownPaths();
         shutdownBlockedInstall();
+    }
+
+    private static void boundedFallbackBackups() {
+        java.nio.file.Path root = null;
+        try {
+            root = Files.createTempDirectory("dsc-bounded-backup-");
+            var target = root.resolve("digitalstorage.dat");
+            var data = new DigitalStorageData(); data.createVolume(UUID.randomUUID(), "first", 0).orElseThrow();
+            var coordinator = SnapshotCoordinator.forRoot(root);
+            expect(coordinator.tryLock(1, TimeUnit.SECONDS), "backup lifecycle lock");
+            long lifecycle = coordinator.nextGeneration(); coordinator.unlock();
+            boolean[] failCleanup = {false};
+            DigitalStorageData.FileOperations ops = new DigitalStorageData.FileOperations() {
+                public void atomicMove(java.nio.file.Path a, java.nio.file.Path b) throws java.io.IOException { throw new java.nio.file.AtomicMoveNotSupportedException(a.toString(), b.toString(), "fixture"); }
+                public void replace(java.nio.file.Path a, java.nio.file.Path b) throws java.io.IOException { Files.move(a, b, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
+                public void copy(java.nio.file.Path a, java.nio.file.Path b) throws java.io.IOException { Files.copy(a, b, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
+                public void deleteBackup(java.nio.file.Path p) throws java.io.IOException { if (failCleanup[0]) throw new java.io.IOException("injected cleanup failure"); Files.deleteIfExists(p); }
+            };
+            try (var writer = data.new DetachedSnapshotWriter(target, coordinator, lifecycle, ops)) {
+                for (int i = 0; i < 10; i++) {
+                    data.createVolume(UUID.randomUUID(), "iteration", 0).orElseThrow();
+                    expect(writer.submit(data.captureSnapshotForTest(1000), data.generationForTest()) && writer.await(10_000), "bounded backup save");
+                }
+                try (var paths = Files.list(root)) { expect(paths.filter(p -> p.getFileName().toString().startsWith("digitalstorage.dat.bak-")).count() <= 2, "backup count unbounded"); }
+                failCleanup[0] = true;
+                var volume = data.createVolume(UUID.randomUUID(), "cleanup-failure", 0).orElseThrow();
+                expect(writer.submit(data.captureSnapshotForTest(1000), data.generationForTest()) && writer.await(10_000), "cleanup failure changed save result");
+                var loaded = DigitalStorageData.load(NbtIo.readCompressed(target.toFile()).getCompound("data"));
+                expect(loaded.volumes.containsKey(volume.id()) && !data.isDirty(), "cleanup failure damaged installed target");
+                dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("SavedData backup self-test passed: ten non-atomic saves bounded to two backups, cleanup failure retained installed snapshot");
+            }
+        } catch (Exception e) { throw new IllegalStateException("Bounded backup fixture failed", e); }
+        finally { if (root != null) try (var paths = Files.walk(root)) { for (var path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) Files.deleteIfExists(path); } catch (java.io.IOException e) { throw new IllegalStateException(e); } }
     }
 
     // An in-flight atomic move may complete after the bounded shutdown wait.
