@@ -247,6 +247,54 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
         if (batch.active() || batch.moved() != 256 || record.storage().amountOf(key) + physical != 256)
             throw new IllegalStateException("Slow storage export did not conserve items across ticks");
         dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Fabric batch pathological storage self-test passed: at most 64 inserts per step, cross-tick conservation");
+
+        var slottedBox = new net.minecraft.world.SimpleContainer(96);
+        var slottedUnderlying = net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage.of(slottedBox, net.minecraft.core.Direction.UP);
+        int[] slotVisits = {0};
+        var cappedSlots = cappedSlotFixture(slottedUnderlying, slotVisits);
+        record = DigitalStorageRecord.createNew(() -> { }); record.storage().load(key, 256);
+        batch = exportFixture(record, key, cappedSlots);
+        batch.tick(1);
+        if (slotVisits[0] > 64 || batch.moved() != 64 || !batch.active() || record.storage().amountOf(key) != 192)
+            throw new IllegalStateException("Slotted storage exceeded the per-step slot bound");
+        for (int i = 0; i < 20 && batch.active(); i++) {
+            int before = slotVisits[0]; batch.tick(1);
+            if (slotVisits[0] - before > 64) throw new IllegalStateException("Slotted storage exceeded tick budget");
+        }
+        long slottedPhysical = 0;
+        for (int i = 0; i < slottedBox.getContainerSize(); i++) slottedPhysical += slottedBox.getItem(i).getCount();
+        if (batch.active() || batch.moved() != 256 || record.storage().amountOf(key) + slottedPhysical != 256)
+            throw new IllegalStateException("Slotted storage export did not conserve items across ticks");
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Fabric batch slotted pathological self-test passed: at most 64 slot visits per step, cross-tick conservation");
+    }
+
+    private static SlottedStorage<ItemVariant> cappedSlotFixture(SlottedStorage<ItemVariant> underlying, int[] visits) {
+        return new SlottedStorage<>() {
+            public int getSlotCount() { return underlying.getSlotCount(); }
+            public long insert(ItemVariant variant, long amount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext tx) {
+                return underlying.insert(variant, amount, tx);
+            }
+            public long extract(ItemVariant variant, long amount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext tx) {
+                return underlying.extract(variant, amount, tx);
+            }
+            public net.fabricmc.fabric.api.transfer.v1.storage.base.SingleSlotStorage<ItemVariant> getSlot(int slot) {
+                var delegate = underlying.getSlot(slot);
+                return new net.fabricmc.fabric.api.transfer.v1.storage.base.SingleSlotStorage<>() {
+                    public long insert(ItemVariant variant, long amount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext tx) {
+                        visits[0]++;
+                        return delegate.insert(variant, Math.min(1, amount), tx);
+                    }
+                    public long extract(ItemVariant variant, long amount, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext tx) {
+                        return delegate.extract(variant, amount, tx);
+                    }
+                    public long getCapacity() { return delegate.getCapacity(); }
+                    public long getAmount() { return delegate.getAmount(); }
+                    public ItemVariant getResource() { return delegate.getResource(); }
+                    public boolean isResourceBlank() { return delegate.isResourceBlank(); }
+                };
+            }
+            public Iterator<StorageView<ItemVariant>> iterator() { return underlying.iterator(); }
+        };
     }
 
     private static Storage<ItemVariant> limitedFixture(Storage<ItemVariant> underlying) {
