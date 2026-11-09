@@ -82,15 +82,14 @@ public final class BatchScreenSession {
                         var report = fixtureReport != null ? fixtureReport : dev.kehai.digitalstorage.optimization.NetworkServices.get().analyze(accessor);
                         if (!report.available()) throw new IllegalStateException("no_recommendation");
                         if (report.targetEndpointCount() > 1) throw new IllegalStateException("duplicate_target");
-                        var available = new java.util.HashMap<dev.kehai.digitalstorage.storage.ItemKey, Long>();
-                        for (var port : route.ports()) for (var item : port.contents()) {
-                            if (!request.tools() || item.key().maximumStackSize() == 1)
-                                available.merge(item.key(), item.amount(), (a, b) -> Math.min(Integer.MAX_VALUE, a + Math.min(Integer.MAX_VALUE, b)));
+                        recommendedAvailableCount = request.tools() ? report.unstackableVariants() : report.availableVariants();
+                        recommendedAvailableTotal = request.tools() ? report.unstackableAmount() : report.availableAmount();
+                        var candidateEntries = new java.util.ArrayList<BatchTransfer.Entry>();
+                        for (var candidate : report.candidates()) {
+                            if (!request.tools() || candidate.variant().maximumStackSize() == 1)
+                                candidateEntries.add(new BatchTransfer.Entry(candidate.variant(), candidate.amount()));
                         }
-                        recommendedAvailableCount = available.size();
-                        recommendedAvailableTotal = available.values().stream().mapToLong(Long::longValue).sum();
-                        var keys = report.candidates().stream().map(dev.kehai.digitalstorage.optimization.NetworkAnalysis.Candidate::variant).collect(java.util.stream.Collectors.toSet());
-                        entries = BatchTransfer.preview(record, route, false, request.tools(), keys);
+                        entries = java.util.List.copyOf(candidateEntries);
                         var selected = intersectRecommendations(entries, report.candidates());
                         if (selected.isEmpty()) throw new IllegalStateException("no_recommendation");
                         recommended = java.util.Map.copyOf(selected);
@@ -392,7 +391,7 @@ public final class BatchScreenSession {
         };
         var wide = new BatchScreenSession();
         wide.fixtureRoute = new BatchTransfer.Route(List.of(widePort), () -> true, "wide-fixture");
-        wide.fixtureReport = new dev.kehai.digitalstorage.optimization.NetworkAnalysis.Report(true, 90, "A", 1, 4097, 4097, 1, 0, 1, 0, 0, 0, 20, candidates, null, List.of());
+        wide.fixtureReport = new dev.kehai.digitalstorage.optimization.NetworkAnalysis.Report(true, 90, "A", 1, 4097, 4097, 1, 0, 1, 0, 0, 0, 20, 4097, 4097, 0, 0, candidates, null, List.of());
         var widePreview = wide.handle(player, accessor, new BatchScreenProtocol.Request(207, 1, BatchScreenProtocol.PREVIEW,
                 BatchScreenProtocol.EMPTY, false, false, 0, "", List.of(), List.of(), true, true));
         expect(widePreview.state().equals("PREVIEW") && widePreview.suggestedCount() == 20 && widePreview.suggestedTotal() == 20,

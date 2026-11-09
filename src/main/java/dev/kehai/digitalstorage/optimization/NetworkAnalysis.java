@@ -23,6 +23,7 @@ public final class NetworkAnalysis {
         }
         VolumeLedger target = record.storage();
         Map<ItemKey, MutableCandidate> grouped = new HashMap<>();
+        Map<ItemKey, MutableCandidate> available = new HashMap<>();
         int totalViews = 0;
         int nonEmptyViews = 0;
         for (InventoryEndpoint source : snapshot.physical()) {
@@ -33,9 +34,20 @@ public final class NetworkAnalysis {
                     continue;
                 }
                 nonEmptyViews++;
+                available.computeIfAbsent(view.resource(), MutableCandidate::new).add(view.amount());
                 if (extractable) {
                     grouped.computeIfAbsent(view.resource(), MutableCandidate::new).add(view.amount());
                 }
+            }
+        }
+        long availableAmount = 0;
+        int unstackableVariants = 0;
+        long unstackableAmount = 0;
+        for (MutableCandidate candidate : available.values()) {
+            availableAmount = Math.min(Long.MAX_VALUE, availableAmount + candidate.amount);
+            if (candidate.variant.maximumStackSize() == 1) {
+                unstackableVariants++;
+                unstackableAmount = Math.min(Long.MAX_VALUE, unstackableAmount + candidate.amount);
             }
         }
         int remainingVariants = Math.max(0, record.variantCapacity() - target.variantCount());
@@ -61,7 +73,8 @@ public final class NetworkAnalysis {
         return new Report(true, score, grade(score), snapshot.physical().size(), totalViews, nonEmptyViews,
                 snapshot.digitalViews(), snapshot.duplicateDigitalEndpoints(), snapshot.targetEndpointCount(),
                 snapshot.activeScanners(), snapshot.failingScanners(), snapshot.averageIntervalTicks(),
-                selected.stream().mapToInt(Candidate::physicalViews).sum(), selected, snapshot.topology(), snapshot.sources());
+                selected.stream().mapToInt(Candidate::physicalViews).sum(), available.size(), availableAmount,
+                unstackableVariants, unstackableAmount, selected, snapshot.topology(), snapshot.sources());
     }
 
     private static List<Candidate> selectWithinVariantBudget(List<Candidate> candidates, int remainingVariants, long remainingNbt) {
@@ -184,6 +197,7 @@ public final class NetworkAnalysis {
     public record Report(boolean available, int healthScore, String grade, int physicalInventories, int totalViews,
                          int nonEmptyViews, int digitalViews, int duplicateDigitalEndpoints, int targetEndpointCount,
                          int activeScanners, int failingScanners, int averageScanIntervalTicks, int estimatedFreedViews,
+                         int availableVariants, long availableAmount, int unstackableVariants, long unstackableAmount,
                          List<Candidate> candidates, TopologyToken topology, List<InventoryEndpoint.Reference> sourceEndpoints) {
         public Report {
             candidates = List.copyOf(candidates);
@@ -191,7 +205,7 @@ public final class NetworkAnalysis {
         }
 
         public static Report unavailable() {
-            return new Report(false, 0, "-", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, List.of(), null, List.of());
+            return new Report(false, 0, "-", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, List.of(), null, List.of());
         }
 
         public String topCandidateId() { return candidates.isEmpty() ? "" : candidates.get(0).itemId(); }
