@@ -31,9 +31,12 @@ public final class ForgeTransferRecovery {
     private final Map<UUID, ReturnedStack> uncaptured = new LinkedHashMap<>();
 
     public ForgeTransferRecovery(Path directory) {
+        this(directory, false);
+    }
+    ForgeTransferRecovery(Path directory, boolean inspectOnly) {
         this.directory = directory.toAbsolutePath().normalize();
         try {
-            Files.createDirectories(this.directory);
+            if (!inspectOnly) Files.createDirectories(this.directory);
             try (var files = Files.list(this.directory)) {
                 for (var file : files.filter(path -> path.getFileName().toString().endsWith(".dat")
                         || path.getFileName().toString().endsWith(".tmp")).sorted().toList()) {

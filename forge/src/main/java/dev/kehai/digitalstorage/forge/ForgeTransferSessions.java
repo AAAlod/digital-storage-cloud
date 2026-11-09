@@ -25,7 +25,7 @@ public final class ForgeTransferSessions {
         restoreDisplacedTransferRoot(root);
         Session session = RETAINED.remove(root);
         if (session == null) session = new Session(root);
-        else session.flush();
+        else { session.refreshLegacy(); session.flush(); session.reportLegacy(); }
         ACTIVE.put(server, session);
         DigitalStorage.LOGGER.info("Forge transfer session opened: {}", session.diagnostics());
     }
@@ -55,7 +55,6 @@ public final class ForgeTransferSessions {
                     .filter(Files::isDirectory).map(path -> path.resolve("forge-transfer"))
                     .filter(Files::exists).toList();
             if (Files.exists(root)) {
-                if (!displaced.isEmpty()) DigitalStorage.LOGGER.warn("Live Forge transfer store {} and backup stores {} both exist; inspect recovery, incident and hopper records manually before reconciling; no data was merged", root, displaced);
                 return;
             }
             if (displaced.size() > 1) throw new IllegalStateException("Multiple Forge transfer stores found at " + displaced
@@ -70,6 +69,60 @@ public final class ForgeTransferSessions {
         }
     }
 
+    private record LegacyInspection(Path root, int pending, int inFlight, int unreadable, int unsaved) {
+        boolean clear() { return pending == 0 && inFlight == 0 && unreadable == 0 && unsaved == 0; }
+        @Override public String toString() { return root + " [pending=" + pending + ", inFlight=" + inFlight + ", unreadable=" + unreadable + ", unsaved=" + unsaved + "]"; }
+    }
+    private static synchronized LegacyInspection inspectLegacy(Path root) {
+        int pending = 0, inFlight = 0, unreadable = 0, unsaved = 0;
+        try (var paths = Files.list(root)) {
+            for (var path : paths.toList()) {
+                String name = path.getFileName().toString();
+                if (!java.util.Set.of("recovery", "incidents", "hoppers").contains(name)
+                        || !Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) { unreadable++; continue; }
+                try (var files = Files.list(path)) {
+                    for (var file : files.toList()) if (!Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                            || !(file.getFileName().toString().endsWith(".dat") || file.getFileName().toString().endsWith(".tmp"))) unreadable++;
+                }
+                if (name.equals("recovery")) {
+                    var store = new ForgeTransferRecovery(path, true);
+                    pending += store.pendingCount(); inFlight += store.inFlightCount(); unreadable += store.unreadableFiles(); unsaved += store.unsavedCount();
+                } else if (name.equals("incidents")) {
+                    var store = new ForgeTransferIncidents(path, true);
+                    pending += store.unresolvedCount(); unreadable += store.unreadableFiles(); unsaved += store.unsavedCount();
+                } else {
+                    var store = new ForgeHopperCustody(path, true);
+                    pending += store.pendingCount(); unreadable += store.unreadableFiles(); unsaved += store.unsavedCount();
+                    if (!store.opened()) unreadable++;
+                }
+            }
+        } catch (IOException | RuntimeException e) { unreadable++; }
+        var held = RETAINED.get(root.toAbsolutePath().normalize());
+        if (held != null && held.hasUnflushed()) {
+            if (held.recovery != null) unsaved += held.recovery.unsavedCount();
+            if (held.incidents != null) unsaved += held.incidents.unsavedCount();
+            if (held.hoppers != null) unsaved += held.hoppers.unsavedCount();
+        }
+        for (var active : ACTIVE.values()) if (active.root.equals(root.toAbsolutePath().normalize()) && active.hasUnflushed()) {
+            if (active.recovery != null) unsaved += active.recovery.unsavedCount();
+            if (active.incidents != null) unsaved += active.incidents.unsavedCount();
+            if (active.hoppers != null) unsaved += active.hoppers.unsavedCount();
+        }
+        return new LegacyInspection(root, pending, inFlight, unreadable, unsaved);
+    }
+    private static java.util.List<LegacyInspection> inspectDisplaced(Path root) {
+        if (!Files.exists(root)) return java.util.List.of();
+        Path world = root.getParent().getParent();
+        try (var paths = Files.list(world)) {
+            return paths.filter(path -> path.getFileName().toString().startsWith("digitalstorage-legacy-"))
+                    .map(path -> path.resolve("forge-transfer"))
+                    .filter(path -> !Files.notExists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS))
+                    .map(ForgeTransferSessions::inspectLegacy).toList();
+        } catch (IOException | RuntimeException e) {
+            return java.util.List.of(new LegacyInspection(world, 0, 0, 1, 0));
+        }
+    }
+
     public static final class Session {
         private final Path root;
         private final boolean privateFixture;
@@ -77,9 +130,22 @@ public final class ForgeTransferSessions {
         private ForgeTransferIncidents incidents;
         private ForgeHopperCustody hoppers;
         private boolean initialized;
+        private java.util.List<LegacyInspection> legacy;
+        private boolean reconciliationRequired;
         private Session(Path root) { this(root, false); }
         private Session(Path root, boolean privateFixture) {
-            this.root = root; this.privateFixture = privateFixture; flush();
+            this.root = root; this.privateFixture = privateFixture;
+            refreshLegacy();
+            flush();
+            reportLegacy();
+        }
+        private void refreshLegacy() {
+            this.legacy = inspectDisplaced(root);
+            this.reconciliationRequired = legacy.stream().anyMatch(inspection -> !inspection.clear());
+        }
+        private void reportLegacy() {
+            if (reconciliationRequired) DigitalStorage.LOGGER.error("Forge transfer reconciliation required: {}; preserve both stores and inspect all records", diagnostics());
+            else if (!legacy.isEmpty()) DigitalStorage.LOGGER.warn("Forge transfer stores coexist: {}; no files were merged", diagnostics());
         }
         private void failure(String store, RuntimeException failure) {
             if (privateFixture) DigitalStorage.LOGGER.info("Forge transfer private fixture expected store failure [{}] at {}: {}",
@@ -98,11 +164,11 @@ public final class ForgeTransferSessions {
             if (hoppers == null) throw new IllegalStateException("Forge hopper custody initialization failed");
             return hoppers;
         }
-        public boolean available() { return initialized && recovery.available() && recovery.inFlightCount() == 0
+        public boolean available() { return !reconciliationRequired && initialized && recovery.available() && recovery.inFlightCount() == 0
                 && incidents.available() && hoppers.available(); }
-        public boolean recoveryAvailable() { return initialized && recovery.available() && incidents.available(); }
+        public boolean recoveryAvailable() { return !reconciliationRequired && initialized && recovery.available() && incidents.available(); }
         public ForgeInventoryTransferExecutor executorAllowingPending(UUID owner, UUID volume, ForgeInventoryTransferExecutor.Origin origin) {
-            if (!recoveryAvailable()) throw new IllegalStateException("Forge transfer recovery requires reconciliation");
+            if (!recoveryAvailable()) throw new IllegalStateException("recovery_required");
             return new ForgeInventoryTransferExecutor(owner, volume, recovery, incidents::record, this::recoveryAvailable, origin);
         }
         public ForgeInventoryTransferExecutor executor(UUID owner, UUID volume) {
@@ -145,11 +211,12 @@ public final class ForgeTransferSessions {
                     || (hoppers != null && hoppers.unsavedCount() > 0);
         }
         public String diagnostics() {
-            if (!initialized) return "transfer stores unavailable; migration blocked; hoppers pending=" + hoppers.pendingCount()
+            if (!initialized) return "transfer stores unavailable; root=" + root + ", reconciliationRequired=" + reconciliationRequired
+                    + ", legacy=" + legacy + "; migration blocked; hoppers pending=" + hoppers.pendingCount()
                     + ", unsaved=" + hoppers.unsavedCount() + ", opened=" + hoppers.opened()
                     + ", opening failure=" + hoppers.openingFailure();
-            return "transfer ready=" + available() + ", recovery pending=" + recovery.pendingCount()
-                    + ", delivering=" + recovery.inFlightCount() + ", raw=" + recovery.uncapturedCount()
+            return "transfer ready=" + available() + ", root=" + root + ", reconciliationRequired=" + reconciliationRequired + ", legacy=" + legacy + "; recovery pending=" + recovery.pendingCount()
+                    + ", inFlight=" + recovery.inFlightCount() + ", raw=" + recovery.uncapturedCount()
                     + ", unsaved=" + recovery.unsavedCount() + ", unreadable=" + recovery.unreadableFiles()
                     + "; incidents unresolved=" + incidents.unresolvedCount() + ", unsaved=" + incidents.unsavedCount()
                     + ", unreadable=" + incidents.unreadableFiles()

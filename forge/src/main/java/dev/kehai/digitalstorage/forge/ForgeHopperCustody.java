@@ -25,15 +25,20 @@ public final class ForgeHopperCustody {
     private int unreadable;
     private boolean opened;
     private String openingFailure = "";
+    private final boolean inspectOnly;
 
     public ForgeHopperCustody(Path root) {
+        this(root, false);
+    }
+    ForgeHopperCustody(Path root, boolean inspectOnly) {
         this.root = root;
+        this.inspectOnly = inspectOnly;
         open();
     }
     private boolean open() {
         if (opened) return true;
         try {
-            Files.createDirectories(root);
+            if (!inspectOnly) Files.createDirectories(root);
             var loaded = new LinkedHashMap<UUID, Record>();
             int damaged = 0;
             try (var files = Files.list(root)) {

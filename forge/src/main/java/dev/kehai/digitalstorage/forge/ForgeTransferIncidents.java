@@ -20,9 +20,12 @@ public final class ForgeTransferIncidents {
     private final Map<UUID, Entry> unsaved = new LinkedHashMap<>();
     private final Set<Path> unreadable = new LinkedHashSet<>();
     public ForgeTransferIncidents(Path directory) {
+        this(directory, false);
+    }
+    ForgeTransferIncidents(Path directory, boolean inspectOnly) {
         this.directory = directory.toAbsolutePath().normalize();
         try {
-            Files.createDirectories(this.directory);
+            if (!inspectOnly) Files.createDirectories(this.directory);
             try (var files = Files.list(this.directory)) {
                 for (var file : files.filter(path -> path.getFileName().toString().endsWith(".dat")
                         || path.getFileName().toString().endsWith(".tmp")).sorted().toList()) {

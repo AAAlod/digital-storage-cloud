@@ -45,6 +45,28 @@ public final class ForgeTransferSessionSelfTest {
             catch (IllegalStateException expected) { ambiguousDenied = expected.getMessage().contains("manually reconcile"); }
             expect(ambiguousDenied && Files.notExists(ambiguousWorld.resolve("digitalstorage/forge-transfer")),
                     "Multiple backup stores were not fenced for manual reconciliation");
+            var coexistWorld = Files.createDirectory(root.resolve("coexist-world"));
+            var coexistLive = coexistWorld.resolve("digitalstorage/forge-transfer");
+            var legacyRoot = coexistWorld.resolve("digitalstorage-legacy-a/forge-transfer");
+            ForgeTransferSessions.openForTest(coexistLive);
+            Files.createDirectories(legacyRoot);
+            expect(ForgeTransferSessions.openForTest(coexistLive).recoveryAvailable(), "Empty legacy store should permit transfers");
+            var legacySession = ForgeTransferSessions.openForTest(legacyRoot);
+            legacySession.recovery().hold(UUID.randomUUID(), UUID.randomUUID(),
+                    dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.world.item.Items.STONE), 2, "fixture");
+            var fenced = ForgeTransferSessions.openForTest(coexistLive);
+            boolean rejected = false;
+            try { fenced.executorAllowingPending(UUID.randomUUID(), UUID.randomUUID(), ForgeInventoryTransferExecutor.Origin.unknown()); }
+            catch (IllegalStateException expected) { rejected = "recovery_required".equals(expected.getMessage()); }
+            expect(!fenced.recoveryAvailable() && rejected && fenced.diagnostics().contains("pending=1")
+                    && Files.exists(legacyRoot.resolve("recovery")) && Files.exists(coexistLive), "Coexisting pending ownership was not fenced");
+            var corruptWorld = Files.createDirectory(root.resolve("corrupt-legacy-world"));
+            var corruptLive = corruptWorld.resolve("digitalstorage/forge-transfer");
+            ForgeTransferSessions.openForTest(corruptLive);
+            var corrupt = Files.createDirectories(corruptWorld.resolve("digitalstorage-legacy-a/forge-transfer/recovery")).resolve("broken.dat");
+            Files.writeString(corrupt, "bad");
+            expect(!ForgeTransferSessions.openForTest(corruptLive).recoveryAvailable() && Files.readString(corrupt).equals("bad"), "Unreadable legacy store failed open");
+            dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Forge live and legacy transfer self-test passed: pending fenced, empty allowed, unreadable fenced, files retained");
             var session = ForgeTransferSessions.openForTest(root.resolve("session"));
             var incident = new ForgeInventoryTransferExecutor.Incident(UUID.randomUUID(), UUID.randomUUID(),
                     "test.original.filtered.handler", 7, 0, System.currentTimeMillis(), "Source threw without returned ownership");
