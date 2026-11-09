@@ -33,6 +33,9 @@ public final class RestartAudit {
     private static ItemStack originalReturned;
     private static UUID id;
     private static MinecraftServer first;
+    private static MinecraftServer awaitingReload;
+    private static int reloadTicks;
+    private static long tickStarted;
     private static final CountDownLatch complete = new CountDownLatch(1);
 
     public RestartAudit() {
@@ -40,6 +43,7 @@ public final class RestartAudit {
         root();
         MinecraftForge.EVENT_BUS.addListener(EventPriority.LOWEST, RestartAudit::started);
         MinecraftForge.EVENT_BUS.addListener(EventPriority.LOWEST, RestartAudit::stopped);
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.LOWEST, RestartAudit::tick);
     }
     private static Path root() {
         String configured = System.getProperty("digitalstorage.restartTestRoot");
@@ -57,6 +61,7 @@ public final class RestartAudit {
         launches++;
         if (launches == 1) {
             first = server;
+            if (net.minecraftforge.fml.ModList.get().isLoaded("sophisticatedstorage")) BlockRemovalAudit.beforeStop(server);
             originalSession = ForgeTransferSessions.get(server);
             var source = new ItemStackHandler(1) {
                 @Override public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) { return stack; }
@@ -75,6 +80,29 @@ public final class RestartAudit {
             DigitalStorage.LOGGER.info("DSC restart audit first server stopping with retained eight");
             server.halt(false);
         } else if (launches == 2) {
+            if (net.minecraftforge.fml.ModList.get().isLoaded("sophisticatedstorage")) {
+                BlockRemovalAudit.prepareReload(server);
+                RecommendationTickAudit.prepare(server);
+                awaitingReload = server; reloadTicks = 0;
+                return;
+            }
+            finishSecond(server);
+        } else throw new IllegalStateException("Unexpected additional audit server");
+    }
+    private static void tick(net.minecraftforge.event.TickEvent.ServerTickEvent event) {
+        if (event.getServer() != awaitingReload) return;
+        if (event.phase == net.minecraftforge.event.TickEvent.Phase.START) { tickStarted = System.nanoTime(); return; }
+        if (++reloadTicks <= 5) {
+            long previewStart = System.nanoTime(); RecommendationTickAudit.measure();
+            DigitalStorage.LOGGER.info("Forge recommendation tick audit: sample={}, endpoints=128, slots=3456, previewAndFixtureMs={}, tickStartToAuditEndMs={}",
+                    reloadTicks, (System.nanoTime() - previewStart) / 1_000_000.0, (System.nanoTime() - tickStarted) / 1_000_000.0);
+            return;
+        }
+        if (reloadTicks < 20) return;
+        RecommendationTickAudit.cleanup(awaitingReload);
+        var server = awaitingReload; awaitingReload = null; finishSecond(server);
+    }
+    private static void finishSecond(MinecraftServer server) {
             var session = ForgeTransferSessions.get(server);
             expect(server != first && session == originalSession && session.hasUnflushed(), "Restart did not reuse retained session");
             var binding = session.hoppers().bind(id, "minecraft:overworld", BlockPos.ZERO, originalEngine, originalEngine::saveState);
@@ -82,6 +110,7 @@ public final class RestartAudit {
                     && returnedStack(originalEngine) == originalReturned, "Restart lost original returned instance");
             failEncoding = false;
             expect(session.flush() && !session.hasUnflushed(), "Repaired writer did not persist retained owner");
+            if (net.minecraftforge.fml.ModList.get().isLoaded("sophisticatedstorage")) BlockRemovalAudit.afterRestart(server);
             UUID owner = UUID.randomUUID();
             var state = DigitalStorageState.get(server.overworld());
             var volume = state.createVolume(owner, "Private restart audit", 1).orElseThrow();
@@ -106,7 +135,6 @@ public final class RestartAudit {
                 throw new IllegalStateException("Second server command verification failed", failure);
             }
             server.halt(false);
-        } else throw new IllegalStateException("Unexpected additional audit server");
     }
     private static void stopped(ServerStoppedEvent event) {
         var server = event.getServer();

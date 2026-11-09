@@ -66,6 +66,48 @@ public final class ForgeBatchWorldSelfTest {
             scan(world, connector);
             try { runLegacyBatchGateSelfTest(server, player, accessor, owner, volume.id(), root); }
             catch (java.io.IOException failure) { throw new IllegalStateException("Live+legacy batch gate fixture failed", failure); }
+            var aggregate = (com.tom.storagemod.util.MultiItemHandler) connector.getInventory().orElseThrow(() -> new IllegalStateException("Missing connector inventory"));
+            var rejectedHandler = new net.minecraftforge.items.ItemStackHandler(1) { };
+            rejectedHandler.setStackInSlot(0, new ItemStack(Items.GOLD_INGOT, 8));
+            var rejectedCapability = LazyOptional.<IItemHandler>of(() -> rejectedHandler);
+            chest.setItem(0, new ItemStack(Items.OAK_PLANKS, 8));
+            chest.setItem(1, new ItemStack(Items.DIAMOND_SWORD));
+            aggregate.add(rejectedCapability); aggregate.refresh();
+            volume.record().setAcceptUnstackableItems(true);
+            BatchScreenSession.runToolsRecommendationSelfTest(player, accessor, ItemKey.of(chest.getItem(1)));
+            volume.record().setAcceptUnstackableItems(false);
+            chest.setItem(1, ItemStack.EMPTY);
+            BatchScreenSession.runTransferableRecommendationSelfTest(player, accessor, ItemKey.of(Items.OAK_PLANKS), ItemKey.of(Items.GOLD_INGOT));
+            expect(rejectedHandler.getStackInSlot(0).getCount() == 8 && chest.isEmpty(), "Untrusted recommendation fixture did not conserve source items");
+            try (var tx = LedgerTransaction.open()) { volume.record().storage().extract(ItemKey.of(Items.OAK_PLANKS), 8, tx); tx.commit(); }
+            scan(world, connector);
+            dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Forge recommendation route self-test passed: rejected Tom-visible handler excluded; trusted chest moved eight");
+            var measurementNetwork = (com.tom.storagemod.util.MultiItemHandler) connector.getInventory().orElseThrow(() -> new IllegalStateException("Missing timing network"));
+            var timingHandlers = new java.util.ArrayList<LazyOptional<IItemHandler>>();
+            for (int i = 0; i < 128; i++) {
+                var handler = new net.minecraftforge.items.ItemStackHandler(27);
+                handler.setStackInSlot(0, new ItemStack(Items.STONE, 1));
+                var capability = LazyOptional.<IItemHandler>of(() -> handler);
+                timingHandlers.add(capability); measurementNetwork.add(capability);
+            }
+            measurementNetwork.refresh();
+            BatchScreenSession.runRecommendationTimingSelfTest(player, accessor,
+                    dev.kehai.digitalstorage.forge.tom.ForgeTomTopology::resetAuditMetrics,
+                    dev.kehai.digitalstorage.forge.tom.ForgeTomTopology::auditMetrics);
+            scan(world, connector);
+            runRemovedSingleChestCheck(world, player, accessor, connector, chestPos, chest, volume.record());
+            world.setBlockAndUpdate(chestPos, Blocks.CHEST.defaultBlockState());
+            chest = (ChestBlockEntity) world.getBlockEntity(chestPos);
+            scan(world, connector);
+            runRemovedSingleExportCheck(world, player, accessor, chestPos, chest, volume.record());
+            runRemovedDoubleCheck(world, player, accessor, connector, chestPos, otherPos, left, false, volume.record());
+            runRemovedDoubleCheck(world, player, accessor, connector, chestPos, otherPos, left, true, volume.record());
+            if (net.minecraftforge.fml.ModList.get().isLoaded("sophisticatedstorage"))
+                runRemovedSophCheck(world, player, accessor, connector, chestPos, volume.record());
+            else dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("BLOCK-01 Sophisticated removal self-test skipped: mod absent");
+            world.setBlockAndUpdate(chestPos, Blocks.CHEST.defaultBlockState());
+            chest = (ChestBlockEntity) world.getBlockEntity(chestPos);
+            scan(world, connector);
             BatchScreenSession.runRecommendedSubsetSelfTest(player, accessor, chest);
             BatchScreenSession.runRecommendedCapacitySelfTest(player, accessor, chest);
             var network = (com.tom.storagemod.util.MultiItemHandler) connector.getInventory().orElseThrow(() -> new IllegalStateException("Missing connector inventory"));
@@ -133,6 +175,107 @@ public final class ForgeBatchWorldSelfTest {
         }
         expect(state.accountCount() == accounts && state.volumeCount() == volumes, "Batch fixture left volume records");
         dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Forge independent batch world self-test passed: recommendation subsets, duplicate target, equivalent and changed topology, mid-step clear limited to one move, single and double chest conservation");
+    }
+    private static void runRemovedSingleChestCheck(net.minecraft.server.level.ServerLevel world, ServerPlayer player,
+            ForgeAccessorBlockEntity accessor, com.tom.storagemod.tile.InventoryConnectorBlockEntity connector,
+            net.minecraft.core.BlockPos position, ChestBlockEntity chest, dev.kehai.digitalstorage.storage.DigitalStorageRecord record) {
+        var key = ItemKey.of(Items.STONE);
+        chest.setItem(0, new ItemStack(Items.STONE, 64)); chest.setItem(1, new ItemStack(Items.STONE, 64));
+        var route = BatchTransfers.open(player, accessor);
+        var task = new BatchTransfer(record, route, List.of(new BatchTransfer.Entry(key, 128)), false);
+        task.tick(1);
+        expect(task.active() && task.moved() > 0 && task.moved() < 128, "BLOCK-01 single chest fixture did not begin before removal");
+        var bounds = new net.minecraft.world.phys.AABB(position).inflate(4);
+        expect(world.destroyBlock(position, true), "BLOCK-01 could not break single chest");
+        var drops = world.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, bounds,
+                entity -> entity.getItem().is(Items.STONE));
+        long dropped = drops.stream().mapToLong(entity -> entity.getItem().getCount()).sum();
+        boolean currentBefore = route.fastCurrent().getAsBoolean();
+        task.tick(128);
+        long stored = record.storage().amountOf(key);
+        long total = stored + dropped;
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("BLOCK-01 single chest removed without Tom scan: beforeTickCurrent={}, moved={}, stored={}, drops={}, total={}, expected=128, state={}", currentBefore, task.moved(), stored, dropped, total, task.state());
+        if (total != 128) throw new IllegalStateException("BLOCK-01 single chest removal conservation failed: stored=" + stored + ", drops=" + dropped + ", total=" + total + ", expected=128");
+        drops.forEach(net.minecraft.world.entity.Entity::discard);
+        try (var tx = LedgerTransaction.open()) { record.storage().extract(key, Long.MAX_VALUE, tx); tx.commit(); }
+    }
+    private static void runRemovedSingleExportCheck(net.minecraft.server.level.ServerLevel world, ServerPlayer player,
+            ForgeAccessorBlockEntity accessor, net.minecraft.core.BlockPos position, ChestBlockEntity chest,
+            dev.kehai.digitalstorage.storage.DigitalStorageRecord record) {
+        var key = ItemKey.of(Items.STONE);
+        record.storage().load(key, 128);
+        var route = BatchTransfers.open(player, accessor);
+        var task = new BatchTransfer(record, route, List.of(new BatchTransfer.Entry(key, 128)), true);
+        task.tick(1);
+        expect(task.active() && task.moved() > 0 && task.moved() < 128, "BLOCK-01 single export did not begin before removal");
+        expect(world.destroyBlock(position, true), "BLOCK-01 could not break export chest");
+        var drops = world.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, new net.minecraft.world.phys.AABB(position).inflate(4), e -> e.getItem().is(Items.STONE));
+        long dropped = drops.stream().mapToLong(e -> e.getItem().getCount()).sum();
+        boolean fast = route.fastCurrent().getAsBoolean();
+        task.tick(128);
+        long stored = record.storage().amountOf(key), total = stored + dropped;
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("BLOCK-01 single chest export removed without Tom scan: beforeTickCurrent={}, moved={}, stored={}, drops={}, total={}, expected=128, state={}", fast, task.moved(), stored, dropped, total, task.state());
+        if (total != 128) throw new IllegalStateException("BLOCK-01 single chest export conservation failed: stored=" + stored + ", drops=" + dropped + ", total=" + total + ", expected=128");
+        drops.forEach(net.minecraft.world.entity.Entity::discard);
+        try (var tx = LedgerTransaction.open()) { record.storage().extract(key, Long.MAX_VALUE, tx); tx.commit(); }
+    }
+    private static void runRemovedDoubleCheck(net.minecraft.server.level.ServerLevel world, ServerPlayer player,
+            ForgeAccessorBlockEntity accessor, com.tom.storagemod.tile.InventoryConnectorBlockEntity connector,
+            net.minecraft.core.BlockPos position, net.minecraft.core.BlockPos otherPosition,
+            net.minecraft.world.level.block.state.BlockState left, boolean exporting,
+            dev.kehai.digitalstorage.storage.DigitalStorageRecord record) {
+        world.setBlock(position, left, 2);
+        world.setBlock(otherPosition, Blocks.CHEST.defaultBlockState().setValue(ChestBlock.TYPE, ChestType.RIGHT), 2);
+        var first = (ChestBlockEntity) world.getBlockEntity(position);
+        var other = (ChestBlockEntity) world.getBlockEntity(otherPosition);
+        var key = ItemKey.of(Items.STONE);
+        if (exporting) record.storage().load(key, 128);
+        else { first.setItem(0, new ItemStack(Items.STONE, 64)); other.setItem(0, new ItemStack(Items.STONE, 64)); }
+        scan(world, connector);
+        var route = BatchTransfers.open(player, accessor);
+        var task = new BatchTransfer(record, route, List.of(new BatchTransfer.Entry(key, 128)), exporting);
+        task.tick(1);
+        expect(task.active() && task.moved() > 0 && task.moved() < 128, "BLOCK-01 double chest fixture did not begin before removal");
+        expect(world.destroyBlock(position, true), "BLOCK-01 could not break double chest");
+        var drops = world.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, new net.minecraft.world.phys.AABB(position).inflate(4), e -> e.getItem().is(Items.STONE));
+        long dropped = drops.stream().mapToLong(e -> e.getItem().getCount()).sum();
+        boolean fast = route.fastCurrent().getAsBoolean();
+        task.tick(128);
+        long surviving = 0; for (int i = 0; i < other.getContainerSize(); i++) if (other.getItem(i).is(Items.STONE)) surviving += other.getItem(i).getCount();
+        long stored = record.storage().amountOf(key), total = stored + dropped + surviving;
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("BLOCK-01 double chest {} removed without Tom scan: beforeTickCurrent={}, moved={}, stored={}, drops={}, other={}, total={}, expected=128, state={}", exporting ? "export" : "import", fast, task.moved(), stored, dropped, surviving, total, task.state());
+        if (total != 128) throw new IllegalStateException("BLOCK-01 double chest " + (exporting ? "export" : "import") + " conservation failed: stored=" + stored + ", drops=" + dropped + ", other=" + surviving + ", total=" + total + ", expected=128");
+        drops.forEach(net.minecraft.world.entity.Entity::discard);
+        other.clearContent(); world.removeBlock(otherPosition, false);
+        try (var tx = LedgerTransaction.open()) { record.storage().extract(key, Long.MAX_VALUE, tx); tx.commit(); }
+    }
+    private static void runRemovedSophCheck(net.minecraft.server.level.ServerLevel world, ServerPlayer player,
+            ForgeAccessorBlockEntity accessor, com.tom.storagemod.tile.InventoryConnectorBlockEntity connector,
+            net.minecraft.core.BlockPos position, dev.kehai.digitalstorage.storage.DigitalStorageRecord record) {
+        var block = net.minecraftforge.registries.ForgeRegistries.BLOCKS.getValue(new net.minecraft.resources.ResourceLocation("sophisticatedstorage", "barrel"));
+        expect(block != null, "BLOCK-01 Sophisticated barrel unavailable");
+        world.setBlockAndUpdate(position, block.defaultBlockState());
+        var entity = world.getBlockEntity(position);
+        expect(entity != null, "BLOCK-01 Sophisticated block entity unavailable");
+        var handler = entity.getCapability(ForgeCapabilities.ITEM_HANDLER, net.minecraft.core.Direction.UP)
+                .orElseThrow(() -> new IllegalStateException("BLOCK-01 Sophisticated item handler unavailable"));
+        expect(handler.insertItem(0, new ItemStack(Items.STONE, 64), false).isEmpty()
+                && handler.insertItem(1, new ItemStack(Items.STONE, 64), false).isEmpty(), "BLOCK-01 Sophisticated seed failed");
+        scan(world, connector);
+        var key = ItemKey.of(Items.STONE);
+        var route = BatchTransfers.open(player, accessor);
+        var task = new BatchTransfer(record, route, List.of(new BatchTransfer.Entry(key, 128)), false);
+        task.tick(1);
+        expect(task.active() && task.moved() > 0 && task.moved() < 128, "BLOCK-01 Sophisticated task did not begin");
+        expect(world.destroyBlock(position, true), "BLOCK-01 Sophisticated removal failed");
+        var allDrops = world.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, new net.minecraft.world.phys.AABB(position).inflate(4));
+        long dropped = allDrops.stream().filter(e -> e.getItem().is(Items.STONE)).mapToLong(e -> e.getItem().getCount()).sum();
+        boolean fast = route.fastCurrent().getAsBoolean(); task.tick(128);
+        long stored = record.storage().amountOf(key), total = stored + dropped;
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("BLOCK-01 Sophisticated barrel removed without Tom scan: beforeTickCurrent={}, moved={}, stored={}, stoneDrops={}, allDrops={}, total={}, expected=128, state={}", fast, task.moved(), stored, dropped, allDrops.stream().map(e -> e.getItem().toString()).toList(), total, task.state());
+        if (total != 128) throw new IllegalStateException("BLOCK-01 Sophisticated barrel conservation requires inspection: stored=" + stored + ", stoneDrops=" + dropped + ", total=" + total + ", expected=128");
+        allDrops.forEach(net.minecraft.world.entity.Entity::discard);
+        try (var tx = LedgerTransaction.open()) { record.storage().extract(key, Long.MAX_VALUE, tx); tx.commit(); }
     }
     private static void runLegacyBatchGateSelfTest(MinecraftServer server, ServerPlayer player,
             ForgeAccessorBlockEntity accessor, UUID owner, UUID volume, Path worldRoot) throws java.io.IOException {
