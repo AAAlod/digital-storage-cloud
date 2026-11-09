@@ -243,6 +243,8 @@ public final class ManagementCommands {
                         + ", total variant NBT limit=" + formatBytes(state.maxTotalVariantNbtBytes())
                         + ", total variant NBT overBudget=" + state.totalVariantNbtOverBudget()
                         + ", snapshot generation=" + state.snapshotGeneration()
+                        + ", lastSuccessfulGeneration=" + state.lastSuccessfulGeneration()
+                        + ", lastSuccessfulTime=" + state.lastSuccessfulTime()
                         + ", snapshot worker=" + state.snapshotWorkerStatus()
                         + ", snapshot last failure=" + state.snapshotLastFailure()
                         + ", legacy backup=" + state.legacyBackupStatus()

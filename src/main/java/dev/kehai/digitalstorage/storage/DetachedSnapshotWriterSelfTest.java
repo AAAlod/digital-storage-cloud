@@ -171,6 +171,8 @@ final class DetachedSnapshotWriterSelfTest {
             boolean error = false;
             try { failed.shutdownSnapshot(10_000); } catch (IllegalStateException expected) { error = true; }
             expect(error && failed.awaitSnapshotWriterStop(10_000) && failed.isDirty() && java.util.Arrays.equals(before, Files.readAllBytes(target)), "failed shutdown did not preserve old file and dirty state");
+            expect(failed.lastSuccessfulGeneration() == -1 && failed.lastSuccessfulTime() == 0
+                    && !failed.snapshotLastFailure().equals("none"), "shutdown diagnostics omitted failure or generation fields");
 
             var active = new DigitalStorageData();
             active.createVolume(UUID.randomUUID(), "active", 0).orElseThrow();

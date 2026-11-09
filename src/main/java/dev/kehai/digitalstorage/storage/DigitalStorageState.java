@@ -91,7 +91,7 @@ public final class DigitalStorageState {
                 state.data.shutdownSnapshot(5000);
                 dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Digital Storage final snapshot installed: {}", state.data.lastSuccessfulSnapshot());
             } catch (RuntimeException e) {
-                dev.kehai.digitalstorage.DigitalStorage.LOGGER.error("Digital Storage shutdown snapshot failed; dirty={}, last successful snapshot={}", state.data.isDirty(), state.data.lastSuccessfulSnapshot(), e);
+                dev.kehai.digitalstorage.DigitalStorage.LOGGER.error("Digital Storage shutdown snapshot failed; dirty={}, lastSuccessfulGeneration={}, lastSuccessfulTime={}, reason={}", state.data.isDirty(), state.data.lastSuccessfulGeneration(), state.data.lastSuccessfulTime(), e.toString(), e);
             }
         }
     }
@@ -175,6 +175,8 @@ public final class DigitalStorageState {
     public long snapshotGeneration() { return data.snapshotGeneration(); }
     public String snapshotWorkerStatus() { return degraded ? "degraded" : data.snapshotWorkerStatus(); }
     public String snapshotLastFailure() { return data.snapshotLastFailure(); }
+    public long lastSuccessfulGeneration() { return data.lastSuccessfulGeneration(); }
+    public long lastSuccessfulTime() { return data.lastSuccessfulTime(); }
     public String savedDataMode() {
         if (degraded) return "degraded-read-only";
         if (data.futureSchema) return "future-schema";

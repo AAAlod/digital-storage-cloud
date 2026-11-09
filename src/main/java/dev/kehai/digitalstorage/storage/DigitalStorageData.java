@@ -47,10 +47,11 @@ public final class DigitalStorageData extends SavedData {
     private boolean preserveFailedTemporary;
     private boolean retainFallbackBackup;
     private volatile long lastSuccessfulGeneration = -1, lastSuccessfulTime;
+    private volatile String shutdownFailure = "none";
     long generationForTest() { return changeGeneration.get(); }
     long snapshotGeneration() { return changeGeneration.get(); }
     String snapshotWorkerStatus() { return snapshotWriter == null ? "unavailable" : snapshotWriter.busy() ? "writing" : "idle"; }
-    String snapshotLastFailure() { return snapshotWriter == null || snapshotWriter.failure.isEmpty() ? "none" : "snapshot-failed"; }
+    String snapshotLastFailure() { return !shutdownFailure.equals("none") ? shutdownFailure : snapshotWriter == null || snapshotWriter.failure.isEmpty() ? "none" : snapshotWriter.failure; }
 
     /** Detached snapshot prototype; caller must run this at the server-thread safe point. */
     CompoundTag captureSnapshotForTest(long timeoutMillis) throws InterruptedException {
@@ -116,9 +117,11 @@ public final class DigitalStorageData extends SavedData {
             }
         } catch (InterruptedException e) {
             synchronized (this) { super.setDirty(true); }
+            shutdownFailure = "Interrupted during shutdown snapshot";
             Thread.currentThread().interrupt(); throw new IllegalStateException("Interrupted during shutdown snapshot", e);
         } catch (RuntimeException e) {
             synchronized (this) { super.setDirty(true); }
+            shutdownFailure = e.toString();
             throw e;
         } finally { writer.close(); }
     }
@@ -131,6 +134,8 @@ public final class DigitalStorageData extends SavedData {
     }
     long lastSuccessfulGenerationForTest() { return lastSuccessfulGeneration; }
     long lastSuccessfulTimeForTest() { return lastSuccessfulTime; }
+    long lastSuccessfulGeneration() { return lastSuccessfulGeneration; }
+    long lastSuccessfulTime() { return lastSuccessfulTime; }
     boolean snapshotWriterDaemonForTest() { return snapshotWriter != null && snapshotWriter.isDaemon(); }
 
     /** Installs verified snapshots through one lifecycle-fenced atomic replacement. */
