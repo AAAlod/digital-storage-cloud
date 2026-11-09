@@ -114,7 +114,7 @@ public final class DigitalStorageMod implements ModInitializer {
                 .registerReloadListener(new FabricTierReloadListener());
 
         ItemStorage.SIDED.registerForBlockEntity(
-                (blockEntity, direction) -> dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.canonicalStorage(blockEntity),
+                (blockEntity, direction) -> ((dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity) blockEntity).guardedStorage(),
                 DIGITAL_STORAGE_ACCESSOR_BLOCK_ENTITY
         );
 

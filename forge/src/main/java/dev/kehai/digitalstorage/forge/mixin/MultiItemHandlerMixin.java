@@ -19,7 +19,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /** Explicit DSC volume identity supplements Tom's physical stack-reference sampling. */
 @Mixin(value = MultiItemHandler.class, remap = false)
-public abstract class MultiItemHandlerMixin implements ForgeTomEndpoints.RawDigitalEndpoints {
+public abstract class MultiItemHandlerMixin implements ForgeTomEndpoints.RawDigitalEndpoints, ForgeTomEndpoints.TopologyVersion {
     @Shadow private List<LazyOptional<IItemHandler>> handlers;
     @Shadow private int[] invSizes;
     @Shadow private boolean calling;
@@ -28,6 +28,10 @@ public abstract class MultiItemHandlerMixin implements ForgeTomEndpoints.RawDigi
     @Unique private Set<LazyOptional<IItemHandler>> digitalstorage$sources;
     @Unique private java.util.Map<IItemHandler, Integer> digitalstorage$dynamicSizes;
     @Unique private boolean digitalstorage$refreshing;
+    @Unique private long digitalstorage$topologyVersion;
+    @Unique private long digitalstorage$topologyFingerprint = Long.MIN_VALUE;
+
+    @Override public long digitalstorage$topologyVersion() { return digitalstorage$topologyVersion; }
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void digitalstorage$initialize(CallbackInfo callback) {
@@ -70,6 +74,23 @@ public abstract class MultiItemHandlerMixin implements ForgeTomEndpoints.RawDigi
                 digitalstorage$dynamicSizes.put(handler, invSizes[i]);
             }
         }
+        // Tom rebuilds its aggregate every 20 ticks even when the topology is unchanged.
+        // Bump the fast-path generation only when the observable structure actually changes.
+        long fingerprint = digitalstorage$structureFingerprint();
+        if (fingerprint != digitalstorage$topologyFingerprint) {
+            digitalstorage$topologyFingerprint = fingerprint;
+            digitalstorage$topologyVersion++;
+        }
+    }
+
+    @Unique
+    private long digitalstorage$structureFingerprint() {
+        long hash = 1;
+        for (int i = 0; i < handlers.size(); i++) {
+            hash = 31 * hash + System.identityHashCode(handlers.get(i).orElse(null));
+            hash = 31 * hash + (i < invSizes.length ? invSizes[i] : -1);
+        }
+        return hash;
     }
 
     // Tom caches aggregate slot offsets. A live tier change must update those offsets,

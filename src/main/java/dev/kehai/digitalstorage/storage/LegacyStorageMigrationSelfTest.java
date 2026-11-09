@@ -73,6 +73,9 @@ final class LegacyStorageMigrationSelfTest {
                 var legacy = Files.createDirectory(root.resolve("digitalstorage"));
                 var accounts = Files.createDirectory(legacy.resolve("accounts"));
                 var volumes = Files.createDirectory(legacy.resolve("volumes"));
+                var recovery = Files.createDirectories(legacy.resolve("forge-transfer/recovery"));
+                Files.writeString(recovery.resolve("receipt.dat"), "receipt");
+                Files.writeString(legacy.resolve("unknown"), "preserved");
                 var owner = java.util.UUID.randomUUID();
                 var id = java.util.UUID.randomUUID();
                 var account = new PlayerStorageAccount(owner);
@@ -83,9 +86,13 @@ final class LegacyStorageMigrationSelfTest {
                 NbtIo.writeCompressed(volume.snapshot().writeNbt(), volumes.resolve(id + ".dat").toFile());
                 var storage = new net.minecraft.world.level.storage.DimensionDataStorage(dataDir.toFile(), net.minecraft.util.datafix.DataFixers.getDataFixer());
                 var data = DigitalStorageData.open(storage, root);
-                expect(!data.readOnly && !data.isDirty() && data.backupStatus.equals("completed") && Files.notExists(legacy)
-                        && Files.isDirectory(root.resolve(data.legacyBackup))
+                expect(!data.readOnly && !data.isDirty() && data.backupStatus.equals("completed")
+                        && Files.isDirectory(root.resolve(data.legacyBackup).resolve("accounts"))
+                        && Files.isDirectory(root.resolve(data.legacyBackup).resolve("volumes"))
+                        && Files.readString(recovery.resolve("receipt.dat")).equals("receipt")
+                        && Files.readString(legacy.resolve("unknown")).equals("preserved")
                         && data.volumes.get(id).record().storage().totalItemCount() == 7, "Legacy migration did not save before backup");
+                Files.writeString(recovery.resolve("next.dat"), "writable");
                 var ledger = data.volumes.get(id).record().storage();
                 try (var transaction = LedgerTransaction.open()) {
                     expect(ledger.extract(ItemKey.of(Items.STONE), 2, transaction) == 2, "Migrated ledger extraction failed");
@@ -111,7 +118,9 @@ final class LegacyStorageMigrationSelfTest {
             try {
                 var directory = Files.createDirectory(root.resolve("data"));
                 var legacy = Files.createDirectory(root.resolve("digitalstorage"));
-                Files.writeString(legacy.resolve("original"), "preserved");
+                Files.createDirectory(legacy.resolve("accounts"));
+                Files.writeString(legacy.resolve("accounts/original"), "preserved");
+                Files.writeString(legacy.resolve("unknown"), "untouched");
                 var file = directory.resolve("digitalstorage.dat");
                 var saved = new DigitalStorageData();
                 saved.legacyBackup = "digitalstorage-legacy-test";
@@ -122,19 +131,19 @@ final class LegacyStorageMigrationSelfTest {
                 var backup = root.resolve(saved.legacyBackup);
                 var storage = new net.minecraft.world.level.storage.DimensionDataStorage(directory.toFile(), net.minecraft.util.datafix.DataFixers.getDataFixer());
                 var restored = DigitalStorageData.open(storage, root);
-                expect(restored.volumes.containsKey(id) && Files.notExists(legacy)
-                        && Files.readString(backup.resolve("original")).equals("preserved"),
+                expect(restored.volumes.containsKey(id) && Files.readString(legacy.resolve("unknown")).equals("untouched")
+                        && Files.readString(backup.resolve("accounts/original")).equals("preserved"),
                         "Saved-before-rename recovery did not preserve and rename legacy directory");
                 var reopened = new net.minecraft.world.level.storage.DimensionDataStorage(directory.toFile(), net.minecraft.util.datafix.DataFixers.getDataFixer());
                 expect(DigitalStorageData.open(reopened, root).volumes.containsKey(id)
                         && Files.isDirectory(backup), "Post-rename restart lost data or backup");
-                Files.createDirectory(legacy);
-                Files.writeString(legacy.resolve("original"), "conflicting legacy");
+                Files.createDirectory(legacy.resolve("accounts"));
+                Files.writeString(legacy.resolve("accounts/original"), "conflicting legacy");
                 var conflict = new net.minecraft.world.level.storage.DimensionDataStorage(directory.toFile(), net.minecraft.util.datafix.DataFixers.getDataFixer());
                 var loaded = DigitalStorageData.open(conflict, root);
                 expect(loaded.backupStatus.equals("conflict") && loaded.volumes.containsKey(id) && loaded.volumes.size() == 1
-                        && Files.readString(backup.resolve("original")).equals("preserved")
-                        && Files.readString(legacy.resolve("original")).equals("conflicting legacy"),
+                        && Files.readString(backup.resolve("accounts/original")).equals("preserved")
+                        && Files.readString(legacy.resolve("accounts/original")).equals("conflicting legacy"),
                         "Backup conflict overwrote data or re-imported legacy records");
             } finally {
                 try (var paths = Files.walk(root)) {
@@ -166,8 +175,8 @@ final class LegacyStorageMigrationSelfTest {
                         "migration retry did not safely save before rename");
                 var reopened = new net.minecraft.world.level.storage.DimensionDataStorage(dir.toFile(), net.minecraft.util.datafix.DataFixers.getDataFixer());
                 var restored = DigitalStorageData.open(reopened, root);
-                expect(!restored.readOnly && Files.notExists(legacy)
-                        && Files.readString(root.resolve(restored.legacyBackup).resolve("keep")).equals("original"),
+                expect(!restored.readOnly && Files.readString(legacy.resolve("keep")).equals("original")
+                        && Files.isDirectory(root.resolve(restored.legacyBackup)),
                         "migration retry restart did not preserve and rename original");
             } finally {
                 try (var paths = Files.walk(root)) {

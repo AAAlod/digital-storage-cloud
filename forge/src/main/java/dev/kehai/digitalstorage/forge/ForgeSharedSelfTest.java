@@ -16,8 +16,7 @@ public final class ForgeSharedSelfTest {
         ForgeTransferSessionSelfTest.run(server);
         ForgeRecoveryDeliverySelfTest.run(server);
         ForgeRecoveryReconciliationSelfTest.run();
-        ForgeMigrationSelfTest.run(server);
-        ForgeMigrationWorldSelfTest.run(server);
+        ForgeBatchWorldSelfTest.run(server);
         dev.kehai.digitalstorage.forge.tom.ForgeScannerTelemetrySelfTest.run(server);
         ForgeAdvancedHopperSelfTest.run(server);
         ForgeHopperTransferSelfTest.run();
@@ -32,7 +31,6 @@ public final class ForgeSharedSelfTest {
         ForgeAccessorSelfTest.run(server);
         dev.kehai.digitalstorage.storage.VolumeLedgerSelfTest.run();
         dev.kehai.digitalstorage.optimization.NetworkAnalysis.runSelfTest();
-        dev.kehai.digitalstorage.optimization.MigrationTaskSelfTest.run();
         dev.kehai.digitalstorage.hopper.HopperPolicy.runSelfTest();
         dev.kehai.digitalstorage.config.DigitalStorageConfig.runSelfTest();
         dev.kehai.digitalstorage.security.ItemSecurityPolicy.runSelfTest();
@@ -49,6 +47,6 @@ public final class ForgeSharedSelfTest {
         if (!(entity instanceof ForgeAccessorBlockEntity) || entity.getType() != ForgeDigitalStorage.ACCESSOR_TYPE.get()) {
             throw new IllegalStateException("Forge accessor registration created an incorrect entity");
         }
-        DigitalStorage.LOGGER.info("Forge shared self-test passed: keys/ForgeCaps, stable IItemHandler slots/simulation/remainders/leases, ledger/nested transactions, analysis/scanner telemetry, migration jobs/budget/cancel/lifetime, policy, configuration, mounts, upgrades, screen codec, registration and actual Tom aggregate dedup/filter/keep-last; placed scanner/chest/cable/proxy fixture runs only when configured; continuous ticks/rotation not covered");
+        DigitalStorage.LOGGER.info("Forge shared self-test passed: keys/ForgeCaps, stable IItemHandler slots/simulation/remainders/leases, ledger/nested transactions, batch fault injection, analysis/scanner telemetry, policy, configuration, mounts, upgrades, screen codec and Tom aggregate dedup/filter/keep-last; independent placed batch fixture runs only when configured; continuous ticks/rotation not covered");
     }
 }

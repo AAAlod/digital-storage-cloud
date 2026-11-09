@@ -179,6 +179,9 @@ final class DigitalStorageConfigLoader {
         }
         DigitalStorageConfig parsed = GSON.fromJson(source, DigitalStorageConfig.class);
         DigitalStorageConfig loaded = parsed == null ? DigitalStorageConfig.defaults() : parsed;
+        if (!source.has("transferStepsPerTick") && source.has("migrationViewsScannedPerTick")) {
+            loaded.transferStepsPerTick = source.get("migrationViewsScannedPerTick").getAsInt();
+        }
         if (!source.has("allowUnstackableItems") && source.has("rejectUnstackableItems")) {
             JsonElement legacy = source.get("rejectUnstackableItems");
             if (legacy.isJsonPrimitive() && legacy.getAsJsonPrimitive().isBoolean()) {
@@ -266,11 +269,24 @@ final class DigitalStorageConfigLoader {
             verifyBrokenReloadRejection(root.resolve("broken-reload"));
             verifyFutureSchemaIsUntouched(root.resolve("future"));
             verifyTotalBudgetConfig(root.resolve("total-budget"));
+            verifyTransferKeyMigration(root.resolve("transfer-key"));
         } catch (IOException exception) {
             throw new IllegalStateException("Digital Storage configuration self-test failed", exception);
         } finally {
             deleteTemporaryTree(root);
         }
+    }
+
+    private static void verifyTransferKeyMigration(Path directory) throws IOException {
+        Files.createDirectories(directory);
+        Path toml = directory.resolve(TOML_NAME);
+        Files.writeString(toml, "configVersion = 1\n[network]\nmigrationViewsScannedPerTick = 317\n");
+        var migrated = load(directory, Mode.STARTUP);
+        String saved = Files.readString(toml);
+        expect(migrated.success() && migrated.config().transferStepsPerTick == 317
+                && saved.contains("migrationViewsScannedPerTick") && saved.contains("transferStepsPerTick"), "Old transfer key was not retained and migrated");
+        Files.writeString(toml, "configVersion = 1\n[network]\nmigrationViewsScannedPerTick = 317\ntransferStepsPerTick = 42\n");
+        expect(load(directory, Mode.RELOAD).config().transferStepsPerTick == 42, "New transfer key did not take precedence");
     }
 
     private static void verifyTotalBudgetConfig(Path directory) throws IOException {
@@ -296,8 +312,8 @@ final class DigitalStorageConfigLoader {
         Result created = load(directory, Mode.STARTUP);
         expect(created.success(), "default TOML creation failed");
         expect(created.config().hopperSuccessCooldown == 20
-                        && java.util.Arrays.equals(created.config().hopperFailureCooldowns, new int[]{20, 40, 100, 200, 400})
-                        && created.config().migrationViewsScannedPerTick == 128
+                        && java.util.Arrays.equals(created.config().hopperFailureCooldowns, new int[]{20, 40, 80, 120, 200})
+                        && created.config().transferStepsPerTick == 128
                         && created.config().persistenceFlushIntervalTicks == 400
                         && created.config().persistenceSnapshotsPerTick == 1
                         && created.config().persistenceVariantsPerTick == 64,
@@ -349,7 +365,7 @@ final class DigitalStorageConfigLoader {
                         && config.maxVolumeVariantNbtBytes == 70000000 && config.itemFilterMode.equals("whitelist")
                         && config.itemFilterItems.equals(java.util.List.of("minecraft:diamond"))
                         && config.itemFilterTags.equals(java.util.List.of("minecraft:boats"))
-                        && config.logRejectedVariants && config.migrationViewsScannedPerTick == 300
+                        && config.logRejectedVariants && config.transferStepsPerTick == 300
                         && config.digitalViewScoreDivisor == 2048 && config.defaultVolumesPerPlayer == 5
                         && config.persistenceFlushIntervalTicks == 400 && config.persistenceSnapshotsPerTick == 2
                         && config.persistenceVariantsPerTick == 256 && config.volumeNbtWarningBytes == 20000000,
@@ -438,7 +454,7 @@ final class DigitalStorageConfigLoader {
         document.set("hopper.failureCooldownTicks", java.util.List.of());
         writeAtomic(toml, document);
         loaded = load(directory, Mode.RELOAD);
-        expect(java.util.Arrays.equals(loaded.config().hopperFailureCooldowns, new int[]{20, 40, 100, 200, 400}),
+        expect(java.util.Arrays.equals(loaded.config().hopperFailureCooldowns, new int[]{20, 40, 80, 120, 200}),
                 "empty failure-cooldown list did not restore defaults");
 
         document = parseToml(toml);

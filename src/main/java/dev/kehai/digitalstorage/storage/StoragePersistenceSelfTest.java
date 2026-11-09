@@ -273,7 +273,7 @@ public final class StoragePersistenceSelfTest {
                             && Arrays.equals(original, Files.readAllBytes(target)), "startup did not recover the valid backup"); }
                     finally { reopened.closeForTest(); }
                     try (var paths = Files.list(directory)) {
-                        expect(paths.noneMatch(path -> path.getFileName().toString().startsWith("digitalstorage.dat.bak-")), "startup retained a recovered backup");
+                        expect(paths.anyMatch(path -> path.getFileName().toString().startsWith("digitalstorage.dat.bak-")), "startup lost the recovered backup");
                     }
                 } else if (mode == 0) {
                     data.createVolume(UUID.randomUUID(), "second", 0).orElseThrow();
@@ -325,10 +325,10 @@ public final class StoragePersistenceSelfTest {
             try { expect(state.savedDataMode().equals("read-write") && Arrays.equals(original, Files.readAllBytes(target)),
                     "backup-before-replacement crash: target was not recovered"); }
             finally { state.closeForTest(); }
-            expect(Files.notExists(backup), "backup-before-replacement crash: backup was not cleaned");
-            Files.copy(target, backup);
+            expect(Files.exists(backup), "backup-before-replacement crash: backup was lost");
+            Files.copy(target, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             var valid = DigitalStorageState.openForTest(root);
-            expect(valid.savedDataMode().equals("read-write") && Files.notExists(backup), "valid target did not discard stale backup");
+            expect(valid.savedDataMode().equals("read-write") && Files.exists(backup), "valid target did not retain backup");
             valid.closeForTest();
             byte[] badTarget = {1, 2, 3}; byte[] badBackup = {4, 5, 6};
             Files.write(target, badTarget); Files.write(backup, badBackup);

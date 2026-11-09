@@ -26,8 +26,9 @@ public final class BatchTransfer {
         Iterable<Entry> contents();
         Cursor cursor(boolean exporting);
     }
-    public record Route(List<Port> ports, BooleanSupplier current, String location) {
+    public record Route(List<Port> ports, BooleanSupplier current, BooleanSupplier fastCurrent, String location) {
         public Route { ports = List.copyOf(ports); }
+        public Route(List<Port> ports, BooleanSupplier current, String location) { this(ports, current, current, location); }
     }
     private final DigitalStorageRecord record;
     private final java.util.UUID id = java.util.UUID.randomUUID();
@@ -84,6 +85,7 @@ public final class BatchTransfer {
             }
             if (cursor == null) cursor = route.ports().get(portIndex).cursor(exporting);
             if (!cursor.hasNext()) { portIndex++; cursor = null; continue; }
+            if (!route.fastCurrent().getAsBoolean()) { stop("network_changed"); return; }
             Result result = cursor.next(record, item.key(), item.amount() - itemMoved);
             if (result.moved() > item.amount() - itemMoved) throw new IllegalStateException("Settlement exceeds requested quantity");
             itemMoved += result.moved(); moved += result.moved();

@@ -17,6 +17,34 @@ public final class ForgeTransferSessionSelfTest {
         try { root = Files.createTempDirectory("digitalstorage-forge-session-").toAbsolutePath().normalize(); }
         catch (IOException failure) { throw new IllegalStateException(failure); }
         try {
+            var displaced = root.resolve("digitalstorage-legacy-fixture/forge-transfer");
+            var displacedSession = ForgeTransferSessions.openForTest(displaced);
+            displacedSession.recovery().hold(UUID.randomUUID(), UUID.randomUUID(),
+                    dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.world.item.Items.STONE), 3, "fixture");
+            var live = root.resolve("digitalstorage/forge-transfer");
+            ForgeTransferSessions.restoreDisplacedTransferRoot(live);
+            var restoredTransfer = ForgeTransferSessions.openForTest(live);
+            expect(restoredTransfer.recovery().pendingCount() == 1 && Files.notExists(displaced),
+                    "Displaced transfer store was not restored without losing its receipt");
+            restoredTransfer.recovery().hold(UUID.randomUUID(), UUID.randomUUID(),
+                    dev.kehai.digitalstorage.storage.ItemKey.of(net.minecraft.world.item.Items.DIRT), 2, "fixture");
+            ForgeTransferSessions.restoreDisplacedTransferRoot(live);
+            expect(ForgeTransferSessions.openForTest(live).recovery().pendingCount() == 2,
+                    "Restored transfer store could not write or was imported twice");
+            var conflicting = Files.createDirectories(root.resolve("digitalstorage-legacy-second/forge-transfer"));
+            Files.writeString(conflicting.resolve("keep"), "backup");
+            ForgeTransferSessions.restoreDisplacedTransferRoot(live);
+            expect(Files.readString(conflicting.resolve("keep")).equals("backup")
+                    && ForgeTransferSessions.openForTest(live).recovery().pendingCount() == 2,
+                    "Existing live store merged or overwrote backup data");
+            var ambiguousWorld = Files.createDirectory(root.resolve("ambiguous-world"));
+            Files.createDirectories(ambiguousWorld.resolve("digitalstorage-legacy-a/forge-transfer"));
+            Files.createDirectories(ambiguousWorld.resolve("digitalstorage-legacy-b/forge-transfer"));
+            boolean ambiguousDenied = false;
+            try { ForgeTransferSessions.restoreDisplacedTransferRoot(ambiguousWorld.resolve("digitalstorage/forge-transfer")); }
+            catch (IllegalStateException expected) { ambiguousDenied = expected.getMessage().contains("manually reconcile"); }
+            expect(ambiguousDenied && Files.notExists(ambiguousWorld.resolve("digitalstorage/forge-transfer")),
+                    "Multiple backup stores were not fenced for manual reconciliation");
             var session = ForgeTransferSessions.openForTest(root.resolve("session"));
             var incident = new ForgeInventoryTransferExecutor.Incident(UUID.randomUUID(), UUID.randomUUID(),
                     "test.original.filtered.handler", 7, 0, System.currentTimeMillis(), "Source threw without returned ownership");

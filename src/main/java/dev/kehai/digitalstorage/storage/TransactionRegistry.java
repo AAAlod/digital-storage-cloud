@@ -14,6 +14,7 @@ public final class TransactionRegistry {
     private final java.util.Set<TransactionId> GENERATION_MARKED = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
     private boolean capturing;
     private Thread captureOwner;
+    private boolean shuttingDown;
 
     public TransactionRegistry() { }
 
@@ -21,10 +22,20 @@ public final class TransactionRegistry {
         LOCK.lock();
         try {
             if (ACTIVE.containsKey(outerId)) return false;
-            while (capturing && captureOwner != Thread.currentThread() && !ACTIVE.containsValue(Thread.currentThread())) CHANGED.awaitUninterruptibly();
+            if (shuttingDown && !ACTIVE.containsValue(Thread.currentThread())) throw new IllegalStateException("Storage is shutting down");
+            while (capturing && captureOwner != Thread.currentThread() && !ACTIVE.containsValue(Thread.currentThread())) {
+                CHANGED.awaitUninterruptibly();
+                if (shuttingDown && !ACTIVE.containsValue(Thread.currentThread())) throw new IllegalStateException("Storage is shutting down");
+            }
             ACTIVE.put(outerId, Thread.currentThread());
             return true;
         } finally { LOCK.unlock(); }
+    }
+
+    void beginShutdown() {
+        LOCK.lock();
+        try { shuttingDown = true; CHANGED.signalAll(); }
+        finally { LOCK.unlock(); }
     }
 
     public void leave(TransactionId outerId) {

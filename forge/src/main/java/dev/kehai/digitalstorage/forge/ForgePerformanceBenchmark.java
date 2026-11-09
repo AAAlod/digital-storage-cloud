@@ -35,7 +35,6 @@ public final class ForgePerformanceBenchmark {
         var digitalLatency = measure(() -> () -> blackhole = scan(digital), deadline);
         report("physical scan", physicalNetwork.getSlots(), physicalLatency);
         report("digital scan", digital.getSlots(), digitalLatency);
-        var migrationLatency = migration(deadline);
         int cases = 0;
         long worst = 0;
         for (int variants : new int[]{64, 256, 1024}) {
@@ -58,9 +57,9 @@ public final class ForgePerformanceBenchmark {
         }
         String summary = "Forge benchmark passed: warmupMin=" + WARMUP + ", warmupMinMillis=250, samples=" + SAMPLES
                 + ", variants=" + VARIANTS + ", hopperCases=" + cases
-                + String.format(Locale.ROOT, "; physical512 meanMs=%.4f, digital1024 meanMs=%.4f, migration256 p99/maxMs=%.4f, worstHopper p99/maxMs=%.4f",
-                        physicalLatency.mean / 1e6, digitalLatency.mean / 1e6, migrationLatency.maximum / 1e6, worst / 1e6)
-                + "; isolated Tom scans, real migration256, actual cold filtered rejection updates; microbenchmark, not TPS";
+                + String.format(Locale.ROOT, "; physical512 meanMs=%.4f, digital1024 meanMs=%.4f, worstHopper p99/maxMs=%.4f",
+                        physicalLatency.mean / 1e6, digitalLatency.mean / 1e6, worst / 1e6)
+                + "; isolated Tom scans, actual cold filtered rejection updates; microbenchmark, not TPS";
         DigitalStorage.LOGGER.info(summary); return summary;
     }
     private static ItemStack variant(int index) {
@@ -76,36 +75,6 @@ public final class ForgePerformanceBenchmark {
         long total = 0;
         for (int slot = 0; slot < source.getSlots(); slot++) total += source.getStackInSlot(slot).getCount();
         return total;
-    }
-    private static Latency migration(long deadline) {
-        java.nio.file.Path root = null;
-        try {
-            root = Files.createTempDirectory("digitalstorage-forge-benchmark-");
-            var recovery = new ForgeTransferRecovery(root);
-            UUID owner = UUID.randomUUID(), volume = UUID.randomUUID();
-            var latency = measure(() -> {
-                var source = physical(256);
-                var target = new VolumeLedger(volume, () -> { }, 256);
-                var executor = new ForgeInventoryTransferExecutor(owner, volume, recovery);
-                return () -> {
-                    for (int slot = 0; slot < 256; slot++) {
-                        var key = ItemKey.of(source.getStackInSlot(slot));
-                        var result = executor.move(new ForgeInventoryEndpoint.View(source, slot), target, key, 64);
-                        expect(result.moved() == 64 && result.stopDetail().isEmpty(), "Migration benchmark did not settle");
-                    }
-                    expect(target.totalItemCount() == 16384 && recovery.available() && recovery.pendingCount() == 0,
-                            "Migration benchmark lost ownership");
-                    blackhole = target.totalItemCount();
-                };
-            }, deadline);
-            report("migration256", 256, latency);
-            return latency;
-        } catch (java.io.IOException failure) { throw new IllegalStateException("Benchmark fixture storage failed", failure); }
-        finally {
-            if (root != null) try (var paths = Files.walk(root)) {
-                for (var path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
-            } catch (java.io.IOException failure) { throw new IllegalStateException("Benchmark cleanup failed", failure); }
-        }
     }
     private static Latency measure(java.util.function.Supplier<Runnable> prepare, long deadline) {
         long[] samples = new long[SAMPLES];

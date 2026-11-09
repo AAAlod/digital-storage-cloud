@@ -17,12 +17,5 @@ public final class NetworkServices {
 
     public interface Backend {
         NetworkAnalysis.Report analyze(BlockEntity accessor);
-        StartResult start(ServerPlayer player, BlockEntity accessor, NetworkAnalysis.Report report);
-        boolean cancel(ServerPlayer player, UUID volumeId);
-        MigrationTask.Status status(UUID volumeId);
-    }
-
-    public enum StartResult {
-        STARTED, NOT_OWNER, NO_NETWORK, NOTHING_TO_MOVE, DUPLICATE_TARGET_ENDPOINTS, NETWORK_CHANGED, ALREADY_RUNNING, RECOVERY_REQUIRED
     }
 }

@@ -40,6 +40,7 @@ public final class TomNetworkIntrospection {
         Set<Storage<ItemVariant>> visited = Collections.newSetFromMap(new IdentityHashMap<>());
         Storage<ItemVariant> current = storage;
         while (current != null && visited.add(current)) {
+            if (current instanceof dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.GuardedStorage guarded) return guarded.canonical();
             if (current instanceof FabricDigitalItemStorage digital) {
                 return digital;
             }
@@ -101,7 +102,7 @@ public final class TomNetworkIntrospection {
     @SuppressWarnings("unchecked")
     private static void transferParts(Storage<ItemVariant> storage, List<Storage<ItemVariant>> result,
                                       Set<Storage<ItemVariant>> path) {
-        if (storage == null || canonicalDigitalEndpoint(storage) != null) return;
+        if (storage == null || storage instanceof dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.GuardedStorage || canonicalDigitalEndpoint(storage) != null) return;
         if (!path.add(storage)) throw new IllegalStateException("Cyclic transfer network");
         try {
             var access = ACCESSORS.get(storage.getClass());
@@ -124,7 +125,7 @@ public final class TomNetworkIntrospection {
 
     @SuppressWarnings("unchecked")
     static boolean safePhysical(Storage<ItemVariant> storage, Set<Storage<ItemVariant>> path) {
-        if (storage == null || canonicalDigitalEndpoint(storage) != null || !path.add(storage)) return false;
+        if (storage == null || storage instanceof dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.GuardedStorage || canonicalDigitalEndpoint(storage) != null || !path.add(storage)) return false;
         try {
             var access = ACCESSORS.get(storage.getClass());
             var delegate = storage.getClass().getName().startsWith(TOM_PACKAGE) ? invokeStorage(storage, access.get()) : null;
@@ -218,6 +219,11 @@ public final class TomNetworkIntrospection {
             return;
         }
         try {
+            if (storage instanceof dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.GuardedStorage guarded) {
+                var canonical = guarded.canonical();
+                if (canonical != null) flattenRaw(canonical, output, path);
+                return;
+            }
             if (storage instanceof DigitalStorageAccessorBlockEntity accessor) {
                 FabricDigitalItemStorage canonical = dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.canonicalStorage(accessor);
                 if (canonical != null) {
@@ -258,6 +264,10 @@ public final class TomNetworkIntrospection {
             return;
         }
         try {
+            if (storage instanceof dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.GuardedStorage guarded) {
+                var canonical = guarded.canonical(); if (canonical != null) output.add(canonical);
+                return;
+            }
             if (storage instanceof TomDigitalEndpointTracker tracker) {
                 output.addAll(tracker.digitalstorage$rawDigitalEndpoints());
                 return;

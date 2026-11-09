@@ -7,7 +7,7 @@ import java.util.Arrays;
 import java.util.List;
 
 public final class DigitalStorageConfig {
-    private static final int[] DEFAULT_FAILURE_COOLDOWNS = {20, 40, 100, 200, 400};
+    private static final int[] DEFAULT_FAILURE_COOLDOWNS = {20, 40, 80, 120, 200};
     public static final int HARD_MAX_VARIANT_NBT_BYTES = 1_048_576;
     public static final int HARD_MAX_TOTAL_VARIANT_NBT_BYTES = 67_108_864;
     public static final int HARD_MAX_VOLUME_VARIANT_NBT_BYTES = 1_073_741_824;
@@ -29,12 +29,12 @@ public final class DigitalStorageConfig {
     public List<String> itemFilterItems = new ArrayList<>();
     public List<String> itemFilterTags = new ArrayList<>();
     public boolean logRejectedVariants = false;
-    public int migrationViewsScannedPerTick = 128;
+    public int transferStepsPerTick = 128;
     public int digitalViewScoreDivisor = 1_024;
     public int defaultVolumesPerPlayer = 3;
-    public int persistenceFlushIntervalTicks = 400;
-    public int persistenceSnapshotsPerTick = 1;
-    public int persistenceVariantsPerTick = 64;
+    /** No effect; persistence follows SavedData autosave. */ @Deprecated public int persistenceFlushIntervalTicks = 400;
+    /** No effect; persistence follows SavedData autosave. */ @Deprecated public int persistenceSnapshotsPerTick = 1;
+    /** No effect; persistence follows SavedData autosave. */ @Deprecated public int persistenceVariantsPerTick = 64;
     public int volumeNbtWarningBytes = 16_777_216;
 
     DigitalStorageConfig() {
@@ -68,7 +68,7 @@ public final class DigitalStorageConfig {
                 "Digital storage config: hopper enabled={}, normal batch={}, advanced batch={}, success cooldown={}, failure cooldowns={}, "
                         + "stagger scans={}, allow unstackables={}, filter={}, filter items={}, filter tags={}, "
                         + "max variant NBT={} bytes, volume variant NBT cap={} bytes, total variant NBT cap={} bytes, volumes per player={}, "
-                        + "migration views/tick={}, digital view divisor={}, persistence flush={} ticks, snapshots/tick={}, variants/tick={}, "
+                        + "transfer steps/tick={}, digital view divisor={}, ignored persistence values: flush={} ticks, snapshots/tick={}, variants/tick={}, "
                         + "volume NBT warning={} bytes",
                 loaded.optimizeTomsHopper,
                 loaded.normalHopperBatchSize,
@@ -84,7 +84,7 @@ public final class DigitalStorageConfig {
                 loaded.maxVolumeVariantNbtBytes,
                 loaded.maxTotalVariantNbtBytes,
                 loaded.defaultVolumesPerPlayer == 0 ? "unlimited" : loaded.defaultVolumesPerPlayer,
-                loaded.migrationViewsScannedPerTick,
+                loaded.transferStepsPerTick,
                 loaded.digitalViewScoreDivisor,
                 loaded.persistenceFlushIntervalTicks,
                 loaded.persistenceSnapshotsPerTick,
@@ -105,7 +105,7 @@ public final class DigitalStorageConfig {
         maxVolumeVariantNbtBytes = clamp(maxVolumeVariantNbtBytes, 1_048_576, HARD_MAX_VOLUME_VARIANT_NBT_BYTES);
         maxTotalVariantNbtBytes = clamp(maxTotalVariantNbtBytes, 1_048_576, HARD_MAX_TOTAL_VARIANT_NBT_BYTES);
         defaultVolumesPerPlayer = clamp(defaultVolumesPerPlayer, 0, 1_000_000);
-        migrationViewsScannedPerTick = clamp(migrationViewsScannedPerTick, 1, 65_536);
+        transferStepsPerTick = clamp(transferStepsPerTick, 1, 65_536);
         digitalViewScoreDivisor = clamp(digitalViewScoreDivisor, 256, 8_192);
         persistenceFlushIntervalTicks = clamp(persistenceFlushIntervalTicks, 20, 12_000);
         persistenceSnapshotsPerTick = clamp(persistenceSnapshotsPerTick, 1, 64);

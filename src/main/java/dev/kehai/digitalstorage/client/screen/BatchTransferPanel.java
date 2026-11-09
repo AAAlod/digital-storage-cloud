@@ -28,11 +28,13 @@ final class BatchTransferPanel {
     private UUID refreshedTask = BatchScreenProtocol.EMPTY;
     private int autoRefresh;
     private UUID token = BatchScreenProtocol.EMPTY;
-    private boolean exporting, tools, all, editing, ascending;
-    private boolean pendingOpen, pendingExport, pendingTools;
+    private boolean exporting, tools, all, editing, ascending, recommended;
+    private final Map<Integer, Long> suggestions = new HashMap<>();
+    private boolean pendingOpen, pendingExport, pendingTools, pendingRecommended;
     private boolean pendingResume;
     private int serial, outstanding, waiting, seen, ticks, searchDelay, busyTicks, focused = -1, page, pages, entries;
     private long total;
+    private long suggestedTotal;
     private long storedTools;
     private UUID toolsVolume = BatchScreenProtocol.EMPTY;
     private String detail = "", query = "", location = "";
@@ -67,7 +69,7 @@ final class BatchTransferPanel {
         previous = button(add, "previous", 108, 161, 16, () -> request(BatchScreenProtocol.PAGE, page - 1));
         next = button(add, "next", 180, 161, 16, () -> request(BatchScreenProtocol.PAGE, page + 1));
         previous.setWidth(16); next.setWidth(16);
-        refresh = button(add, "refresh", 204, height - 70, width - 216, () -> open(exporting, tools));
+        refresh = button(add, "refresh", 204, height - 70, width - 216, () -> open(exporting, tools, recommended));
         start = button(add, "start_out", 204, height - 44, width - 216, () -> request(running() ? BatchScreenProtocol.STOP : BatchScreenProtocol.START, page));
         updateQuantity(); update();
     }
@@ -117,12 +119,16 @@ final class BatchTransferPanel {
         }
     }
     void open(boolean exporting, boolean tools) {
+        open(exporting, tools, false);
+    }
+    void openRecommended() { open(false, false, true); }
+    private void open(boolean exporting, boolean tools, boolean recommended) {
         if (running()) return;
-        if (outstanding != 0) { pendingOpen = true; pendingExport = exporting; pendingTools = tools; return; }
+        if (outstanding != 0) { pendingOpen = true; pendingExport = exporting; pendingTools = tools; pendingRecommended = recommended; return; }
         pendingOpen = false; status = null; token = BatchScreenProtocol.EMPTY; detail = "";
         if (this.exporting != exporting) ascending = exporting;
-        this.exporting = exporting; this.tools = tools; all = exporting && tools;
-        amounts.clear(); available.clear(); focused = -1; page = 0; query = ""; rows = List.of();
+        this.exporting = exporting; this.tools = tools; this.recommended = recommended; all = exporting && tools && !recommended;
+        amounts.clear(); available.clear(); suggestions.clear(); suggestedTotal = 0; focused = -1; page = 0; query = ""; rows = List.of();
         if (search != null) { search.setValue(""); searchDelay = 0; }
         request(BatchScreenProtocol.PREVIEW, 0);
     }
@@ -139,14 +145,14 @@ final class BatchTransferPanel {
             result = null;
             var selected = new java.util.ArrayList<BatchScreenProtocol.Pick>();
             if (all) selected.add(new BatchScreenProtocol.Pick(-1, 1));
-            amounts.forEach((index, amount) -> { if (all || amount > 0) selected.add(new BatchScreenProtocol.Pick(index, amount)); });
+            amounts.forEach((index, amount) -> { if (all || recommended || amount > 0) selected.add(new BatchScreenProtocol.Pick(index, amount)); });
             picks = selected;
         }
         var matches = query.isBlank() ? List.<net.minecraft.resources.ResourceLocation>of() : BuiltInRegistries.ITEM.stream()
                 .filter(item -> new net.minecraft.world.item.ItemStack(item).getHoverName().getString().toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT)))
                 .map(BuiltInRegistries.ITEM::getKey).limit(4096).toList();
         outstanding = ++serial; waiting = 0;
-        sender.send(new BatchScreenProtocol.Request(menu.containerId, serial, action, token, exporting, tools, Math.max(0, page), query, matches, picks, ascending));
+        sender.send(new BatchScreenProtocol.Request(menu.containerId, serial, action, token, exporting, tools, Math.max(0, page), query, matches, picks, ascending, recommended));
     }
     void tick(boolean visible) {
         ticks++;
@@ -159,8 +165,9 @@ final class BatchTransferPanel {
                         && status.volumeId().equals(reply.volumeId()))) { status = reply; detail = reply.detail(); }
                 if (reply.state().equals("PREVIEW")) {
                     token = reply.token(); rows = reply.rows(); page = reply.page(); pages = reply.pages(); entries = reply.entryCount(); total = reply.available();
+                    suggestedTotal = reply.suggestedTotal();
                     location = reply.location();
-                    for (var row : rows) available.put(row.index(), row.amount());
+                    for (var row : rows) { available.put(row.index(), row.amount()); suggestions.put(row.index(), row.suggestedAmount()); }
                     updateQuantity();
                 } else if (!reply.state().equals("ERROR") && !reply.state().equals("IDLE")) {
                     if (exporting != reply.exporting()) ascending = reply.exporting();
@@ -174,14 +181,14 @@ final class BatchTransferPanel {
         }
         if (outstanding != 0 && ++waiting >= 200) { outstanding = 0; detail = "timeout"; request(BatchScreenProtocol.POLL, 0); }
         if (outstanding == 0 && pendingResume) { pendingResume = false; resume(); }
-        if (outstanding == 0 && pendingOpen) open(pendingExport, pendingTools);
+        if (outstanding == 0 && pendingOpen) open(pendingExport, pendingTools, pendingRecommended);
         if (autoRefresh > 0 && --autoRefresh == 0) {
             if (outstanding != 0 || running()) autoRefresh = 1;
             else { open(exporting, tools); all = false; }
         }
         if (visible && searchDelay > 0 && --searchDelay == 0) {
             if (outstanding != 0 || running()) searchDelay = 1;
-            else { all = false; amounts.clear(); focused = -1; request(BatchScreenProtocol.PAGE, 0); }
+            else { all = false; if (!recommended) amounts.clear(); focused = -1; request(BatchScreenProtocol.PAGE, 0); }
         }
         if (outstanding == 0 && ticks % (running() ? 10 : 40) == 0 && menu.state().accessorBound()
                 && (!visible || running())) request(BatchScreenProtocol.POLL, 0);
@@ -189,8 +196,14 @@ final class BatchTransferPanel {
         for (var widget : widgets) widget.visible = visible;
         if (visible) update();
     }
-    private long chosen(int index) { return amounts.getOrDefault(index, all ? available.getOrDefault(index, 0L) : 0L); }
+    private long chosen(int index) { return amounts.getOrDefault(index, recommended ? suggestions.getOrDefault(index, 0L) : all ? available.getOrDefault(index, 0L) : 0L); }
     private long selectedAmount() {
+        if (recommended) {
+            // RUNNING and ERROR replies need not repeat preview-only suggestion totals.
+            long selected = suggestedTotal;
+            for (var e : amounts.entrySet()) selected += e.getValue() - suggestions.getOrDefault(e.getKey(), 0L);
+            return Math.max(0, selected);
+        }
         if (!all) return amounts.values().stream().mapToLong(Long::longValue).sum();
         long selected = total;
         for (var e : amounts.entrySet()) selected += e.getValue() - available.getOrDefault(e.getKey(), 0L);
@@ -206,7 +219,8 @@ final class BatchTransferPanel {
         direction.active = filter.active = idle;
         direction.setMessage(tr(exporting ? "out" : "in"));
         filter.setMessage(tr(tools ? "filter_on" : "filter_off"));
-        search.setEditable(idle); selectAll.active = clear.active = idle && entries > 0;
+        // Recommended START always applies the complete server-side set; do not offer a misleading filter.
+        search.setEditable(idle && !recommended); selectAll.active = clear.active = idle && entries > 0 && !recommended;
         quantity.setEditable(idle && focused >= 0); maximum.active = idle && focused >= 0;
         previous.active = idle && page > 0; next.active = idle && page + 1 < pages;
         sort.active = idle && status != null && status.state().equals("PREVIEW");
@@ -254,6 +268,7 @@ final class BatchTransferPanel {
             if (i >= rows.size()) continue;
             var row = rows.get(i);
             if (chosen(row.index()) > 0) graphics.fill(gx, gy, gx + 2, gy + 21, 0xFF245A20);
+            if (recommended && row.suggestedAmount() > 0) graphics.fill(gx + 16, gy + 1, gx + 20, gy + 5, 0xFFFFC050);
             if (focused == row.index()) { graphics.hLine(gx, gx + 20, gy, 0xFFFFFFFF); graphics.hLine(gx, gx + 20, gy + 20, 0xFFFFFFFF); }
             graphics.renderItem(row.icon(), gx + 2, gy + 2);
             if (row.amount() > 1) {
@@ -274,6 +289,8 @@ final class BatchTransferPanel {
         if (status != null && status.state().equals("PREVIEW") && rows.isEmpty())
             draw(graphics, tr("empty"), 18, 113, 172, 0xFF545454);
         draw(graphics, hasProgress() ? tr("remaining", Math.max(0, status.total() - status.moved())) : tr("selected", selectedAmount()), 204, 152, width - 216, 0xFF404040);
+        if (recommended && status != null && status.state().equals("PREVIEW"))
+            draw(graphics, tr("recommended_summary", status.suggestedCount(), status.suggestedTotal()), 12, height - 30, width - 24, 0xFF245A20);
         {
             String fraction = (pages == 0 ? 0 : page + 1) + "/" + pages;
             draw(graphics, Component.literal(fraction), 152 - font.width(fraction) / 2, 167, 54, 0xFF545454);

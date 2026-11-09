@@ -85,15 +85,31 @@ public final class DigitalStorageState {
         if (server.overworld() != null) getOrCreate(server).recoverIfDegraded();
     }
     public static void onServerStopping(MinecraftServer server) {
-            var state = INSTANCES.get(server);
-            if (state != null && !state.data.readOnly) {
-                try { state.flushNow(); }
-                catch (RuntimeException e) { dev.kehai.digitalstorage.DigitalStorage.LOGGER.error("Digital Storage stop flush failed; retaining dirty state", e); }
+        var state = INSTANCES.get(server);
+        if (state != null && !state.data.readOnly) {
+            try {
+                state.data.shutdownSnapshot(5000);
+                dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Digital Storage final snapshot installed: {}", state.data.lastSuccessfulSnapshot());
+            } catch (RuntimeException e) {
+                dev.kehai.digitalstorage.DigitalStorage.LOGGER.error("Digital Storage shutdown snapshot failed; dirty={}, last successful snapshot={}", state.data.isDirty(), state.data.lastSuccessfulSnapshot(), e);
             }
+        }
     }
     public static void onServerStopped(MinecraftServer server) {
         var state = INSTANCES.remove(server);
-        if (state != null) { state.data.closeSnapshotWriter(); state.data.readOnly = true; }
+        if (state != null) {
+            state.data.closeSnapshotWriter();
+            try {
+                if (!state.data.awaitSnapshotWriterStop(5000)) {
+                    dev.kehai.digitalstorage.DigitalStorage.LOGGER.error("Digital Storage snapshot worker is still in flight after shutdown timeout; dirty={}, last successful snapshot={}; JVM exit is allowed and the current generation is not confirmed saved", state.data.isDirty(), state.data.lastSuccessfulSnapshot());
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                dev.kehai.digitalstorage.DigitalStorage.LOGGER.error("Interrupted while waiting for Digital Storage snapshot worker; last successful snapshot={}", state.data.lastSuccessfulSnapshot(), e);
+            }
+            dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Digital Storage stopped: dirty={}, last successful snapshot={}", state.data.isDirty(), state.data.lastSuccessfulSnapshot());
+            state.data.readOnly = true;
+        }
     }
     public static DigitalStorageState get(ServerLevel world) {
         var server = world.getServer();

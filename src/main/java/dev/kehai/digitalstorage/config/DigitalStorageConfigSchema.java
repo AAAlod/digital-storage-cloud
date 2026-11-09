@@ -68,24 +68,21 @@ final class DigitalStorageConfigSchema {
                             + "Useful for troubleshooting, but may add output on busy servers.",
                     config -> config.logRejectedVariants,
                     (config, value) -> config.logRejectedVariants = (Boolean) value),
-            integer("network.migrationViewsScannedPerTick", "Maximum physical storage views inspected by one migration job per tick.\n"
-                            + "Lower values protect TPS; higher values finish scans faster. Range: 1-65536.",
-                    config -> config.migrationViewsScannedPerTick,
-                    (config, value) -> config.migrationViewsScannedPerTick = (Integer) value),
+            integer("network.transferStepsPerTick", "Maximum batch transfer steps per tick, not a count of scanned storage views.\n"
+                            + "Lower values protect TPS. Range: 1-65536.",
+                    config -> config.transferStepsPerTick,
+                    (config, value) -> config.transferStepsPerTick = (Integer) value),
             integer("network.digitalViewScoreDivisor", "Digital views per one network-health score point.\n"
                             + "Advanced tuning: lower values penalize large networks sooner. Range: 256-8192.",
                     config -> config.digitalViewScoreDivisor,
                     (config, value) -> config.digitalViewScoreDivisor = (Integer) value),
-            integer("persistence.flushIntervalTicks", "Interval between scheduled persistence flushes, in game ticks.\n"
-                            + "Higher values reduce write activity but extend the dirty-data window. Range: 20-12000.",
+            integer("persistence.flushIntervalTicks", "Deprecated and ignored; SavedData autosave controls persistence timing. Range: 20-12000.",
                     config -> config.persistenceFlushIntervalTicks,
                     (config, value) -> config.persistenceFlushIntervalTicks = (Integer) value),
-            integer("persistence.snapshotsPerTick", "Maximum account or volume snapshots captured on the server thread per tick.\n"
-                            + "Advanced tuning: higher values drain backlogs faster but add per-tick work. Range: 1-64.",
+            integer("persistence.snapshotsPerTick", "Deprecated and ignored; SavedData autosave controls persistence timing. Range: 1-64.",
                     config -> config.persistenceSnapshotsPerTick,
                     (config, value) -> config.persistenceSnapshotsPerTick = (Integer) value),
-            integer("persistence.variantsPerTick", "Maximum item variants copied into persistence snapshots per tick.\n"
-                            + "Lower values spread work across ticks; higher values finish snapshots faster. Range: 1-65536.",
+            integer("persistence.variantsPerTick", "Deprecated and ignored; SavedData autosave controls persistence timing. Range: 1-65536.",
                     config -> config.persistenceVariantsPerTick,
                     (config, value) -> config.persistenceVariantsPerTick = (Integer) value)
     );
@@ -118,6 +115,12 @@ final class DigitalStorageConfigSchema {
         boolean futureVersion = version > CURRENT_VERSION;
         boolean changed = false;
 
+        if (!document.contains("network.transferStepsPerTick") && document.contains("network.migrationViewsScannedPerTick")) {
+            document.set("network.transferStepsPerTick", document.getRaw("network.migrationViewsScannedPerTick"));
+            warnings.add("Migrated network.migrationViewsScannedPerTick to network.transferStepsPerTick; old key retained");
+            if (!futureVersion) changed = true;
+        }
+
         if (!(rawVersion instanceof Number) || ((Number) rawVersion).longValue() != CURRENT_VERSION) {
             if (!futureVersion) {
                 document.set("configVersion", CURRENT_VERSION);
@@ -148,6 +151,11 @@ final class DigitalStorageConfigSchema {
             Object parsed = option.type().parse(raw);
             Object normalized = option.getter().get(loaded);
             String existingComment = document.getComment(option.path());
+            if (!futureVersion && option.path().startsWith("persistence.")
+                    && (existingComment == null || !existingComment.contains("Deprecated and ignored"))) {
+                document.setComment(option.path(), optionComment(option, option.getter().get(defaults)));
+                changed = true;
+            }
             if (!futureVersion && option.path().equals("storage.defaultVolumesPerPlayer")
                     && existingComment != null && existingComment.contains("0 means unlimited")) {
                 document.setComment(option.path(), optionComment(option, option.getter().get(defaults)));

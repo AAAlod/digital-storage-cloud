@@ -27,6 +27,7 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
                     || !connector.getLevel().hasChunkAt(position) || connector.getLevel().getBlockEntity(position) != connector
                     ? null : connector.getInventory().orElse(null);
             var root = current.get(); if (root == null) continue;
+            if (!(root instanceof dev.kehai.digitalstorage.forge.tom.ForgeTomEndpoints.TopologyVersion versioned)) continue;
             var report = ForgeTomTopology.analyze(volume.record(), current);
             var origin = new ForgeInventoryTransferExecutor.Origin(true, player.serverLevel().dimension().location().toString(),
                     accessor.getBlockPos().asLong(), position.asLong());
@@ -37,11 +38,16 @@ public final class ForgeBatchNetwork implements BatchTransfers.Backend {
             var soph = safeDirectSoph(connector, root);
             if (soph != null) for (var handler : soph) ports.add(new Port(handler, player.getUUID(), volume.id(), session.recovery(),
                     () -> DigitalStorageState.get(player.serverLevel()).flushNow(), executor));
-            return new BatchTransfer.Route(ports, () -> !accessor.isRemoved() && player.serverLevel() == accessor.getLevel()
+            // Capture after analysis/refresh: opening the route must not invalidate its own fast path.
+            long version = versioned.digitalstorage$topologyVersion();
+            // Covers accessor/binding/connector and Tom rebuilds, not direct third-party removal before Tom rebuilds.
+            java.util.function.BooleanSupplier fastCurrent = () -> !accessor.isRemoved() && player.serverLevel() == accessor.getLevel()
                     && accessor.getLevel().hasChunkAt(accessor.getBlockPos())
                     && accessor.getLevel().getBlockEntity(accessor.getBlockPos()) == accessor
-                    && accessor.getVolume() == volume && volume.ownerId().equals(player.getUUID()) && report.topology().isCurrent()
-                    && (soph == null || sameSoph(soph, safeDirectSoph(connector, current.get()))), position.toShortString());
+                    && accessor.getVolume() == volume && volume.ownerId().equals(player.getUUID())
+                    && current.get() == root && versioned.digitalstorage$topologyVersion() == version;
+            return new BatchTransfer.Route(ports, () -> fastCurrent.getAsBoolean() && report.topology().isCurrent()
+                    && (soph == null || sameSoph(soph, safeDirectSoph(connector, current.get()))), fastCurrent, position.toShortString());
         }
         return null;
     }

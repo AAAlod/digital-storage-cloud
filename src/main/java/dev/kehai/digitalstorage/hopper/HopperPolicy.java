@@ -21,9 +21,9 @@ public final class HopperPolicy {
     }
 
     public static void runSelfTest() {
-        int[] schedule = {20, 40, 100, 200, 400};
+        int[] schedule = {20, 40, 80, 120, 200};
         if (failureCooldown(0, schedule) != 20 || failureCooldown(1, schedule) != 20
-                || failureCooldown(3, schedule) != 100 || failureCooldown(100, schedule) != 400) {
+                || failureCooldown(3, schedule) != 80 || failureCooldown(100, schedule) != 200) {
             throw new IllegalStateException("Shared hopper backoff regression failed");
         }
         boolean[] phases = new boolean[20];

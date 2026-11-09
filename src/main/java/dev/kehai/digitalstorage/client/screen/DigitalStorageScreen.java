@@ -73,7 +73,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
     private final ScreenOperationTracker operation = new ScreenOperationTracker();
     private Component localStatus = Component.empty();
     private final BatchTransferPanel batchPanel;
-    private Button toolsClear, networkReview;
+    private Button toolsClear, networkReview, recommendedTransfer;
 
     public DigitalStorageScreen(DigitalStorageScreenHandler handler, Inventory inventory, Component title,
                                 DigitalStorageScreenProtocol.RequestSender requestSender) {
@@ -104,6 +104,8 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         homeButtons.addAll(List.of(upgrade, clearBinding, network, toggle));
         toolsClear = button("batch.cleanup", imageWidth - 150, 187, 66, ignored -> { open(View.TRANSFER); batchPanel.open(true, true); });
         networkReview = button("batch.network_details", 204, 31, imageWidth - 216, ignored -> open(View.NETWORK));
+        recommendedTransfer = button("batch.recommended_open", imageWidth - 150, 104, 138,
+                ignored -> { open(View.TRANSFER); batchPanel.openRecommended(); });
         create = button("gui.create", MARGIN, 34, 122, ignored -> {
             nameField.setValue("");
             open(View.CREATE);
@@ -409,17 +411,19 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         toggle.setMessage(tr(accept ? "gui.on" : "gui.off"));
         toggle.active = canRequest();
         toggle.active &= state.unstackableItemsConfigurable() && state.unstackableItemsAllowedByServer()
-                && !diagnostic.migrationActive() && !batchPanel.running();
+                && !batchPanel.running();
         toolsClear.visible = boundHome && batchPanel.toolsStored() > 0;
         toolsClear.setY(topPos + 187 - homeScroll);
         toolsClear.active = canRequest() && state.unstackableItemsConfigurable() && !batchPanel.running();
         networkReview.visible = view == View.TRANSFER;
+        recommendedTransfer.visible = view == View.NETWORK;
+        recommendedTransfer.active = canRequest() && state.accessorConfigurable() && diagnostic.available()
+                && !diagnostic.hasDuplicateTargetEndpoints() && diagnostic.recommendedVariants() > 0 && !batchPanel.running();
         networkReview.setY(topPos + 31);
         String policyTip = !state.unstackableItemsAllowedByServer() ? "server_disabled"
-                : diagnostic.migrationActive() ? "migration_active"
                 : !state.unstackableItemsConfigurable() ? "not_owner" : accept ? "accept" : "reject";
         boolean policyUnavailable = !state.unstackableItemsAllowedByServer()
-                || diagnostic.migrationActive() || !state.unstackableItemsConfigurable();
+                || !state.unstackableItemsConfigurable();
         toggle.setTooltip(policyUnavailable ? Tooltip.create(tr("unstackables.tooltip." + policyTip)) : null);
         create.visible = browsingVolumes && state.accessorConfigurable();
         create.active = canRequest() && state.accessorConfigurable();
@@ -494,7 +498,7 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
             }
             case NETWORK -> {
                 secondary.setMessage(tr("network.refresh"));
-                secondary.active &= state.accessorBound() && !diagnostic.migrationActive();
+                secondary.active &= state.accessorBound();
             }
             default -> { }
         }
@@ -729,7 +733,6 @@ public final class DigitalStorageScreen extends AbstractContainerScreen<DigitalS
         text(graphics, summary, MARGIN, 148, imageWidth - 114,
                 !d.available() ? MUTED : d.hasDuplicateTargetEndpoints() ? RED : d.failingScanners() > 0 ? YELLOW : GREEN);
         Component opportunity = batchPanel.hasTaskResult() ? batchPanel.homeProgress()
-                : d.migrationActive() ? tr("migration.progress_short", d.completedCandidates(), d.totalCandidates())
                 : d.available() && d.recommendedVariants() > 0 ? tr("gui.opportunity", d.recommendedVariants()) : tr("gui.no_opportunity");
         text(graphics, opportunity, MARGIN, 163, imageWidth - 114, MUTED);
         text(graphics, tr("gui.unstackables"), MARGIN, 193, imageWidth - 98, TEXT);

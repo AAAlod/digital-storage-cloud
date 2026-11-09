@@ -22,7 +22,6 @@ public final class TomPerformanceBenchmark {
     private static final int VARIANTS = 512;
     private static final int WARMUP_PASSES = 40;
     private static final int MEASURED_PASSES = 160;
-    private static final int MIGRATION_VIEW_BUDGET = 256;
     private static final int LATENCY_WARMUP_PASSES = 12;
     private static final int LATENCY_MEASURED_PASSES = 128;
     private static final int[] HOPPER_COUNTS = {1, 10, 50, 100};
@@ -63,12 +62,6 @@ public final class TomPerformanceBenchmark {
                 256,
                 8_192
         );
-        int recommendedScanBudget = clamp(
-                (int) Math.round(250_000 / Math.max(1.0, physicalNanosPerView)),
-                64,
-                4_096
-        );
-        Latency migrationLatency = benchmarkMigrationBatch();
         List<HopperCase> hopperCases = benchmarkHoppers();
         HopperCase worstHopper = hopperCases.get(hopperCases.size() - 1);
         boolean additionalRoundRobinRecommended = worstHopper.latency().p99Millis() >= ROUND_ROBIN_P99_THRESHOLD_MS
@@ -79,8 +72,6 @@ public final class TomPerformanceBenchmark {
                 digitalNanosPerView,
                 relativeCost,
                 recommendedDigitalDivisor,
-                recommendedScanBudget,
-                migrationLatency,
                 hopperCases,
                 additionalRoundRobinRecommended
         );
@@ -106,32 +97,6 @@ public final class TomPerformanceBenchmark {
             }
         }
         blackhole = total;
-    }
-
-    private static Latency benchmarkMigrationBatch() {
-        for (int pass = 0; pass < LATENCY_WARMUP_PASSES; pass++) {
-            blackhole ^= prepareMigrationBatch().run();
-        }
-        long[] samples = new long[LATENCY_MEASURED_PASSES];
-        for (int pass = 0; pass < samples.length; pass++) {
-            MigrationFixture fixture = prepareMigrationBatch();
-            long start = System.nanoTime();
-            long moved = fixture.run();
-            samples[pass] = System.nanoTime() - start;
-            blackhole ^= moved;
-        }
-        return Latency.of(samples);
-    }
-
-    private static MigrationFixture prepareMigrationBatch() {
-        FabricDigitalItemStorage target = new FabricDigitalItemStorage(() -> { }, MIGRATION_VIEW_BUDGET);
-        List<StorageView<ItemVariant>> views = new ArrayList<>(MIGRATION_VIEW_BUDGET);
-        for (int index = 0; index < MIGRATION_VIEW_BUDGET; index++) {
-            FabricDigitalItemStorage source = new FabricDigitalItemStorage(() -> { }, 1);
-            source.load(variant(index), 64);
-            views.add(source.iterator().next());
-        }
-        return new MigrationFixture(List.copyOf(views), target);
     }
 
     private static List<HopperCase> benchmarkHoppers() {
@@ -197,22 +162,18 @@ public final class TomPerformanceBenchmark {
             double digitalNanosPerView,
             double digitalRelativeCost,
             int recommendedDigitalViewDivisor,
-            int recommendedMigrationScanBudget,
-            Latency migrationLatency,
             List<HopperCase> hopperCases,
             boolean additionalRoundRobinRecommended
     ) {
         public String summary() {
             StringBuilder summary = new StringBuilder(String.format(
                     java.util.Locale.ROOT,
-                    "Tom benchmark (%d views): physical %.1f ns/view, digital %.1f ns/view, digital cost %.3fx; suggested divisor %d, scan budget %d; migration256 %s; hopper p99/max ms [",
+                    "Tom benchmark (%d views): physical %.1f ns/view, digital %.1f ns/view, digital cost %.3fx; suggested divisor %d; hopper p99/max ms [",
                     variants,
                     physicalNanosPerView,
                     digitalNanosPerView,
                     digitalRelativeCost,
-                    recommendedDigitalViewDivisor,
-                    recommendedMigrationScanBudget,
-                    migrationLatency.compact()
+                    recommendedDigitalViewDivisor
             ));
             for (int index = 0; index < hopperCases.size(); index++) {
                 if (index > 0) summary.append(", ");
@@ -230,24 +191,6 @@ public final class TomPerformanceBenchmark {
     }
 
     public record HopperCase(int hoppers, int variants, Latency latency) {
-    }
-
-    private record MigrationFixture(
-            List<StorageView<ItemVariant>> views,
-            FabricDigitalItemStorage target
-    ) {
-        private long run() {
-            long moved = 0;
-            int scanned = 0;
-            Iterator<StorageView<ItemVariant>> iterator = views.iterator();
-            while (scanned < MIGRATION_VIEW_BUDGET && iterator.hasNext()) {
-                StorageView<ItemVariant> view = iterator.next();
-                scanned++;
-                ItemVariant resource = view.getResource();
-                moved += TomMigrationManager.benchmarkMoveView(view, target, resource);
-            }
-            return moved;
-        }
     }
 
     public record Latency(double p50Millis, double p95Millis, double p99Millis, double maxMillis) {

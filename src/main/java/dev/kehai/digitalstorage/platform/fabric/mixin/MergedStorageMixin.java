@@ -23,29 +23,25 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(MergedStorage.class)
 public abstract class MergedStorageMixin implements TomDigitalEndpointTracker {
     @Unique
-    private final Set<FabricDigitalItemStorage> digitalstorage$digitalEndpoints =
+    private Set<FabricDigitalItemStorage> digitalstorage$digitalEndpoints =
             Collections.newSetFromMap(new IdentityHashMap<>());
 
     @Unique
-    private final Set<UUID> digitalstorage$volumeIds = new java.util.HashSet<>();
+    private Set<UUID> digitalstorage$volumeIds = new java.util.HashSet<>();
 
     @Unique
-    private final Set<Storage<ItemVariant>> digitalstorage$rawEndpointSources =
+    private Set<Storage<ItemVariant>> digitalstorage$rawEndpointSources =
             Collections.newSetFromMap(new IdentityHashMap<>());
-
-    @Unique
-    private final List<FabricDigitalItemStorage> digitalstorage$rawDigitalEndpoints = new ArrayList<>();
 
     @Inject(method = "add", at = @At("HEAD"), cancellable = true, remap = false)
     private void digitalstorage$deduplicateDigitalEndpoint(
             Storage<ItemVariant> storage,
             CallbackInfo callbackInfo
     ) {
+        digitalstorage$ensureSets();
         FabricDigitalItemStorage canonical = TomNetworkIntrospection.canonicalDigitalEndpoint(storage);
         if (canonical != null) {
-            if (digitalstorage$rawEndpointSources.add(storage)) {
-                digitalstorage$rawDigitalEndpoints.add(canonical);
-            }
+            digitalstorage$rawEndpointSources.add(storage);
             boolean accepted = canonical.volumeId()
                     .map(digitalstorage$volumeIds::add)
                     .orElseGet(() -> digitalstorage$digitalEndpoints.add(canonical));
@@ -65,15 +61,22 @@ public abstract class MergedStorageMixin implements TomDigitalEndpointTracker {
 
     @Inject(method = "clear", at = @At("TAIL"), remap = false)
     private void digitalstorage$clearDigitalEndpoints(CallbackInfo callbackInfo) {
+        digitalstorage$ensureSets();
         digitalstorage$digitalEndpoints.clear();
         digitalstorage$volumeIds.clear();
         digitalstorage$rawEndpointSources.clear();
-        digitalstorage$rawDigitalEndpoints.clear();
         HopperTransferOptimizer.invalidateFilteredCursor((Storage<ItemVariant>) (Object) this);
     }
 
     @Override
     public List<FabricDigitalItemStorage> digitalstorage$rawDigitalEndpoints() {
-        return List.copyOf(digitalstorage$rawDigitalEndpoints);
+        digitalstorage$ensureSets();
+        return digitalstorage$rawEndpointSources.stream().map(TomNetworkIntrospection::canonicalDigitalEndpoint)
+                .filter(java.util.Objects::nonNull).toList();
+    }
+    @Unique private void digitalstorage$ensureSets() {
+        if (digitalstorage$digitalEndpoints == null) digitalstorage$digitalEndpoints = Collections.newSetFromMap(new IdentityHashMap<>());
+        if (digitalstorage$volumeIds == null) digitalstorage$volumeIds = new java.util.HashSet<>();
+        if (digitalstorage$rawEndpointSources == null) digitalstorage$rawEndpointSources = Collections.newSetFromMap(new IdentityHashMap<>());
     }
 }

@@ -42,6 +42,10 @@ public final class DigitalStorageData extends SavedData {
     private TempWriter writerForTest;
     private final java.util.concurrent.atomic.AtomicLong changeGeneration = new java.util.concurrent.atomic.AtomicLong();
     private DetachedSnapshotWriter snapshotWriter;
+    private volatile boolean shuttingDown;
+    private boolean preserveFailedTemporary;
+    private boolean retainFallbackBackup;
+    private volatile long lastSuccessfulGeneration = -1, lastSuccessfulTime;
     long generationForTest() { return changeGeneration.get(); }
     long snapshotGeneration() { return changeGeneration.get(); }
     String snapshotWorkerStatus() { return snapshotWriter == null ? "unavailable" : snapshotWriter.busy() ? "writing" : "idle"; }
@@ -66,6 +70,9 @@ public final class DigitalStorageData extends SavedData {
     void enableSnapshotWriter(Path file, SnapshotCoordinator coordinator, long lifecycle) {
         if (!readOnly && snapshotWriter == null) snapshotWriter = new DetachedSnapshotWriter(file, coordinator, lifecycle);
     }
+    void enableSnapshotWriterForTest(Path file, SnapshotCoordinator coordinator, long lifecycle, FileOperations operations) {
+        if (!readOnly && snapshotWriter == null) snapshotWriter = new DetachedSnapshotWriter(file, coordinator, lifecycle, operations);
+    }
 
     void flushSnapshotAndWait(long timeoutMillis) {
         var writer = snapshotWriter;
@@ -89,18 +96,57 @@ public final class DigitalStorageData extends SavedData {
 
     void closeSnapshotWriter() { if (snapshotWriter != null) snapshotWriter.close(); }
 
-    /** Experimental detached writer; production save remains synchronous until lifecycle tests pass. */
+    void shutdownSnapshot(long timeoutMillis) {
+        shuttingDown = true;
+        transactionRegistry.beginShutdown();
+        var writer = snapshotWriter;
+        if (writer == null || readOnly) throw new IllegalStateException("Snapshot writer unavailable");
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        writer.stopAccepting();
+        try {
+            // Wait for active transactions and block new ones before accepting a final capture.
+            try (var gate = transactionRegistry.tryCapture(remainingMillis(deadline), java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                if (gate == null) throw new IllegalStateException("Active transactions did not finish before shutdown timeout");
+                if (!writer.await(remainingMillis(deadline)) && writer.busy()) throw new IllegalStateException("Prior snapshot installation timed out");
+                var snapshot = new SnapshotCapture(save(new CompoundTag()), changeGeneration.get());
+                if (!writer.submitFinal(snapshot.data(), snapshot.generation())) throw new IllegalStateException("Final snapshot submission rejected");
+                if (!writer.await(remainingMillis(deadline)) || isDirty() || lastSuccessfulGeneration != snapshot.generation())
+                    throw new IllegalStateException("Final snapshot failed or generation did not match");
+            }
+        } catch (InterruptedException e) {
+            synchronized (this) { super.setDirty(true); }
+            Thread.currentThread().interrupt(); throw new IllegalStateException("Interrupted during shutdown snapshot", e);
+        } catch (RuntimeException e) {
+            synchronized (this) { super.setDirty(true); }
+            throw e;
+        } finally { writer.close(); }
+    }
+
+    boolean awaitSnapshotWriterStop(long timeoutMillis) throws InterruptedException {
+        return snapshotWriter == null || snapshotWriter.awaitTermination(timeoutMillis);
+    }
+    String lastSuccessfulSnapshot() {
+        return lastSuccessfulGeneration < 0 ? "unknown" : lastSuccessfulGeneration + " at " + java.time.Instant.ofEpochMilli(lastSuccessfulTime);
+    }
+    long lastSuccessfulGenerationForTest() { return lastSuccessfulGeneration; }
+    long lastSuccessfulTimeForTest() { return lastSuccessfulTime; }
+    boolean snapshotWriterDaemonForTest() { return snapshotWriter != null && snapshotWriter.isDaemon(); }
+
+    /** Installs verified snapshots through one lifecycle-fenced atomic replacement. */
     final class DetachedSnapshotWriter implements AutoCloseable {
         private final Path target;
         private final SnapshotCoordinator coordinator;
         private final long lifecycle;
         private final FileOperations operations;
+        private volatile Thread workerThread;
         private final java.util.concurrent.ExecutorService worker = java.util.concurrent.Executors.newSingleThreadExecutor(task -> {
             Thread thread = new Thread(task, "digitalstorage-snapshot");
             thread.setDaemon(true);
+            workerThread = thread;
             return thread;
         });
         private volatile boolean closed;
+        private boolean accepting = true;
         private volatile String failure = "";
         private java.util.concurrent.Future<?> inFlight;
 
@@ -114,9 +160,14 @@ public final class DigitalStorageData extends SavedData {
         }
 
         synchronized boolean submit(CompoundTag detached, long capturedGeneration) {
-            if (closed || inFlight != null && !inFlight.isDone()) return false;
+            if (!accepting || closed || inFlight != null && !inFlight.isDone()) return false;
             inFlight = worker.submit(() -> write(detached, capturedGeneration));
             return true;
+        }
+        synchronized void stopAccepting() { accepting = false; }
+        synchronized boolean submitFinal(CompoundTag detached, long capturedGeneration) {
+            if (accepting || closed || inFlight != null && !inFlight.isDone()) return false;
+            inFlight = worker.submit(() -> write(detached, capturedGeneration)); return true;
         }
 
         synchronized boolean busy() { return inFlight != null && !inFlight.isDone(); }
@@ -139,17 +190,22 @@ public final class DigitalStorageData extends SavedData {
             };
             try {
                 DigitalStorageData frozen = new DigitalStorageData();
+                frozen.preserveFailedTemporary = shuttingDown;
+                frozen.retainFallbackBackup = true;
                 frozen.setDirty();
                 frozen.saveWithWriter(target.toFile(), (tag, path) -> NbtIo.writeCompressed(tag, path.toFile()), fenced, detached);
                 if (frozen.isDirty()) throw new IllegalStateException("Detached snapshot installation failed");
                 synchronized (DigitalStorageData.this) {
                     fileBytes = frozen.fileBytes;
+                    lastSuccessfulGeneration = capturedGeneration;
+                    lastSuccessfulTime = System.currentTimeMillis();
                     if (!closed && changeGeneration.get() == capturedGeneration) DigitalStorageData.super.setDirty(false);
                 }
+                if (shuttingDown) DigitalStorage.LOGGER.info("Digital Storage snapshot installation completed after shutdown began: generation={} time={}", capturedGeneration, java.time.Instant.ofEpochMilli(lastSuccessfulTime));
                 failure = "";
             } catch (RuntimeException exception) {
                 failure = exception.toString();
-                DigitalStorage.LOGGER.error("Detached snapshot worker failed; data remains dirty", exception);
+                DigitalStorage.LOGGER.error("Detached snapshot worker failed; dirty={}, last successful snapshot={}", isDirty(), lastSuccessfulSnapshot(), exception);
             } finally {
                 if (locked[0]) coordinator.unlock();
             }
@@ -163,6 +219,10 @@ public final class DigitalStorageData extends SavedData {
         }
 
         @Override public synchronized void close() { closed = true; worker.shutdown(); }
+        boolean awaitTermination(long timeoutMillis) throws InterruptedException {
+            return worker.awaitTermination(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS);
+        }
+        boolean isDaemon() { return workerThread != null && workerThread.isDaemon(); }
     }
 
     java.util.Optional<StorageVolume> createVolume(UUID owner, String name, int maximum) {
@@ -262,7 +322,6 @@ public final class DigitalStorageData extends SavedData {
                 return corruptData;
             }
             loaded.fileBytes = existingBytes;
-            cleanBackups(file);
             if (!loaded.readOnly) loaded.backupStatus = finishLegacyBackup(worldRoot, legacy, loaded.legacyBackup);
             return loaded;
         }
@@ -322,12 +381,28 @@ public final class DigitalStorageData extends SavedData {
         Path backup = worldRoot.resolve(backupName);
         if (Files.notExists(legacy)) return Files.isDirectory(backup) ? "completed" : "pending";
         if (!Files.exists(legacy)) return "pending";
-        if (Files.exists(backup)) {
-            DigitalStorage.LOGGER.error("Legacy Digital Storage backup conflict; preserving both directories and using SavedData");
-            return "conflict";
-        }
         try {
-            Files.move(legacy, backup);
+            if (!Files.isDirectory(legacy) || Files.exists(backup) && !Files.isDirectory(backup)) return "conflict";
+            // Only these directories belong to the pre-SavedData format. Other owners,
+            // notably Forge recovery, may be actively using siblings in this directory.
+            var names = java.util.List.of("accounts", "volumes", "deleted-volumes");
+            for (String name : names) {
+                if (Files.exists(legacy.resolve(name)) && Files.exists(backup.resolve(name))) {
+                    DigitalStorage.LOGGER.error("Legacy Digital Storage backup conflict for {}; preserving both copies", name);
+                    return "conflict";
+                }
+            }
+            Files.createDirectories(backup);
+            for (String name : names) {
+                var source = legacy.resolve(name);
+                if (Files.exists(source)) Files.move(source, backup.resolve(name));
+            }
+            try (var remaining = Files.list(legacy)) {
+                var retained = remaining.toList();
+                if (retained.isEmpty()) Files.delete(legacy);
+                else DigitalStorage.LOGGER.info("Legacy backup preserved non-legacy entries in {}: {}", legacy,
+                        retained.stream().map(path -> path.getFileName().toString()).toList());
+            }
             DigitalStorage.LOGGER.info("Legacy Digital Storage backup completed: {}", backupName);
             return "completed";
         } catch (IOException | SecurityException failure) {
@@ -436,7 +511,7 @@ public final class DigitalStorageData extends SavedData {
 
     @Override public void save(File file) {
         if (snapshotWriter != null) {
-            if (readOnly || !isDirty() || snapshotWriter.busy()) return;
+            if (readOnly || shuttingDown || !isDirty() || snapshotWriter.busy()) return;
             try {
                 SnapshotCapture snapshot = captureSnapshot(20);
                 if (snapshot != null) snapshotWriter.submit(snapshot.data(), snapshot.generation());
@@ -502,7 +577,7 @@ public final class DigitalStorageData extends SavedData {
                 CompoundTag original = null;
                 if (Files.exists(target)) {
                     original = verifiedBackup(target);
-                    for (Path existing : backupFiles(target)) Files.delete(existing);
+                    if (!retainFallbackBackup) for (Path existing : backupFiles(target)) Files.delete(existing);
                     String stamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS").format(java.time.LocalDateTime.now());
                     backup = Files.createTempFile(target.toAbsolutePath().getParent(), "digitalstorage.dat.bak-" + stamp + "-", "");
                     try {
@@ -523,7 +598,8 @@ public final class DigitalStorageData extends SavedData {
                         try {
                             operations.copy(backup, target);
                             if (!original.equals(verifiedFile(target))) throw new IOException("Restored backup verification failed");
-                            Files.deleteIfExists(backup); backup = null;
+                            if (!retainFallbackBackup) Files.deleteIfExists(backup);
+                            backup = null;
                         } catch (IOException | RuntimeException restoreFailure) {
                             preserveTemporary = true;
                             replacementFailure.addSuppressed(restoreFailure);
@@ -535,7 +611,7 @@ public final class DigitalStorageData extends SavedData {
                     if (!preserveTemporary) Files.deleteIfExists(replacement);
                 }
                 if (backup != null) {
-                    try { Files.deleteIfExists(backup); }
+                    try { if (!retainFallbackBackup) Files.deleteIfExists(backup); }
                     catch (IOException | SecurityException cleanup) { DigitalStorage.LOGGER.warn("Could not remove SavedData backup {}", backup, cleanup); }
                     backup = null;
                 }
@@ -546,6 +622,7 @@ public final class DigitalStorageData extends SavedData {
             super.setDirty(false);
             migrationSaveRetry = false;
         } catch (IOException | RuntimeException failure) {
+            if (preserveFailedTemporary) preserveTemporary = true;
             DigitalStorage.LOGGER.error("Could not safely save Digital Storage SavedData {}; changes remain dirty", target, failure);
         } finally {
             if (temporary != null && !preserveTemporary) {
@@ -607,12 +684,4 @@ public final class DigitalStorageData extends SavedData {
         return root;
     }
 
-    private static void cleanBackups(Path file) {
-        try {
-            for (Path backup : backupFiles(file)) {
-                try { Files.deleteIfExists(backup); }
-                catch (IOException | SecurityException failure) { DigitalStorage.LOGGER.warn("Could not remove SavedData backup {}", backup, failure); }
-            }
-        } catch (IOException | SecurityException failure) { DigitalStorage.LOGGER.warn("Could not inspect SavedData backups", failure); }
-    }
 }

@@ -35,7 +35,7 @@ public final class BatchTransfers {
     }
     public static boolean start(ServerPlayer player, UUID volume, BatchTransfer task) {
         var jobs = SERVERS.computeIfAbsent(player.getServer(), ignored -> new HashMap<>());
-        if (active(player.getServer(), volume) || NetworkServices.get().status(volume).active()) return false;
+        if (active(player.getServer(), volume)) return false;
         jobs.put(volume, new Job(player.getUUID(), task, new long[]{player.getServer().getTickCount()})); return true;
     }
     public static boolean active(MinecraftServer server, UUID volume) { var task = get(server, volume); return task != null && task.active(); }
@@ -48,7 +48,7 @@ public final class BatchTransfers {
         for (var job : List.copyOf(jobs.values())) {
             if (!job.task().active()) continue;
             if (server.getPlayerList().getPlayer(job.owner()) == null) job.task().stop("player_disconnected");
-            else try { job.task().tick(dev.kehai.digitalstorage.config.DigitalStorageConfig.get().migrationViewsScannedPerTick); }
+            else try { job.task().tick(dev.kehai.digitalstorage.config.DigitalStorageConfig.get().transferStepsPerTick); }
             catch (RuntimeException failure) {
                 job.task().stop("transfer_failed");
                 dev.kehai.digitalstorage.DigitalStorage.LOGGER.error("Batch transfer stopped for {}", job.owner(), failure);

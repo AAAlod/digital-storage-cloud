@@ -65,6 +65,27 @@ public final class BatchTransferSelfTest {
         var cancelled = new BatchTransfer(record, route, List.of(new BatchTransfer.Entry(second, 2)), true);
         cancelled.cancel(); cancelled.tick(100);
         check(cancelled.moved() == 0, "Cancelled task continued");
+        var injected = DigitalStorageRecord.createNew(() -> { });
+        var stone = ItemKey.of(Items.STONE); injected.storage().load(stone, 2);
+        boolean[] stillCurrent = {true}; int[] calls = {0}; long[] received = {0};
+        var changingPort = new BatchTransfer.Port() {
+            public Iterable<BatchTransfer.Entry> contents() { return List.of(); }
+            public BatchTransfer.Cursor cursor(boolean exporting) { return new BatchTransfer.Cursor() {
+                public boolean hasNext() { return true; }
+                public BatchTransfer.Result next(DigitalStorageRecord source, ItemKey key, long max) {
+                    calls[0]++;
+                    try (var tx = LedgerTransaction.open()) {
+                        long count = source.storage().extract(key, 1, tx); tx.commit(); received[0] += count;
+                        stillCurrent[0] = false; return new BatchTransfer.Result(count, "");
+                    }
+                }
+            }; }
+        };
+        var changing = new BatchTransfer(injected, new BatchTransfer.Route(List.of(changingPort), () -> true,
+                () -> stillCurrent[0], "fault-injection"), List.of(new BatchTransfer.Entry(stone, 2)), true);
+        changing.tick(10);
+        check(changing.state().equals("STOPPED") && changing.detail().equals("network_changed") && calls[0] == 1
+                && received[0] == 1 && injected.storage().amountOf(stone) == 1, "Mid-tick invalidation failed conservation");
     }
     private static void check(boolean value, String detail) { if (!value) throw new IllegalStateException(detail); }
 }

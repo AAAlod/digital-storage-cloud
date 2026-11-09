@@ -42,6 +42,7 @@ public final class ForgeTomEndpoints {
     public interface RawDigitalEndpoints {
         java.util.List<IItemHandler> digitalstorage$rawDigitalEndpoints();
     }
+    public interface TopologyVersion { long digitalstorage$topologyVersion(); }
 
     public interface FilteredEndpoint {
         IItemHandler digitalstorage$parent();

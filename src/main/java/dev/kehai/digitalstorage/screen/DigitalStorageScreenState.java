@@ -3,7 +3,6 @@ package dev.kehai.digitalstorage.screen;
 import com.mojang.authlib.GameProfile;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
-import dev.kehai.digitalstorage.optimization.MigrationTask;
 import dev.kehai.digitalstorage.optimization.NetworkAnalysis;
 import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
 import dev.kehai.digitalstorage.storage.DigitalStorageState;
@@ -336,7 +335,7 @@ public record DigitalStorageScreenState(
                 true,
                 new NetworkDiagnostic(
                         true, 43, "D", 27, 6400, 5832, 1024, 2, 3, 6, 2, 20,
-                        4217, 64, "minecraft:cobblestone", "RUNNING", "4096", 3, 12, 8192
+                        4217, 64, "minecraft:cobblestone"
                 ),
                 true,
                 Component.literal("codec status"),
@@ -402,31 +401,18 @@ public record DigitalStorageScreenState(
             int averageScanIntervalTicks,
             int estimatedFreedViews,
             int recommendedVariants,
-            String topCandidateId,
-            String migrationState,
-            String movedItems,
-            int completedCandidates,
-            int totalCandidates,
-            long scannedViews
+            String topCandidateId
     ) {
         static NetworkDiagnostic unavailable() {
             return new NetworkDiagnostic(
                     false, 0, "-", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    "", "IDLE", "0", 0, 0, 0
+                    ""
             );
         }
 
-        public static NetworkDiagnostic from(
-                NetworkAnalysis.Report report,
-                MigrationTask.Status migration
-        ) {
+        public static NetworkDiagnostic from(NetworkAnalysis.Report report) {
             if (!report.available()) {
-                NetworkDiagnostic unavailable = unavailable();
-                return new NetworkDiagnostic(
-                        false, 0, "-", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "",
-                        migration.state().name(), migration.movedItems(), migration.completedCandidates(),
-                        migration.totalCandidates(), migration.scannedViews()
-                );
+                return unavailable();
             }
             return new NetworkDiagnostic(
                     true,
@@ -443,12 +429,7 @@ public record DigitalStorageScreenState(
                     report.averageScanIntervalTicks(),
                     report.estimatedFreedViews(),
                     report.candidates().size(),
-                    report.topCandidateId(),
-                    migration.state().name(),
-                    migration.movedItems(),
-                    migration.completedCandidates(),
-                    migration.totalCandidates(),
-                    migration.scannedViews()
+                    report.topCandidateId()
             );
         }
 
@@ -468,11 +449,6 @@ public record DigitalStorageScreenState(
             buf.writeVarInt(estimatedFreedViews);
             buf.writeVarInt(recommendedVariants);
             buf.writeUtf(topCandidateId, MAX_TEXT_LENGTH);
-            buf.writeUtf(migrationState, 32);
-            buf.writeUtf(movedItems, MAX_TEXT_LENGTH);
-            buf.writeVarInt(completedCandidates);
-            buf.writeVarInt(totalCandidates);
-            buf.writeVarLong(scannedViews);
         }
 
         static NetworkDiagnostic read(FriendlyByteBuf buf) {
@@ -491,17 +467,8 @@ public record DigitalStorageScreenState(
                     buf.readVarInt(),
                     buf.readVarInt(),
                     buf.readVarInt(),
-                    buf.readUtf(MAX_TEXT_LENGTH),
-                    buf.readUtf(32),
-                    buf.readUtf(MAX_TEXT_LENGTH),
-                    buf.readVarInt(),
-                    buf.readVarInt(),
-                    buf.readVarLong()
+                    buf.readUtf(MAX_TEXT_LENGTH)
             );
-        }
-
-        public boolean migrationActive() {
-            return "RUNNING".equals(migrationState);
         }
 
         public boolean hasDuplicateTargetEndpoints() {

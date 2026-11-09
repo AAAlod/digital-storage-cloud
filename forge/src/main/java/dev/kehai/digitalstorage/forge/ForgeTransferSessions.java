@@ -2,6 +2,8 @@ package dev.kehai.digitalstorage.forge;
 
 import dev.kehai.digitalstorage.DigitalStorage;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.io.IOException;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -20,6 +22,7 @@ public final class ForgeTransferSessions {
         if (ACTIVE.values().stream().anyMatch(session -> session.root.equals(root))) {
             throw new IllegalStateException("A Forge transfer writer already owns this world");
         }
+        restoreDisplacedTransferRoot(root);
         Session session = RETAINED.remove(root);
         if (session == null) session = new Session(root);
         else session.flush();
@@ -44,6 +47,28 @@ public final class ForgeTransferSessions {
         DigitalStorage.LOGGER.info("Forge transfer session closed: {}", session.diagnostics());
     }
     static Session openForTest(Path root) { return new Session(root.toAbsolutePath().normalize(), true); }
+
+    static void restoreDisplacedTransferRoot(Path root) {
+        Path world = root.getParent().getParent();
+        try (var paths = Files.list(world)) {
+            var displaced = paths.filter(path -> path.getFileName().toString().startsWith("digitalstorage-legacy-"))
+                    .filter(Files::isDirectory).map(path -> path.resolve("forge-transfer"))
+                    .filter(Files::exists).toList();
+            if (Files.exists(root)) {
+                if (!displaced.isEmpty()) DigitalStorage.LOGGER.warn("Live Forge transfer store {} and backup stores {} both exist; inspect recovery, incident and hopper records manually before reconciling; no data was merged", root, displaced);
+                return;
+            }
+            if (displaced.size() > 1) throw new IllegalStateException("Multiple Forge transfer stores found at " + displaced
+                    + "; stop the server, preserve all copies and manually reconcile their recovery, incident and hopper records before restarting");
+            if (displaced.size() == 1) {
+                Files.createDirectories(root.getParent());
+                Files.move(displaced.get(0), root);
+                DigitalStorage.LOGGER.warn("Restored displaced Forge transfer store from {}", displaced.get(0));
+            }
+        } catch (IOException failure) {
+            throw new IllegalStateException("Could not restore displaced Forge transfer store; preserving it for reconciliation", failure);
+        }
+    }
 
     public static final class Session {
         private final Path root;

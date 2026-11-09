@@ -4,7 +4,6 @@ import dev.kehai.digitalstorage.DigitalStorageContent;
 import dev.kehai.digitalstorage.block.entity.DigitalStorageAccessorBlockEntity;
 import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import dev.kehai.digitalstorage.optimization.NetworkServices;
-import dev.kehai.digitalstorage.optimization.MigrationTask;
 import dev.kehai.digitalstorage.optimization.NetworkAnalysis;
 import dev.kehai.digitalstorage.optimization.TopologyToken;
 import dev.kehai.digitalstorage.storage.DigitalStorageRecord;
@@ -44,7 +43,6 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
     private static final int NETWORK_ANALYSIS_COOLDOWN_TICKS = 40;
     public static final int UPGRADE_BUTTON_ID = 0;
     public static final int CLEAR_BINDING_BUTTON_ID = 1;
-    public static final int MIGRATION_BUTTON_ID = 2;
     public static final int NETWORK_ANALYSIS_BUTTON_ID = 3;
     public static final int SET_UNSTACKABLE_REJECT_BUTTON_ID = 4;
     public static final int SET_UNSTACKABLE_ACCEPT_BUTTON_ID = 5;
@@ -56,7 +54,6 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
     private Component status = Component.empty();
     private boolean statusSuccessful;
     private NetworkAnalysis.Report networkReport;
-    private boolean migrationWasActive;
     private long lastContentVersion = Long.MIN_VALUE;
     private long lastPolicyVersion = Long.MIN_VALUE;
     private long lastMetadataVersion = Long.MIN_VALUE;
@@ -179,12 +176,6 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
                 sendServerState();
                 return true;
             }
-            if (NetworkServices.get().status(volume.id()).active()) {
-                status = Component.translatable("screen.digitalstorage.unstackables.error.migration_active");
-                statusSuccessful = false;
-                sendServerState();
-                return true;
-            }
             if (!DigitalStorageConfig.get().allowUnstackableItems) {
                 status = Component.translatable("screen.digitalstorage.unstackables.error.server_disabled");
                 statusSuccessful = false;
@@ -209,42 +200,6 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
                     : "screen.digitalstorage.binding_failed", result.name());
             if (statusSuccessful) {
                 networkReport = null;
-            }
-            sendServerState();
-            return true;
-        }
-
-        if (id == MIGRATION_BUTTON_ID) {
-            StorageVolume volume = blockEntity.getVolume();
-            if (volume == null || !volume.ownerId().equals(serverPlayer.getUUID())) {
-                status = Component.translatable("screen.digitalstorage.error.not_owner");
-                statusSuccessful = false;
-                sendServerState();
-                return true;
-            }
-            MigrationTask.Status migration = NetworkServices.get().status(volume.id());
-            if (migration.active()) {
-                statusSuccessful = NetworkServices.get().cancel(serverPlayer, volume.id());
-                status = Component.translatable(statusSuccessful
-                        ? "screen.digitalstorage.migration.cancelled"
-                        : "screen.digitalstorage.migration.cancel_failed");
-            } else {
-                networkReport = NetworkServices.get().analyze(blockEntity);
-                NetworkServices.StartResult result = NetworkServices.get().start(
-                        serverPlayer, blockEntity, networkReport
-                );
-                statusSuccessful = result == NetworkServices.StartResult.STARTED;
-                migrationWasActive = statusSuccessful;
-                status = result == NetworkServices.StartResult.DUPLICATE_TARGET_ENDPOINTS
-                        ? Component.translatable("screen.digitalstorage.migration.duplicate_target")
-                        : result == NetworkServices.StartResult.RECOVERY_REQUIRED
-                        ? Component.translatable("screen.digitalstorage.migration.recovery_required")
-                        : Component.translatable(
-                                statusSuccessful
-                                        ? "screen.digitalstorage.migration.started"
-                                        : "screen.digitalstorage.migration.start_failed",
-                                result.name()
-                        );
             }
             sendServerState();
             return true;
@@ -343,7 +298,6 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
                 || !lastController.equals(blockEntity.controllerId());
         if (bindingChanged) {
             networkReport = null;
-            migrationWasActive = false;
         }
         boolean externalCheckDue = tick >= nextExternalStateCheckTick;
         long contentVersion = volume == null
@@ -353,19 +307,16 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
                 ? Long.MIN_VALUE
                 : volume.record().policyVersion();
         boolean serverAllowsUnstackableItems = DigitalStorageConfig.get().allowUnstackableItems;
-        boolean migrationActive = volume != null && NetworkServices.get().status(volume.id()).active();
         boolean topologyInvalid = externalCheckDue && networkReport != null && networkReport.available()
                 && !TopologyToken.isCurrent(networkReport.topology());
-        boolean migrationFinished = migrationWasActive && !migrationActive;
         boolean contentChanged = contentVersion != lastContentVersion;
         boolean policyChanged = policyVersion != lastPolicyVersion;
         long metadataVersion = volume == null ? Long.MIN_VALUE : volume.metadataVersion();
         boolean metadataChanged = metadataVersion != lastMetadataVersion;
         boolean serverPolicyChanged = serverAllowsUnstackableItems != lastServerAllowsUnstackableItems;
-        int interval = migrationActive ? 4 : 8;
-        if (!bindingChanged && !externalCheckDue && !topologyInvalid && !migrationFinished
-                && (!(contentChanged || policyChanged || serverPolicyChanged || metadataChanged) || tick < nextStateSyncTick)
-                && (!migrationActive || tick < nextStateSyncTick)) {
+        int interval = 8;
+        if (!bindingChanged && !externalCheckDue && !topologyInvalid
+                && (!(contentChanged || policyChanged || serverPolicyChanged || metadataChanged) || tick < nextStateSyncTick)) {
             return;
         }
 
@@ -431,17 +382,14 @@ public final class DigitalStorageScreenHandler extends net.minecraft.world.inven
         if (volume == null) {
             return DigitalStorageScreenState.NetworkDiagnostic.unavailable();
         }
-        MigrationTask.Status migration = NetworkServices.get().status(volume.id());
-        boolean migrationActive = migration.active();
         if (networkReport != null && networkReport.available()
                 && !TopologyToken.isCurrent(networkReport.topology())) {
             networkReport = null;
         }
-        if (networkReport == null || (migrationWasActive && !migrationActive)) {
+        if (networkReport == null) {
             networkReport = NetworkServices.get().analyze(blockEntity);
         }
-        migrationWasActive = migrationActive;
-        return DigitalStorageScreenState.NetworkDiagnostic.from(networkReport, migration);
+        return DigitalStorageScreenState.NetworkDiagnostic.from(networkReport);
     }
 
     private void sendServerState() {

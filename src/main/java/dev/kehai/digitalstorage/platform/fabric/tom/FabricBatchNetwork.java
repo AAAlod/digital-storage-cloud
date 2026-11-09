@@ -22,19 +22,17 @@ import net.minecraft.server.level.ServerPlayer;
 
 public final class FabricBatchNetwork implements BatchTransfers.Backend {
     @Override public void runWorldSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor) {
-        runChestPreviewSelfTest(player, accessor, false);
-        runChestPreviewSelfTest(player, accessor, true);
-        runChestPreviewSelfTest(player, accessor, true, true);
-        runChestPreviewSelfTest(player, accessor, true, true, true);
-    }
-    private void runChestPreviewSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor, boolean doubleChest) {
-        runChestPreviewSelfTest(player, accessor, doubleChest, false);
-    }
-    private void runChestPreviewSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor, boolean doubleChest, boolean cableNetwork) {
-        runChestPreviewSelfTest(player, accessor, doubleChest, cableNetwork, false);
+        dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.runLeaseWorldSelfTest(player,
+                (dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity) accessor);
+        for (boolean recommended : new boolean[] {false, true}) {
+            runChestPreviewSelfTest(player, accessor, false, false, false, recommended);
+            runChestPreviewSelfTest(player, accessor, true, false, false, recommended);
+            runChestPreviewSelfTest(player, accessor, true, true, false, recommended);
+            runChestPreviewSelfTest(player, accessor, true, true, true, recommended);
+        }
     }
     private void runChestPreviewSelfTest(ServerPlayer player, DigitalStorageAccessorBlockEntity accessor,
-            boolean doubleChest, boolean cableNetwork, boolean cableDiscovery) {
+            boolean doubleChest, boolean cableNetwork, boolean cableDiscovery, boolean recommended) {
         var world = player.serverLevel();
         var connectorPos = accessor.getBlockPos().east();
         var chestPos = connectorPos.east();
@@ -76,6 +74,48 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                 connector.updateServer();
                 if (networkIdentity == null || connector.getInventory() != networkIdentity)
                     throw new IllegalStateException("Tom connector public inventory changed identity after rebuild");
+                if (cableDiscovery && recommended) {
+                    var target = dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.canonicalStorage(fixtureAccessor);
+                    ((com.tom.storagemod.util.MergedStorage) networkIdentity).add(
+                            new com.tom.storagemod.util.FilteredStorage(target, variant -> true, false));
+                    dev.kehai.digitalstorage.screen.BatchScreenSession.runDuplicateTargetSelfTest(player, fixtureAccessor);
+                    world.getServer().getWorldData().overworldData().setGameTime(time - time % 20 + 59);
+                    cable.updateServer();
+                    world.getServer().getWorldData().overworldData().setGameTime(time - time % 20 + 60);
+                    connector.updateServer();
+                }
+                if (!doubleChest && !recommended) {
+                    dev.kehai.digitalstorage.screen.BatchScreenSession.runRecommendedSubsetSelfTest(player, fixtureAccessor, chest);
+                    dev.kehai.digitalstorage.screen.BatchScreenSession.runRecommendedCapacitySelfTest(player, fixtureAccessor, chest);
+                    for (int i = 0; i < 9; i++) chest.setItem(i, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.OAK_PLANKS, 64));
+                    var sourceRoute = open(player, fixtureAccessor);
+                    int[] calls = {0};
+                    var ports = sourceRoute.ports().stream().map(port -> (BatchTransfer.Port) new BatchTransfer.Port() {
+                        public Iterable<BatchTransfer.Entry> contents() { return port.contents(); }
+                        public BatchTransfer.Cursor cursor(boolean exporting) {
+                            var delegate = port.cursor(exporting);
+                            return new BatchTransfer.Cursor() {
+                                public boolean hasNext() { return delegate.hasNext(); }
+                                public BatchTransfer.Result next(DigitalStorageRecord record, ItemKey key, long maximum) {
+                                    calls[0]++; var result = delegate.next(record, key, maximum);
+                                    TomNetworkCache.invalidate(connector); return result;
+                                }
+                            };
+                        }
+                    }).toList();
+                    var oak = ItemKey.of(net.minecraft.world.item.Items.OAK_PLANKS);
+                    var changed = new BatchTransfer(volume.record(), new BatchTransfer.Route(ports, sourceRoute.current(),
+                            sourceRoute.fastCurrent(), sourceRoute.location()), java.util.List.of(new BatchTransfer.Entry(oak, 576)), false);
+                    changed.tick(128);
+                    long remaining = 0; for (int i = 0; i < chest.getContainerSize(); i++) remaining += chest.getItem(i).getCount();
+                    if (!changed.state().equals("STOPPED") || !changed.detail().equals("network_changed") || calls[0] != 1
+                            || remaining + changed.moved() != 576 || volume.record().storage().amountOf(oak) != changed.moved())
+                        throw new IllegalStateException("Mid-step Fabric topology invalidation failed conservation");
+                    try (var tx = dev.kehai.digitalstorage.storage.LedgerTransaction.open()) {
+                        volume.record().storage().extract(oak, changed.moved(), tx); tx.commit();
+                    }
+                    for (int i = 0; i < 9; i++) chest.setItem(i, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.OAK_PLANKS, 64));
+                }
                 dev.kehai.digitalstorage.screen.BatchScreenSession.runNetworkPreviewSelfTest(player, fixtureAccessor,
                         () -> { for (int i = 1; i <= 5; i++) {
                             if (cable != null) {
@@ -86,7 +126,7 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                             connector.updateServer();
                             if (connector.getInventory() != networkIdentity)
                                 throw new IllegalStateException("Tom connector public inventory changed identity during rebuild");
-                        } }, () -> { world.removeBlock(doubleChest ? secondChestPos : chestPos, false); connector.updateServer(); });
+                        } }, () -> { world.removeBlock(doubleChest ? secondChestPos : chestPos, false); connector.updateServer(); }, recommended);
                 if (!chest.isEmpty()) throw new IllegalStateException("Imported chest was not emptied");
             } finally { world.getServer().getWorldData().overworldData().setGameTime(time); }
         } finally {
@@ -216,12 +256,14 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                 .map(storage -> (BatchTransfer.Port) new Port(storage)).forEach(ports::add);
         var soph = safeDirectSoph(discovery.connector(), discovery.storage());
         if (soph != null) for (var storage : soph) ports.add(new Port(storage));
-        return new BatchTransfer.Route(ports, () -> !accessor.isRemoved() && player.serverLevel() == accessor.getLevel()
+        java.util.function.BooleanSupplier fastCurrent = () -> !accessor.isRemoved() && player.serverLevel() == accessor.getLevel()
                 && accessor.getLevel().hasChunkAt(accessor.getBlockPos())
                 && accessor.getLevel().getBlockEntity(accessor.getBlockPos()) == accessor
                 && accessor.getVolume() == volume && volume.ownerId().equals(player.getUUID())
-                    && topology.token().isCurrent()
-                    && (soph == null || sameSoph(soph, safeDirectSoph(discovery.connector(), discovery.storage()))), discovery.connector().getBlockPos().toShortString());
+                && TomNetworkCache.isCurrent(topology.token());
+        return new BatchTransfer.Route(ports, () -> fastCurrent.getAsBoolean()
+                    && (soph == null || sameSoph(soph, safeDirectSoph(discovery.connector(), discovery.storage()))),
+                    fastCurrent, discovery.connector().getBlockPos().toShortString());
     }
     private static boolean sameSoph(java.util.List<Storage<ItemVariant>> a, java.util.List<Storage<ItemVariant>> b) {
         if (b == null || a.size() != b.size()) return false;

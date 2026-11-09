@@ -76,7 +76,6 @@ public final class DigitalItemStorageSelfTest {
         hopperTierBatchLimitsAreDeviceScoped();
         tomsMergedStorageDeduplicatesAndFallsBack(stone);
         dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkAnalysis.runSelfTest();
-        dev.kehai.digitalstorage.platform.fabric.tom.TomMigrationManager.runSelfTest();
         DigitalStorageUpgradeService.runSelfTest();
         DigitalStorageScreenState.runCodecSelfTest();
         dev.kehai.digitalstorage.screen.DigitalStorageScreenProtocol.runCompatibilitySelfTest();
@@ -84,7 +83,7 @@ public final class DigitalItemStorageSelfTest {
         filteredHopperTransferMovesOneBatch(stone);
         fullDestinationDoesNotTouchTheSource(stone);
         changingDestinationCapacityRollsBackTheSource(stone);
-        return "Digital Storage self-test passed: shared ledger/nested transactions, Fabric bridge/vanilla conservation/cache cleanup, content versions, cached metrics, immutable snapshots, SavedData persistence and restart, limits, dynamic Volume unstackable policy/config migration/persistence, per-insert policy, filtering, NBT guard, stress, canonical aliasing, Tom raw endpoint detection/duplicate-count prevention/dedup/fallback/cursor invalidation, device-scoped hopper tiers, network scoring/recommendations, budgeted atomic migration/rollback/lifecycle invalidation, single-file round-trip/deletion, storage size telemetry, force-clear, orphan binding self-heal, mount statistics semantics, schema guard, legacy data preservation, tier migration, payment reservation, screen codec, atomic hopper paths";
+        return "Digital Storage self-test passed: shared ledger/nested transactions, Fabric bridge/vanilla conservation/cache cleanup, content versions, cached metrics, immutable snapshots, SavedData persistence and restart, limits, dynamic Volume unstackable policy/config migration/persistence, per-insert policy, filtering, NBT guard, stress, canonical aliasing, Tom raw endpoint detection/duplicate-count prevention/dedup/fallback/cursor invalidation, device-scoped hopper tiers, network scoring/recommendations, batch fault injection, single-file round-trip/deletion, storage size telemetry, force-clear, orphan binding self-heal, mount statistics semantics, schema guard, legacy data preservation, tier migration, payment reservation, screen codec, atomic hopper paths";
     }
 
     private static void committedInsertPersistsAndMarksDirtyOnce(ItemVariant stone) {
