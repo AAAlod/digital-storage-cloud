@@ -90,6 +90,7 @@ public final class ForgeBatchWorldSelfTest {
             other = (ChestBlockEntity) world.getBlockEntity(otherPos);
             chest.setItem(0, new ItemStack(Items.STONE, 64)); other.setItem(0, new ItemStack(Items.STONE, 32));
             scan(world, connector);
+            expect(!route.fastCurrent().getAsBoolean(), "Changed topology failed to invalidate the old route");
             route = BatchTransfers.open(player, accessor);
             var doubleInput = new BatchTransfer(volume.record(), route, List.of(new BatchTransfer.Entry(stone, 96)), false);
             for (int i = 0; i < 40 && doubleInput.active(); i++) doubleInput.tick(4);
@@ -105,7 +106,9 @@ public final class ForgeBatchWorldSelfTest {
                     return new BatchTransfer.Cursor() {
                         public boolean hasNext() { return delegate.hasNext(); }
                         public BatchTransfer.Result next(dev.kehai.digitalstorage.storage.DigitalStorageRecord record, ItemKey key, long maximum) {
-                            calls[0]++; var result = delegate.next(record, key, maximum); network.clear(); return result;
+                            calls[0]++; var result = delegate.next(record, key, maximum); network.clear();
+                            expect(!currentRoute.fastCurrent().getAsBoolean(), "Clear did not immediately invalidate the route");
+                            return result;
                         }
                     };
                 }
@@ -125,7 +128,7 @@ public final class ForgeBatchWorldSelfTest {
             state.flushNow();
         }
         expect(state.accountCount() == accounts && state.volumeCount() == volumes, "Batch fixture left volume records");
-        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Forge independent batch world self-test passed: recommendation subsets, duplicate target, single and double chest conservation");
+        dev.kehai.digitalstorage.DigitalStorage.LOGGER.info("Forge independent batch world self-test passed: recommendation subsets, duplicate target, equivalent and changed topology, mid-step clear limited to one move, single and double chest conservation");
     }
     private static void scan(net.minecraft.server.level.ServerLevel world, com.tom.storagemod.tile.InventoryConnectorBlockEntity connector) {
         var data = world.getServer().getWorldData().overworldData(); long old = world.getGameTime();

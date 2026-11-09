@@ -28,10 +28,11 @@ public abstract class MultiItemHandlerMixin implements ForgeTomEndpoints.RawDigi
     @Unique private Set<LazyOptional<IItemHandler>> digitalstorage$sources;
     @Unique private java.util.Map<IItemHandler, Integer> digitalstorage$dynamicSizes;
     @Unique private boolean digitalstorage$refreshing;
-    @Unique private long digitalstorage$topologyVersion;
-    @Unique private long digitalstorage$topologyFingerprint = Long.MIN_VALUE;
+    @Unique private long digitalstorage$stableVersion;
+    @Unique private long digitalstorage$stableFingerprint = Long.MIN_VALUE;
+    @Unique private boolean digitalstorage$invalidated;
 
-    @Override public long digitalstorage$topologyVersion() { return digitalstorage$topologyVersion; }
+    @Override public long digitalstorage$topologyVersion() { return digitalstorage$invalidated ? ~digitalstorage$stableVersion : digitalstorage$stableVersion; }
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void digitalstorage$initialize(CallbackInfo callback) {
@@ -57,6 +58,11 @@ public abstract class MultiItemHandlerMixin implements ForgeTomEndpoints.RawDigi
         }
     }
 
+    @Inject(method = "clear", at = @At("HEAD"))
+    private void digitalstorage$invalidate(CallbackInfo callback) {
+        digitalstorage$invalidated = true;
+    }
+
     @Inject(method = "clear", at = @At("TAIL"))
     private void digitalstorage$clear(CallbackInfo callback) {
         digitalstorage$raw.clear();
@@ -77,10 +83,11 @@ public abstract class MultiItemHandlerMixin implements ForgeTomEndpoints.RawDigi
         // Tom rebuilds its aggregate every 20 ticks even when the topology is unchanged.
         // Bump the fast-path generation only when the observable structure actually changes.
         long fingerprint = digitalstorage$structureFingerprint();
-        if (fingerprint != digitalstorage$topologyFingerprint) {
-            digitalstorage$topologyFingerprint = fingerprint;
-            digitalstorage$topologyVersion++;
+        if (fingerprint != digitalstorage$stableFingerprint) {
+            digitalstorage$stableFingerprint = fingerprint;
+            digitalstorage$stableVersion++;
         }
+        digitalstorage$invalidated = false;
     }
 
     @Unique
