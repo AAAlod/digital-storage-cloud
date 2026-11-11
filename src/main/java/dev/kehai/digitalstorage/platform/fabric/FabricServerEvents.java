@@ -29,6 +29,9 @@ public final class FabricServerEvents {
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             DigitalStorageState.onServerTick(server);
             dev.kehai.digitalstorage.optimization.BatchTransfers.tick(server);
+            if (System.getProperty("digitalstorage.hopperTickFixture") != null
+                    && System.getProperty("digitalstorage.integrationTestRoot") != null)
+                dev.kehai.digitalstorage.platform.fabric.hopper.LegacyHopperTickFixture.tick(server);
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(DigitalStorageState::onServerStopping);
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
