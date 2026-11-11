@@ -99,6 +99,15 @@ public final class TomNetworkIntrospection {
         return identityDistinct(result);
     }
 
+    public static boolean isDirectGuardDelegateAllowed(Storage<ItemVariant> delegate) {
+        var parts = transferParts(delegate);
+        return parts.size() == 1 && parts.get(0) == delegate;
+    }
+
+    public static boolean isFilteredGuardDelegateAllowed(Storage<ItemVariant> delegate) {
+        return safePhysical(delegate, Collections.newSetFromMap(new IdentityHashMap<>()));
+    }
+
     @SuppressWarnings("unchecked")
     private static void transferParts(Storage<ItemVariant> storage, List<Storage<ItemVariant>> result,
                                       Set<Storage<ItemVariant>> path) {
@@ -115,7 +124,9 @@ public final class TomNetworkIntrospection {
                     ? combined.parts : invokeCollection(storage, access.getStorages());
             if (children == null) {
                 String type = storage.getClass().getName();
-                if (storage instanceof dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard || type.startsWith("net.fabricmc.fabric.") || type.startsWith(TOM_PACKAGE)) result.add(storage);
+                if (storage instanceof dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard guard) {
+                    if (guard.allowsDirectBatchTransfer()) result.add(storage);
+                } else if (type.startsWith("net.fabricmc.fabric.") || type.startsWith(TOM_PACKAGE)) result.add(storage);
                 return;
             }
             for (var child : children) if (child instanceof Storage<?> port)
@@ -136,7 +147,8 @@ public final class TomNetworkIntrospection {
                 for (var child : children) if (!(child instanceof Storage<?> port) || !safePhysical((Storage<ItemVariant>) port, path)) return false;
                 return true;
             }
-            return storage instanceof dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard || storage.getClass().getName().startsWith("net.fabricmc.fabric.");
+            if (storage instanceof dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard guard) return guard.allowsFilteredBatchTransfer();
+            return storage.getClass().getName().startsWith("net.fabricmc.fabric.");
         } finally { path.remove(storage); }
     }
 

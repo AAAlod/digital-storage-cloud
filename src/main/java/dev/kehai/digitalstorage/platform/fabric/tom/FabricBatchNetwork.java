@@ -74,6 +74,9 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                 connector.updateServer();
                 if (networkIdentity == null || connector.getInventory() != networkIdentity)
                     throw new IllegalStateException("Tom connector public inventory changed identity after rebuild");
+                if (!doubleChest && !cableNetwork && !recommended) {
+                    testComposterTopology(world, connector, connectorPos.above(), time);
+                }
                 if (cableDiscovery && recommended) {
                     var target = dev.kehai.digitalstorage.platform.fabric.FabricAccessorBlockEntity.canonicalStorage(fixtureAccessor);
                     ((com.tom.storagemod.util.MergedStorage) networkIdentity).add(
@@ -141,6 +144,57 @@ public final class FabricBatchNetwork implements BatchTransfers.Backend {
                 volume.record().storage().extract(ItemKey.of(net.minecraft.world.item.Items.OAK_PLANKS), 576, tx); tx.commit();
             }
             if (!cloud.deleteEmptyVolume(player.getUUID(), volume.id())) throw new IllegalStateException("Physical batch fixture cleanup failed");
+        }
+    }
+
+    private static void testComposterTopology(net.minecraft.server.level.ServerLevel world,
+            com.tom.storagemod.tile.InventoryConnectorBlockEntity connector, net.minecraft.core.BlockPos pos, long time) {
+        if (!world.getBlockState(pos).isAir()) throw new IllegalStateException("Composter topology fixture location occupied");
+        var data = world.getServer().getWorldData().overworldData();
+        try {
+            world.setBlockAndUpdate(pos, net.minecraft.world.level.block.Blocks.COMPOSTER.defaultBlockState());
+            data.setGameTime(time - time % 20 + 20);
+            connector.updateServer();
+            var realNetwork = connector.getInventory();
+            if (TomNetworkIntrospection.parts(realNetwork).physical().stream()
+                    .anyMatch(dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard.class::isInstance))
+                throw new IllegalStateException("Unexpected no-block-entity endpoint discovered by Tom connector");
+            var raw = net.fabricmc.fabric.api.transfer.v1.item.ItemStorage.SIDED.find(world, pos, net.minecraft.core.Direction.UP);
+            if (raw == null) throw new IllegalStateException("Missing composter storage");
+            var guard = dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard.wrap(world, pos, null, raw);
+            var network = new com.tom.storagemod.util.MergedStorage();
+            network.add(guard);
+            var token = TomNetworkCache.topology(connector, network).token();
+            for (int i = 2; i <= 4; i++) {
+                network.clear();
+                network.add(dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard.wrap(world, pos, null, raw));
+                TomNetworkCache.rebuilt(connector, network);
+                if (!token.isCurrent() || TomNetworkIntrospection.parts(network).physical().stream().noneMatch(p -> p == guard))
+                    throw new IllegalStateException("Unchanged composter invalidated network on rebuild");
+            }
+            var unknown = new Storage<ItemVariant>() {
+                public long insert(ItemVariant v, long n, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext t) { return 0; }
+                public long extract(ItemVariant v, long n, net.fabricmc.fabric.api.transfer.v1.transaction.TransactionContext t) { return 0; }
+                public Iterator<StorageView<ItemVariant>> iterator() { return java.util.Collections.emptyIterator(); }
+            };
+            var wrappedUnknown = dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard.wrap(world, pos, null, unknown);
+            if (!TomNetworkIntrospection.transferParts(wrappedUnknown).isEmpty()
+                    || TomNetworkIntrospection.safePhysical(wrappedUnknown, java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())))
+                throw new IllegalStateException("Guard admitted an unknown batch endpoint");
+            world.setBlockAndUpdate(pos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
+            if (token.isCurrent()) throw new IllegalStateException("Removed composter did not immediately invalidate topology");
+            world.setBlockAndUpdate(pos, net.minecraft.world.level.block.Blocks.COMPOSTER.defaultBlockState());
+            network.clear();
+            network.add(dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard.wrap(world, pos, null,
+                    net.fabricmc.fabric.api.transfer.v1.item.ItemStorage.SIDED.find(world, pos, net.minecraft.core.Direction.UP)));
+            if (TomNetworkIntrospection.parts(network).physical().stream().anyMatch(p -> p == guard))
+                throw new IllegalStateException("Replacement composter reused invalid guard");
+            System.out.println("DSC composter connector exclusion and synthetic topology fixture passed");
+        } finally {
+            world.setBlockAndUpdate(pos, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
+            data.setGameTime(time - time % 20 + 120);
+            connector.updateServer();
+            data.setGameTime(time - time % 20 + 20);
         }
     }
     public static void runSelfTest() {

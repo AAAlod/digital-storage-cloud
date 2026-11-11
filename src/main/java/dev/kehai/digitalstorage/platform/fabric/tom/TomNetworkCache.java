@@ -90,6 +90,10 @@ public final class TomNetworkCache {
         invalidateEntry(entry, "network changed");
     }
 
+    public static void guardInvalidated(Storage<ItemVariant> storage) {
+        invalidateStorage(storage, "block storage changed");
+    }
+
     /** Called after Tom rebuilds, and shared with the migration regression tests. */
     public static void rebuilt(BlockEntity connector, Storage<ItemVariant> network) {
         Set<Entry> affected = Collections.newSetFromMap(new IdentityHashMap<>());

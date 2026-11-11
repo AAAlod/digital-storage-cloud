@@ -11,10 +11,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Level.class)
 public abstract class LevelBlockStorageInvalidationMixin {
-    @Inject(method = "setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z", at = @At("HEAD"))
+    @Inject(method = "setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z", at = @At("RETURN"))
     private void digitalstorage$invalidateBlockStorage(BlockPos pos, BlockState state, int flags, int depth,
                                                         CallbackInfoReturnable<Boolean> callback) {
         Level world = (Level) (Object) this;
-        if (!world.isClientSide) BlockStorageGuard.blockChanging(world, pos, state.getBlock());
+        if (!world.isClientSide && world.hasChunkAt(pos)) BlockStorageGuard.blockChanging(world, pos, world.getBlockState(pos).getBlock());
     }
 }

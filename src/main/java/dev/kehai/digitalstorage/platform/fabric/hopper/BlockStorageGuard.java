@@ -38,15 +38,20 @@ public final class BlockStorageGuard implements Storage<ItemVariant> {
     public static Storage<ItemVariant> wrap(Level world, BlockPos pos, BlockEntity entity, Storage<ItemVariant> storage) {
         if (storage == null || entity != null || storage instanceof IProxy) return storage;
         clearCollected();
-        BlockStorageGuard guard = new BlockStorageGuard(world, pos, world.getBlockState(pos).getBlock(), storage);
         var positions = WATCHES.computeIfAbsent(world, ignored -> new HashMap<>());
-        var guards = positions.computeIfAbsent(guard.pos, ignored -> new ArrayList<>());
+        var guards = positions.computeIfAbsent(pos.immutable(), ignored -> new ArrayList<>());
         guards.removeIf(reference -> reference.get() == null);
+        Block block = world.getBlockState(pos).getBlock();
+        for (var reference : guards) {
+            BlockStorageGuard existing = reference.get();
+            if (existing != null && !existing.invalid && existing.block == block && existing.delegate == storage) return existing;
+        }
+        BlockStorageGuard guard = new BlockStorageGuard(world, pos, block, storage);
         guards.add(new GuardReference(guard));
         return guard;
     }
 
-    /** Called before a block type changes, including remove-and-replace between ticks. */
+    /** Invalidate guards when the actual block type changes, including between ticks. */
     public static void blockChanging(Level world, BlockPos pos, Block nextBlock) {
         clearCollected();
         var positions = WATCHES.get(world);
@@ -56,7 +61,7 @@ public final class BlockStorageGuard implements Storage<ItemVariant> {
         guards.removeIf(reference -> {
             BlockStorageGuard guard = reference.get();
             if (guard == null) return true;
-            if (guard.block != nextBlock) { guard.invalid = true; return true; }
+            if (guard.block != nextBlock) { guard.invalidate(); return true; }
             return false;
         });
         if (guards.isEmpty()) positions.remove(pos);
@@ -89,8 +94,21 @@ public final class BlockStorageGuard implements Storage<ItemVariant> {
     }
 
     private boolean valid() {
-        if (!invalid && (!world.hasChunkAt(pos) || world.getBlockState(pos).getBlock() != block)) invalid = true;
+        if (!invalid && (!world.hasChunkAt(pos) || world.getBlockState(pos).getBlock() != block)) invalidate();
         return !invalid;
+    }
+
+    private void invalidate() {
+        invalid = true;
+        dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkCache.guardInvalidated(this);
+    }
+
+    public boolean allowsDirectBatchTransfer() {
+        return dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkIntrospection.isDirectGuardDelegateAllowed(delegate);
+    }
+
+    public boolean allowsFilteredBatchTransfer() {
+        return dev.kehai.digitalstorage.platform.fabric.tom.TomNetworkIntrospection.isFilteredGuardDelegateAllowed(delegate);
     }
 
     @Override public boolean supportsInsertion() { return valid() && delegate.supportsInsertion(); }
