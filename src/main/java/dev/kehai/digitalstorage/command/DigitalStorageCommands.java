@@ -53,6 +53,9 @@ public final class DigitalStorageCommands {
     private static int selfTest(CommandSourceStack source) {
         try {
             ManagementCommandsSelfTest.run(source.getServer());
+            if (System.getProperty("digitalstorage.integrationTestRoot") != null) {
+                dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuardSelfTest.run(source.getServer().overworld());
+            }
             String result = DigitalItemStorageSelfTest.run();
             source.sendSuccess(() -> Component.literal(result), false);
             return 1;

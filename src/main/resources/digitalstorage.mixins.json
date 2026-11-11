@@ -7,6 +7,7 @@
   "refmap": "digitalstorage.refmap.json",
   "mixins": [
     "BlockEntityTypeAccessor",
+    "LevelBlockStorageInvalidationMixin",
     "AbstractInventoryHopperBlockEntityMixin",
     "BasicInventoryHopperBlockEntityMixin",
     "InventoryConnectorBlockEntityMixin",

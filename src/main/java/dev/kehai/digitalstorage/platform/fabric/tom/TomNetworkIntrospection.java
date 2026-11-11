@@ -115,7 +115,7 @@ public final class TomNetworkIntrospection {
                     ? combined.parts : invokeCollection(storage, access.getStorages());
             if (children == null) {
                 String type = storage.getClass().getName();
-                if (type.startsWith("net.fabricmc.fabric.") || type.startsWith(TOM_PACKAGE)) result.add(storage);
+                if (storage instanceof dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard || type.startsWith("net.fabricmc.fabric.") || type.startsWith(TOM_PACKAGE)) result.add(storage);
                 return;
             }
             for (var child : children) if (child instanceof Storage<?> port)
@@ -136,7 +136,7 @@ public final class TomNetworkIntrospection {
                 for (var child : children) if (!(child instanceof Storage<?> port) || !safePhysical((Storage<ItemVariant>) port, path)) return false;
                 return true;
             }
-            return storage.getClass().getName().startsWith("net.fabricmc.fabric.");
+            return storage instanceof dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard || storage.getClass().getName().startsWith("net.fabricmc.fabric.");
         } finally { path.remove(storage); }
     }
 

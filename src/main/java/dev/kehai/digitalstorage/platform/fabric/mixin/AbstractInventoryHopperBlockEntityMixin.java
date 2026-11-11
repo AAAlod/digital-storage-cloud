@@ -6,6 +6,9 @@ import dev.kehai.digitalstorage.config.DigitalStorageConfig;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
 import net.fabricmc.fabric.api.transfer.v1.storage.Storage;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.fabricmc.fabric.api.lookup.v1.block.BlockApiLookup;
+import dev.kehai.digitalstorage.platform.fabric.hopper.BlockStorageGuard;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -17,6 +20,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(AbstractInventoryHopperBlockEntity.class)
 public abstract class AbstractInventoryHopperBlockEntityMixin {
+    @Redirect(method = "updateServer", remap = false, at = @At(value = "INVOKE", remap = true,
+            target = "Lnet/fabricmc/fabric/api/lookup/v1/block/BlockApiLookup;find(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Ljava/lang/Object;)Ljava/lang/Object;"))
+    private Object digitalstorage$guardDirectStorage(BlockApiLookup<Storage<ItemVariant>, Direction> lookup,
+                                                       Level level, BlockPos pos, Object side) {
+        Storage<ItemVariant> storage = lookup.find(level, pos, (Direction) side);
+        return BlockStorageGuard.wrap(level, pos, level.getBlockEntity(pos), storage);
+    }
     @Shadow(remap = false) protected boolean topNet;
     @Shadow(remap = false) protected boolean bottomNet;
     @Shadow(remap = false) protected Storage<ItemVariant> top;
